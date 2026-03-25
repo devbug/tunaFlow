@@ -1,0 +1,98 @@
+mod agents;
+mod commands;
+mod db;
+mod errors;
+mod guardrail;
+
+use db::DbState;
+
+/// Cooperative cancellation flag for long-running operations (roundtable, etc.).
+/// Set to `true` via the `cancel_running` command; checked between participants.
+pub struct CancelFlag(pub std::sync::atomic::AtomicBool);
+
+pub fn run() {
+    tauri::Builder::default()
+        .setup(|app| {
+            use tauri::Manager;
+            let data_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from(".tunaflow_data"));
+            std::fs::create_dir_all(&data_dir)?;
+            let db_path = data_dir.join("tunaflow.db");
+            let conn = db::init(db_path)?;
+            app.manage(DbState(std::sync::Mutex::new(conn)));
+            app.manage(CancelFlag(std::sync::atomic::AtomicBool::new(false)));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            // Project
+            commands::projects::list_projects,
+            commands::projects::create_project,
+            commands::projects::get_project,
+            // Conversation
+            commands::conversations::list_conversations,
+            commands::conversations::create_conversation,
+            commands::conversations::get_conversation,
+            commands::conversations::delete_conversation,
+            // Message
+            commands::messages::list_messages,
+            commands::messages::create_user_message,
+            commands::messages::append_assistant_message,
+            commands::messages::update_message_status,
+            // Branch
+            commands::branches::list_branches,
+            commands::branches::create_branch,
+            commands::branches::adopt_branch,
+            commands::branches::delete_branch,
+            commands::branches::open_branch_stream,
+            // Agent
+            commands::agents::send_with_claude,
+            commands::agents::stream_with_claude,
+            commands::agents::send_with_codex,
+            commands::agents::send_with_gemini,
+            commands::agents::send_with_opencode,
+            // Roundtable
+            commands::roundtable::roundtable_run,
+            commands::roundtable::roundtable_followup,
+            commands::roundtable::cancel_running,
+            // Skill
+            commands::skills::list_skills,
+            commands::skills::get_skill,
+            // Memo
+            commands::memos::list_memos,
+            commands::memos::list_memos_by_conversation,
+            commands::memos::create_memo,
+            commands::memos::delete_memo,
+            // Artifact
+            commands::artifacts::list_artifacts,
+            commands::artifacts::list_artifacts_by_branch,
+            commands::artifacts::create_artifact,
+            commands::artifacts::update_artifact_status,
+            commands::artifacts::link_artifact_to_subtask,
+            commands::artifacts::delete_artifact,
+            // Capability
+            commands::capabilities::list_capabilities,
+            // Evaluation
+            commands::evaluation::create_eval_run,
+            commands::evaluation::list_eval_runs,
+            commands::evaluation::add_eval_result,
+            commands::evaluation::list_eval_results,
+            commands::evaluation::update_eval_run_status,
+            commands::evaluation::delete_eval_run,
+            // Tracing
+            commands::tracing::list_traces,
+            commands::tracing::export_traces_otel,
+            // Plan
+            commands::plans::create_plan,
+            commands::plans::get_plan,
+            commands::plans::list_plans_by_conversation,
+            commands::plans::update_plan_status,
+            commands::plans::list_subtasks,
+            commands::plans::update_subtask_status,
+            commands::plans::replace_plan_subtasks,
+            commands::plans::delete_plan,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tunaFlow")
+}
