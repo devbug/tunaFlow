@@ -97,6 +97,24 @@ pub fn create_memo(
     })
 }
 
+/// Get the latest roundtable_brief for a branch (by branch id).
+/// Looks in the shadow conversation `branch:{id}`.
+#[tauri::command]
+pub fn get_branch_brief(branch_id: String, state: State<DbState>) -> Result<Option<String>, AppError> {
+    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let shadow_id = format!("branch:{}", branch_id);
+    let result: Option<String> = conn
+        .query_row(
+            "SELECT content FROM memos
+             WHERE conversation_id = ?1 AND type = 'roundtable_brief'
+             ORDER BY created_at DESC LIMIT 1",
+            [&shadow_id],
+            |row| row.get(0),
+        )
+        .ok();
+    Ok(result)
+}
+
 #[tauri::command]
 pub fn delete_memo(id: String, state: State<DbState>) -> Result<(), AppError> {
     let conn = state.0.lock().map_err(|_| AppError::Lock)?;

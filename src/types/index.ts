@@ -52,6 +52,10 @@ export interface Branch {
   parentBranchId?: string;
   sessionId?: string;
   gitBranch?: string;
+  /** "chat" | "roundtable" */
+  mode?: string;
+  /** Plan subtask this branch implements */
+  subtaskId?: string;
   createdAt: number;
 }
 
@@ -83,6 +87,26 @@ export interface SkillDef {
   name: string;
   description: string;
   content: string;
+}
+
+/** Engine model catalog entry */
+export interface EngineModel {
+  id: string;
+  label: string;
+  engine: string;
+  recommended: boolean;
+  source: string;
+}
+
+/** rawq index status returned from backend */
+export interface RawqStatus {
+  available: boolean;
+  indexed: boolean;
+  /** "ready" | "built" | "error" | "unavailable" */
+  status: string;
+  message: string;
+  files?: number;
+  chunks?: number;
 }
 
 /** Unified capability entry from the registry */
@@ -148,11 +172,10 @@ export interface RoundtableParticipant {
 }
 
 /** RT execution mode:
- * - "independent"  — every agent answers the topic with no cross-agent context
  * - "sequential"   — within a round each agent sees prior agents' replies (original behavior)
  * - "deliberative" — Round 1 is independent; Round 2+ sees all prior-round answers
  */
-export type RtMode = "independent" | "sequential" | "deliberative";
+export type RtMode = "sequential" | "deliberative";
 
 export interface RoundtableRunInput {
   conversationId: string;
@@ -169,6 +192,8 @@ export interface CreateBranchInput {
   label?: string;
   checkpointId?: string;
   parentBranchId?: string;
+  mode?: string;
+  subtaskId?: string;
 }
 
 export interface AdoptBranchInput {
@@ -202,7 +227,7 @@ export interface UpdateArtifactStatusInput {
 // ─── Plan types ────────────────────────────────────────────────────────────
 
 export type PlanStatus = "draft" | "active" | "done" | "abandoned";
-export type SubtaskStatus = "todo" | "in_progress" | "done" | "abandoned";
+export type SubtaskStatus = "todo" | "approved" | "in_progress" | "done" | "abandoned";
 
 export interface Plan {
   id: string;
@@ -224,6 +249,8 @@ export interface PlanSubtask {
   details?: string;
   status: SubtaskStatus;
   outcome?: string;
+  ownerAgent?: string;
+  lastUpdatedBy?: string;
   createdAt: number;
   updatedAt: number;
 }

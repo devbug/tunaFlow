@@ -28,4 +28,11 @@ export default defineConfig({
       ignored: ["**/src-tauri/**"],
     },
   },
+  // @ts-expect-error vitest config
+  test: {
+    globals: true,
+    environment: "jsdom",
+    setupFiles: ["./src/tests/setup.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
+  },
 });

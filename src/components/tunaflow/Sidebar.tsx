@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
+import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
+import { InlineRename } from "./InlineRename";
 import {
   FolderOpen,
   Folder,
@@ -19,15 +22,23 @@ export function Sidebar() {
     projects,
     selectedProjectKey,
     selectProject,
+    createProject,
     conversations,
     selectedConversationId,
     selectConversation,
     createConversation,
     deleteConversation,
+    renameConversation,
     activeBranchId,
+    rawqStatus,
   } = useChatStore();
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [showAddProject, setShowAddProject] = useState(false);
+  const [newProjectPath, setNewProjectPath] = useState("");
+  const [newProjectName, setNewProjectName] = useState("");
+  const [addingProject, setAddingProject] = useState(false);
+  const [pathError, setPathError] = useState<string | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(
     new Set(selectedProjectKey ? [selectedProjectKey] : [])
   );
@@ -67,6 +78,67 @@ export function Sidebar() {
     await deleteConversation(id);
   };
 
+  const handlePickFolder = async () => {
+    try {
+      const selected = await open({ directory: true, multiple: false, title: "프로젝트 폴더 선택" });
+      if (selected && typeof selected === "string") {
+        setNewProjectPath(selected);
+        setPathError(null);
+        if (!newProjectName.trim()) {
+          setNewProjectName(selected.split(/[\\/]/).pop() || "");
+        }
+      }
+    } catch {
+      // user cancelled or error
+    }
+  };
+
+  const handleAddProject = async () => {
+    const path = newProjectPath.trim();
+    if (!path) {
+      setPathError("경로를 입력하세요");
+      return;
+    }
+    setAddingProject(true);
+    setPathError(null);
+    try {
+      // Backend validation
+      const validation = await invoke<{ valid: boolean; normalizedPath: string; error?: string }>(
+        "validate_project_path", { path }
+      );
+      if (!validation.valid) {
+        setPathError(validation.error || "유효하지 않은 경로입니다");
+        setAddingProject(false);
+        return;
+      }
+
+      const normalizedPath = validation.normalizedPath;
+      const name = newProjectName.trim() || normalizedPath.split(/[\\/]/).pop() || "Project";
+      const key = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || `proj-${Date.now()}`;
+      await createProject({
+        key,
+        name,
+        path: normalizedPath,
+        type: "project",
+        source: "configured",
+      });
+      setNewProjectPath("");
+      setNewProjectName("");
+      setPathError(null);
+      setShowAddProject(false);
+      // 생성 직후 자동 선택 → conversations(기본 Main 포함) 로드 + rawq 인덱싱
+      await handleSelectProject(key);
+    } catch (e) {
+      const msg = String(e);
+      if (msg.includes("이미 프로젝트")) {
+        setPathError(msg);
+      }
+      // other errors shown via store
+    } finally {
+      setAddingProject(false);
+    }
+  };
+
   // Conversations for selected project (exclude branch: shadow convs from list)
   const visibleConvs = conversations.filter((c) => !c.id.startsWith("branch:"));
 
@@ -77,7 +149,7 @@ export function Sidebar() {
     : null;
 
   return (
-    <aside className="flex flex-col w-56 shrink-0 bg-sidebar border-r border-border h-full overflow-hidden">
+    <aside className="flex flex-col w-full bg-sidebar h-full overflow-hidden">
       {/* Logo */}
       <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border shrink-0">
         <div className="w-7 h-7 rounded-lg bg-primary/20 flex items-center justify-center">
@@ -136,7 +208,12 @@ export function Sidebar() {
                     ) : (
                       <Folder className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                     )}
-                    <span className="flex-1 text-xs font-medium text-foreground truncate">{project.name}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="text-xs font-medium text-foreground truncate block">{project.name}</span>
+                      {project.path && (
+                        <span className="text-[9px] text-muted-foreground/60 truncate block">{project.path}</span>
+                      )}
+                    </span>
                     {isSelected && (
                       <span className="text-[10px] text-muted-foreground">
                         {visibleConvs.length}
@@ -146,6 +223,33 @@ export function Sidebar() {
 
                   {isSelected && isExpanded && (
                     <div className="ml-4 mt-0.5 space-y-0.5">
+                      {/* rawq status badge */}
+                      {rawqStatus && (
+                        <div className={cn(
+                          "flex items-center gap-1.5 px-2 py-1 rounded text-[10px]",
+                          rawqStatus.status === "ready" || rawqStatus.status === "built"
+                            ? "text-status-approved/80"
+                            : rawqStatus.status === "indexing"
+                            ? "text-primary animate-pulse"
+                            : rawqStatus.status === "unavailable"
+                            ? "text-muted-foreground/50"
+                            : "text-status-rejected/80"
+                        )}>
+                          <span className={cn(
+                            "w-1.5 h-1.5 rounded-full shrink-0",
+                            rawqStatus.status === "ready" || rawqStatus.status === "built"
+                              ? "bg-status-approved"
+                              : rawqStatus.status === "indexing"
+                              ? "bg-primary"
+                              : rawqStatus.status === "unavailable"
+                              ? "bg-muted-foreground/30"
+                              : "bg-status-rejected"
+                          )} />
+                          <span className="truncate">
+                            rawq: {rawqStatus.message}
+                          </span>
+                        </div>
+                      )}
                       {/* Conversations */}
                       {projectConvs.length === 0 && (
                         <p className="px-2 text-xs text-muted-foreground py-1">No conversations</p>
@@ -169,7 +273,13 @@ export function Sidebar() {
                             ) : (
                               <MessageSquare className="w-3.5 h-3.5 shrink-0" />
                             )}
-                            <span className="flex-1 text-xs truncate">{label}</span>
+                            <span className="flex-1 text-xs truncate min-w-0">
+                              <InlineRename
+                                value={label}
+                                onSave={(newLabel) => renameConversation(conv.id, newLabel)}
+                                inputClassName="text-[11px] w-full"
+                              />
+                            </span>
                             {isActive && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
                             <button
                               onClick={(e) => handleDelete(conv.id, label, e)}
@@ -204,6 +314,64 @@ export function Sidebar() {
               );
             })}
           </div>
+
+          {/* Add project */}
+          {showAddProject ? (
+            <div className="mt-2 px-1 space-y-1.5">
+              <div className="flex gap-1">
+                <input
+                  placeholder="프로젝트 경로"
+                  value={newProjectPath}
+                  onChange={(e) => { setNewProjectPath(e.target.value); setPathError(null); }}
+                  className={cn(
+                    "flex-1 bg-input rounded-md px-2 py-1.5 text-[11px] outline-none text-foreground placeholder:text-muted-foreground border focus:border-ring/50",
+                    pathError ? "border-destructive" : "border-border"
+                  )}
+                  autoFocus
+                />
+                <button
+                  onClick={handlePickFolder}
+                  className="shrink-0 px-2 py-1.5 rounded-md bg-accent text-muted-foreground hover:text-foreground text-[11px] transition-colors border border-border"
+                  title="폴더 선택"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              {pathError && (
+                <p className="text-[10px] text-destructive px-0.5">{pathError}</p>
+              )}
+              <input
+                placeholder="이름 (선택)"
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAddProject(); }}
+                className="w-full bg-input rounded-md px-2 py-1.5 text-[11px] outline-none text-foreground placeholder:text-muted-foreground border border-border focus:border-ring/50"
+              />
+              <div className="flex gap-1">
+                <button
+                  onClick={handleAddProject}
+                  disabled={!newProjectPath.trim() || addingProject}
+                  className="flex-1 px-2 py-1 rounded-md bg-primary/15 text-primary text-[11px] font-medium hover:bg-primary/25 transition-colors disabled:opacity-40"
+                >
+                  {addingProject ? "..." : "추가"}
+                </button>
+                <button
+                  onClick={() => { setShowAddProject(false); setPathError(null); }}
+                  className="px-2 py-1 rounded-md text-muted-foreground text-[11px] hover:bg-accent transition-colors"
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowAddProject(true)}
+              className="mt-1.5 w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              Add project
+            </button>
+          )}
         </div>
       </nav>
     </aside>

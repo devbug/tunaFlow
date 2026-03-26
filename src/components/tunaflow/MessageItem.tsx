@@ -1,12 +1,23 @@
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { cn, AGENT_COLORS, AGENT_DOT_COLORS, AGENT_DISPLAY_NAMES, formatTimestamp, isKnownEngine } from "@/lib/utils";
 import type { Message, Branch } from "@/types";
-import { GitBranch, Copy, Bookmark, User, MessageSquareText } from "lucide-react";
+import { GitBranch, Copy, Bookmark, User, Users, MessageSquareText, Forward } from "lucide-react";
+import { markdownComponents } from "./chat/MarkdownComponents";
+
+const FOLLOWUP_ENGINES = [
+  { id: "claude", label: "Claude" },
+  { id: "codex", label: "Codex" },
+  { id: "gemini", label: "Gemini" },
+];
 
 interface MessageItemProps {
   message: Message;
   onBranch?: (messageId: string) => void;
+  onBranchRT?: (messageId: string) => void;
   onMemo?: (messageId: string) => void;
+  onFollowup?: (engine: string, content: string) => void;
   /** Branches anchored to this message (checkpointId === message.id) */
   threadBranches?: Branch[];
   /** Callback when user clicks "Open thread" on a branch */
@@ -25,17 +36,54 @@ function TypingIndicator() {
   );
 }
 
-function parseMarkdown(text: string): React.ReactNode {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
-  return parts.map((part, i) => {
-    if (part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={i} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>;
-    }
-    return <span key={i}>{part}</span>;
-  });
+function MarkdownBody({ content, className }: { content: string; className?: string }) {
+  return (
+    <div className={cn("prose prose-sm prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
-export function MessageItem({ message, onBranch, onMemo, threadBranches, onOpenThread, showActions = true, variant = "default" }: MessageItemProps) {
+/** Plain-text progress block for streaming state. Shows last N lines rolling. */
+function ProgressBlock({ content, maxLines = 8 }: { content: string; maxLines?: number }) {
+  const lines = content.split("\n");
+  const visible = lines.slice(-maxLines);
+  const truncated = lines.length > maxLines;
+  return (
+    <div className="font-mono text-[12px] text-muted-foreground leading-relaxed">
+      {truncated && (
+        <div className="text-[10px] text-muted-foreground/40 mb-1">… {lines.length - maxLines} lines above</div>
+      )}
+      {visible.map((line, i) => (
+        <div key={i} className={cn(i === visible.length - 1 && "text-foreground/80")}>
+          {line || "\u00A0"}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Collapsed progress summary for completed messages. Shows last 3 lines. */
+function ProgressSummary({ content }: { content: string }) {
+  const lines = content.split("\n").filter(Boolean);
+  const last3 = lines.slice(-3);
+  if (last3.length === 0) return null;
+  return (
+    <details className="mb-2 group">
+      <summary className="cursor-pointer text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+        {lines.length} steps — click to expand
+      </summary>
+      <div className="mt-1 font-mono text-[11px] text-muted-foreground/60 leading-relaxed pl-2 border-l border-border/30">
+        {lines.map((line, i) => <div key={i}>{line}</div>)}
+      </div>
+    </details>
+  );
+}
+
+export function MessageItem({ message, onBranch, onBranchRT, onMemo, onFollowup, threadBranches, onOpenThread, showActions = true, variant = "default" }: MessageItemProps) {
+  const [showFollowupMenu, setShowFollowupMenu] = useState(false);
   const [hovered, setHovered] = useState(false);
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
@@ -46,7 +94,6 @@ export function MessageItem({ message, onBranch, onMemo, threadBranches, onOpenT
   const agentColorClass = engine ? AGENT_COLORS[engine] : "text-muted-foreground border-border bg-accent";
   const dotColorClass = engine ? AGENT_DOT_COLORS[engine] : "bg-muted-foreground";
 
-  const paragraphs = message.content.split("\n\n").filter(Boolean);
 
   return (
     <div
@@ -111,33 +158,24 @@ export function MessageItem({ message, onBranch, onMemo, threadBranches, onOpenT
           )}
         </div>
 
-        {/* Body */}
-        <div className={cn("text-foreground leading-relaxed space-y-2", isCompact && "text-xs space-y-1")}>
-          {isStreaming && message.content === "" ? (
+        {/* Body — progress-first streaming */}
+        <div className={cn("text-foreground leading-relaxed", isCompact && "text-xs")}>
+          {isStreaming && message.content === "" && !message.progressContent ? (
             <TypingIndicator />
+          ) : isStreaming ? (
+            /* Streaming: show plain-text progress only, no Markdown */
+            <ProgressBlock content={message.progressContent || message.content} />
+          ) : isUser ? (
+            <p className={cn(isCompact && "line-clamp-3")}>{message.content}</p>
           ) : (
-            paragraphs.map((para, i) => {
-              const isLast = i === paragraphs.length - 1;
-              const isList = para.startsWith("- ");
-              if (isList) {
-                const items = para.split("\n").filter(Boolean);
-                return (
-                  <ul key={i} className={cn("space-y-1 pl-0", isCompact && "space-y-0.5")}>
-                    {items.map((item, j) => (
-                      <li key={j} className="flex gap-2">
-                        <span className="text-muted-foreground mt-1 shrink-0">•</span>
-                        <span>{parseMarkdown(item.replace(/^- /, ""))}</span>
-                      </li>
-                    ))}
-                  </ul>
-                );
-              }
-              return (
-                <p key={i} className={cn(isLast && isStreaming && "stream-cursor", isCompact && "line-clamp-3")}>
-                  {parseMarkdown(para)}
-                </p>
-              );
-            })
+            /* Done: progress summary + final Markdown answer */
+            <>
+              {message.progressContent && <ProgressSummary content={message.progressContent} />}
+              <MarkdownBody
+                content={message.content}
+                className={cn(isCompact && "line-clamp-3")}
+              />
+            </>
           )}
         </div>
       </div>
@@ -183,7 +221,16 @@ export function MessageItem({ message, onBranch, onMemo, threadBranches, onOpenT
               className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors border border-border"
             >
               <GitBranch className="w-3 h-3" />
-              Start thread
+              Thread
+            </button>
+          )}
+          {onBranchRT && (
+            <button
+              onClick={() => onBranchRT(message.id)}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-muted-foreground hover:text-agent-gemini hover:bg-agent-gemini/10 transition-colors border border-border"
+            >
+              <Users className="w-3 h-3" />
+              RT 분기
             </button>
           )}
           {onMemo && !isUser && (
@@ -194,6 +241,30 @@ export function MessageItem({ message, onBranch, onMemo, threadBranches, onOpenT
               <Bookmark className="w-3 h-3" />
               Memo
             </button>
+          )}
+          {onFollowup && !isUser && (
+            <div className="relative">
+              <button
+                onClick={() => setShowFollowupMenu((v) => !v)}
+                className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors border border-border"
+              >
+                <Forward className="w-3 h-3" />
+                Forward
+              </button>
+              {showFollowupMenu && (
+                <div className="absolute right-0 top-full mt-1 bg-popover border border-border rounded-lg shadow-xl p-1 min-w-[120px] z-50">
+                  {FOLLOWUP_ENGINES.map((eng) => (
+                    <button
+                      key={eng.id}
+                      onClick={() => { onFollowup(eng.id, message.content); setShowFollowupMenu(false); }}
+                      className="w-full text-left px-2.5 py-1.5 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    >
+                      Ask {eng.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           <button
             onClick={() => navigator.clipboard.writeText(message.content)}

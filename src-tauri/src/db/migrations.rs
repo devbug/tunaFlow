@@ -2,6 +2,26 @@ use rusqlite::Connection;
 use crate::errors::AppError;
 use super::schema;
 
+/// Check whether a column already exists on a table (PRAGMA table_info).
+/// Returns true if the column is present, false otherwise.
+fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
+    let sql = format!("PRAGMA table_info({})", table);
+    let Ok(mut stmt) = conn.prepare(&sql) else { return false };
+    stmt.query_map([], |row| row.get::<_, String>(1))
+        .map(|rows| rows.filter_map(|r| r.ok()).any(|name| name == column))
+        .unwrap_or(false)
+}
+
+/// Idempotent ADD COLUMN: skips if column already exists, propagates real errors.
+fn add_column_if_missing(conn: &Connection, table: &str, column: &str, col_def: &str) -> Result<(), AppError> {
+    if column_exists(conn, table, column) {
+        return Ok(());
+    }
+    let sql = format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, col_def);
+    conn.execute(&sql, [])?;
+    Ok(())
+}
+
 pub fn run(conn: &Connection) -> Result<(), AppError> {
     conn.execute_batch(schema::CREATE_SCHEMA_VERSION)?;
     let current = current_version(conn)?;
@@ -22,6 +42,15 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     }
     if current < 6 {
         apply_v6(conn)?;
+    }
+    if current < 7 {
+        apply_v7(conn)?;
+    }
+    if current < 8 {
+        apply_v8(conn)?;
+    }
+    if current < 9 {
+        apply_v9(conn)?;
     }
     Ok(())
 }
@@ -47,7 +76,9 @@ fn apply_v1(conn: &Connection) -> Result<(), AppError> {
 }
 
 fn apply_v2(conn: &Connection) -> Result<(), AppError> {
-    conn.execute_batch(schema::V2_SCHEMA)?;
+    // V2 adds resume_token columns — idempotent to survive partial prior runs
+    add_column_if_missing(conn, "conversations", "resume_token", "TEXT")?;
+    add_column_if_missing(conn, "conversations", "resume_token_engine", "TEXT")?;
     conn.execute(
         "INSERT INTO schema_version (version, applied_at) VALUES (2, ?1)",
         [now_epoch()],
@@ -65,7 +96,14 @@ fn apply_v3(conn: &Connection) -> Result<(), AppError> {
 }
 
 fn apply_v4(conn: &Connection) -> Result<(), AppError> {
-    conn.execute_batch(schema::V4_SCHEMA)?;
+    // V4 adds subtask_id to artifacts — idempotent to survive partial prior runs
+    add_column_if_missing(
+        conn, "artifacts", "subtask_id",
+        "TEXT REFERENCES plan_subtasks(id) ON DELETE SET NULL",
+    )?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_artifacts_subtask_id ON artifacts(subtask_id);",
+    )?;
     conn.execute(
         "INSERT INTO schema_version (version, applied_at) VALUES (4, ?1)",
         [now_epoch()],
@@ -83,9 +121,47 @@ fn apply_v5(conn: &Connection) -> Result<(), AppError> {
 }
 
 fn apply_v6(conn: &Connection) -> Result<(), AppError> {
-    conn.execute_batch(schema::V6_SCHEMA)?;
+    // V6 extends trace_log with OTel span columns — idempotent per column
+    add_column_if_missing(conn, "trace_log", "trace_id", "TEXT")?;
+    add_column_if_missing(conn, "trace_log", "span_id", "TEXT")?;
+    add_column_if_missing(conn, "trace_log", "parent_span_id", "TEXT")?;
+    add_column_if_missing(conn, "trace_log", "operation", "TEXT")?;
+    add_column_if_missing(conn, "trace_log", "engine", "TEXT")?;
+    add_column_if_missing(conn, "trace_log", "duration_ms", "INTEGER")?;
+    add_column_if_missing(conn, "trace_log", "status", "TEXT DEFAULT 'ok'")?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_trace_log_trace_id ON trace_log(trace_id);",
+    )?;
     conn.execute(
         "INSERT INTO schema_version (version, applied_at) VALUES (6, ?1)",
+        [now_epoch()],
+    )?;
+    Ok(())
+}
+
+fn apply_v7(conn: &Connection) -> Result<(), AppError> {
+    add_column_if_missing(conn, "plan_subtasks", "owner_agent", "TEXT")?;
+    add_column_if_missing(conn, "plan_subtasks", "last_updated_by", "TEXT")?;
+    conn.execute(
+        "INSERT INTO schema_version (version, applied_at) VALUES (7, ?1)",
+        [now_epoch()],
+    )?;
+    Ok(())
+}
+
+fn apply_v8(conn: &Connection) -> Result<(), AppError> {
+    add_column_if_missing(conn, "branches", "mode", "TEXT DEFAULT 'chat'")?;
+    conn.execute(
+        "INSERT INTO schema_version (version, applied_at) VALUES (8, ?1)",
+        [now_epoch()],
+    )?;
+    Ok(())
+}
+
+fn apply_v9(conn: &Connection) -> Result<(), AppError> {
+    add_column_if_missing(conn, "branches", "subtask_id", "TEXT REFERENCES plan_subtasks(id) ON DELETE SET NULL")?;
+    conn.execute(
+        "INSERT INTO schema_version (version, applied_at) VALUES (9, ?1)",
         [now_epoch()],
     )?;
     Ok(())

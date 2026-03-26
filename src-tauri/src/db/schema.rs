@@ -6,8 +6,29 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 ";
 
+/// Migration v9: add subtask_id to branches for developer lane linkage.
+#[allow(dead_code)]
+pub const V9_SCHEMA: &str = "
+ALTER TABLE branches ADD COLUMN subtask_id TEXT REFERENCES plan_subtasks(id) ON DELETE SET NULL;
+";
+
+/// Migration v8: add mode column to branches (chat/roundtable).
+#[allow(dead_code)]
+pub const V8_SCHEMA: &str = "
+ALTER TABLE branches ADD COLUMN mode TEXT DEFAULT 'chat';
+";
+
+/// Migration v7: add agent ownership columns to plan_subtasks.
+#[allow(dead_code)]
+pub const V7_SCHEMA: &str = "
+ALTER TABLE plan_subtasks ADD COLUMN owner_agent     TEXT;
+ALTER TABLE plan_subtasks ADD COLUMN last_updated_by TEXT;
+";
+
 /// Migration v6: extend trace_log with OTel-ready span columns.
 /// Existing rows get NULL for new columns — INSERT paths updated separately.
+/// NOTE: apply_v6() now uses idempotent add_column_if_missing; this const is kept for reference.
+#[allow(dead_code)]
 pub const V6_SCHEMA: &str = "
 ALTER TABLE trace_log ADD COLUMN trace_id       TEXT;
 ALTER TABLE trace_log ADD COLUMN span_id        TEXT;
@@ -51,6 +72,8 @@ CREATE INDEX IF NOT EXISTS idx_eval_results_run_id ON eval_results(eval_run_id);
 ";
 
 /// Migration v4: add subtask_id column to artifacts for plan-artifact linking
+/// NOTE: apply_v4() now uses idempotent add_column_if_missing; this const is kept for reference.
+#[allow(dead_code)]
 pub const V4_SCHEMA: &str = "
 ALTER TABLE artifacts ADD COLUMN subtask_id TEXT REFERENCES plan_subtasks(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_artifacts_subtask_id ON artifacts(subtask_id);
@@ -59,6 +82,8 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_subtask_id ON artifacts(subtask_id);
 /// Migration v2: add ResumeToken columns to conversations
 /// Stores per-conversation, per-engine session token for --resume support.
 /// No new table — stored inline in conversations (DATA_MODEL §1.8).
+/// NOTE: apply_v2() now uses idempotent add_column_if_missing; this const is kept for reference.
+#[allow(dead_code)]
 pub const V2_SCHEMA: &str = "
 ALTER TABLE conversations ADD COLUMN resume_token        TEXT;
 ALTER TABLE conversations ADD COLUMN resume_token_engine TEXT;

@@ -1,17 +1,48 @@
 mod agents;
 mod commands;
-mod db;
+pub mod db;
 mod errors;
 mod guardrail;
 
 use db::DbState;
 
-/// Cooperative cancellation flag for long-running operations (roundtable, etc.).
-/// Set to `true` via the `cancel_running` command; checked between participants.
-pub struct CancelFlag(pub std::sync::atomic::AtomicBool);
+/// Thread-aware cooperative cancellation registry.
+/// Keys are conversation IDs (including branch shadow IDs like "branch:xxx").
+/// A thread checks its own conversation_id; only sees its own cancel flag.
+pub struct CancelRegistry(pub std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>);
+
+impl CancelRegistry {
+    /// Mark a conversation/thread as cancelled.
+    pub fn cancel(&self, conversation_id: &str) {
+        if let Ok(mut set) = self.0.lock() {
+            set.insert(conversation_id.to_string());
+        }
+    }
+
+    /// Check and consume the cancel flag for a conversation/thread.
+    /// Returns true if cancelled (and clears the flag).
+    pub fn check_and_consume(&self, conversation_id: &str) -> bool {
+        if let Ok(mut set) = self.0.lock() {
+            set.remove(conversation_id)
+        } else {
+            false
+        }
+    }
+
+    /// Clear cancel flag for a conversation (e.g., on normal completion).
+    pub fn clear(&self, conversation_id: &str) {
+        if let Ok(mut set) = self.0.lock() {
+            set.remove(conversation_id);
+        }
+    }
+}
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_window_state::Builder::new().build())
         .setup(|app| {
             use tauri::Manager;
             let data_dir = app
@@ -22,7 +53,7 @@ pub fn run() {
             let db_path = data_dir.join("tunaflow.db");
             let conn = db::init(db_path)?;
             app.manage(DbState(std::sync::Mutex::new(conn)));
-            app.manage(CancelFlag(std::sync::atomic::AtomicBool::new(false)));
+            app.manage(CancelRegistry(std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()))));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -30,11 +61,15 @@ pub fn run() {
             commands::projects::list_projects,
             commands::projects::create_project,
             commands::projects::get_project,
+            commands::projects::validate_project_path,
+            commands::projects::ensure_rawq_index,
+            commands::projects::get_rawq_status,
             // Conversation
             commands::conversations::list_conversations,
             commands::conversations::create_conversation,
             commands::conversations::get_conversation,
             commands::conversations::delete_conversation,
+            commands::conversations::rename_conversation,
             // Message
             commands::messages::list_messages,
             commands::messages::create_user_message,
@@ -45,6 +80,7 @@ pub fn run() {
             commands::branches::create_branch,
             commands::branches::adopt_branch,
             commands::branches::delete_branch,
+            commands::branches::rename_branch,
             commands::branches::open_branch_stream,
             // Agent
             commands::agents::send_with_claude,
@@ -63,6 +99,7 @@ pub fn run() {
             commands::memos::list_memos,
             commands::memos::list_memos_by_conversation,
             commands::memos::create_memo,
+            commands::memos::get_branch_brief,
             commands::memos::delete_memo,
             // Artifact
             commands::artifacts::list_artifacts,
@@ -71,6 +108,8 @@ pub fn run() {
             commands::artifacts::update_artifact_status,
             commands::artifacts::link_artifact_to_subtask,
             commands::artifacts::delete_artifact,
+            // Models
+            commands::models::list_engine_models,
             // Capability
             commands::capabilities::list_capabilities,
             // Evaluation
@@ -89,6 +128,7 @@ pub fn run() {
             commands::plans::list_plans_by_conversation,
             commands::plans::update_plan_status,
             commands::plans::list_subtasks,
+            commands::plans::set_subtask_owner,
             commands::plans::update_subtask_status,
             commands::plans::replace_plan_subtasks,
             commands::plans::delete_plan,

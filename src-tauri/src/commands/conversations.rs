@@ -153,6 +153,19 @@ pub fn delete_conversation(id: String, state: State<DbState>) -> Result<(), AppE
     Ok(())
 }
 
+/// Set or clear the user-facing display label for a conversation.
+/// Empty string → NULL (fallback to auto-generated label).
+#[tauri::command]
+pub fn rename_conversation(id: String, custom_label: String, state: State<DbState>) -> Result<(), AppError> {
+    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let value: Option<&str> = if custom_label.trim().is_empty() { None } else { Some(custom_label.trim()) };
+    conn.execute(
+        "UPDATE conversations SET custom_label = ?1, updated_at = ?2 WHERE id = ?3",
+        params![value, now_epoch(), id],
+    )?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_conversation(id: String, state: State<DbState>) -> Result<Conversation, AppError> {
     let conn = state.0.lock().map_err(|_| AppError::Lock)?;

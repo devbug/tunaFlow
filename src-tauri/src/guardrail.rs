@@ -12,6 +12,8 @@ pub const MAX_RAWQ_SECTION: usize = 4_000;
 pub const MAX_CROSS_SESSION_SECTION: usize = 6_000;
 pub const MAX_CONTEXT_SECTION: usize = 8_000;
 pub const MAX_PLAN_SECTION: usize = 2_000;
+pub const MAX_FINDINGS_SECTION: usize = 3_000;
+pub const MAX_ARTIFACTS_SECTION: usize = 2_000;
 
 // ─── Execution defaults ──────────────────────────────────────────────────────
 

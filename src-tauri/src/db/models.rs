@@ -1,11 +1,17 @@
 use serde::{Deserialize, Serialize};
 
 /// DATA_MODEL.md §1.2 Project
+///
+/// Project는 tunaFlow의 최상위 작업 단위. 모든 conversation/branch/plan이 여기 소속.
+/// - `path`: 로컬 프로젝트 디렉토리. 에이전트의 cwd + rawq 검색 대상.
+///   향후 git repo 여부 판별의 기준 경로 (path 내 .git 존재 확인).
+/// - `workspace_root`: multi-root workspace 확장용 (현재 미사용).
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub key: String,
     pub name: String,
+    /// 프로젝트 디렉토리 경로. 에이전트 cwd, rawq 대상. 향후 git repo root.
     pub path: Option<String>,
     #[serde(rename = "type")]
     pub project_type: String,
@@ -118,6 +124,8 @@ pub struct PlanSubtask {
     /// "todo" | "in_progress" | "done" | "abandoned"
     pub status: String,
     pub outcome: Option<String>,
+    pub owner_agent: Option<String>,
+    pub last_updated_by: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -156,6 +164,11 @@ pub struct EvalResult {
 }
 
 /// DATA_MODEL.md §1.4 Branch
+///
+/// Branch는 conversation 내 작업 분기이며, 향후 git branch와 연결될 수 있다.
+/// - `mode`: "chat" | "roundtable" — 분기의 실행 유형
+/// - `git_branch`: 향후 git branch 이름 연결용 (현재 수동 세팅 또는 null)
+/// - shadow conversation: `branch:{id}` 형식의 별도 conversation에 메시지 저장
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Branch {
@@ -167,6 +180,11 @@ pub struct Branch {
     pub checkpoint_id: Option<String>,
     pub parent_branch_id: Option<String>,
     pub session_id: Option<String>,
+    /// Git branch name for future git integration. Null = no git linkage yet.
     pub git_branch: Option<String>,
+    /// "chat" | "roundtable" — branch execution type
+    pub mode: Option<String>,
+    /// Link to plan subtask — developer lane uses this to track which task a branch implements.
+    pub subtask_id: Option<String>,
     pub created_at: i64,
 }

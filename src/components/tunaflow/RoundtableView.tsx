@@ -13,14 +13,13 @@ interface RoundtableViewProps {
 interface PromptSources {
   round: number;
   totalRounds: number;
-  /** "independent" | "sequential" | "deliberative" */
+  /** "sequential" | "deliberative" */
   mode: string;
   priorRoundRefs: string[];
   currentRoundRefs: string[];
 }
 
 const RT_MODE_LABELS: Record<string, string> = {
-  independent: "Independent",
   sequential: "Sequential debate",
   deliberative: "Deliberative rounds",
 };
@@ -289,29 +288,37 @@ export function RoundtableView({ messages }: RoundtableViewProps) {
       </div>
 
       {/* ── Rounds ── */}
-      {rounds.map((round, roundIdx) => (
+      {rounds.map((round, roundIdx) => {
+        // Extract participant names for this round
+        const roundParticipants = [...new Set(
+          round.filter((m) => m.persona).map((m) => m.persona!)
+        )];
+
+        return (
         <div key={roundIdx} className="mb-8">
           {/* Round divider */}
           <div className="flex items-center gap-3 mb-6">
             <div className="flex-1 h-px bg-border/50" />
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-center">
               <span className="text-[11px] font-bold uppercase tracking-widest text-primary bg-primary/10 px-3 py-1 rounded-full border border-primary/20">
                 Round {roundIdx + 1}
               </span>
-              {roundIdx === 0 && rounds.length === 1 && (
-                <span className="text-[9px] text-muted-foreground">(single round)</span>
+              {roundParticipants.length > 0 && (
+                <span className="text-[9px] text-muted-foreground">
+                  {roundParticipants.join(", ")}
+                </span>
               )}
               {roundIdx === 0 && rounds.length > 1 && rtMode === "deliberative" && (
-                <span className="text-[9px] text-muted-foreground italic">independent</span>
+                <span className="text-[9px] text-muted-foreground italic">independent first round</span>
               )}
               {roundIdx > 0 && rtMode === "sequential" && (
                 <span className="text-[9px] text-muted-foreground italic">
-                  builds on Round {roundIdx} + prior agents
+                  builds on prior
                 </span>
               )}
               {roundIdx > 0 && rtMode === "deliberative" && (
                 <span className="text-[9px] text-muted-foreground italic">
-                  reflects on Round {roundIdx}
+                  reflects on prior rounds
                 </span>
               )}
             </div>
@@ -325,7 +332,8 @@ export function RoundtableView({ messages }: RoundtableViewProps) {
             ))}
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

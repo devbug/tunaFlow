@@ -18,6 +18,10 @@ pub struct CreateBranchInput {
     pub label: Option<String>,
     pub checkpoint_id: Option<String>,
     pub parent_branch_id: Option<String>,
+    /// "chat" (default) | "roundtable"
+    pub mode: Option<String>,
+    /// Plan subtask this branch implements (developer lane linkage)
+    pub subtask_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,7 +39,7 @@ pub fn list_branches(
     let conn = state.0.lock().map_err(|_| AppError::Lock)?;
     let mut stmt = conn.prepare(
         "SELECT id, conversation_id, label, custom_label, status,
-                checkpoint_id, parent_branch_id, session_id, git_branch, created_at
+                checkpoint_id, parent_branch_id, session_id, git_branch, mode, subtask_id, created_at
          FROM branches WHERE conversation_id = ?1 ORDER BY created_at ASC",
     )?;
     let rows = stmt
@@ -50,7 +54,9 @@ pub fn list_branches(
                 parent_branch_id: row.get(6)?,
                 session_id: row.get(7)?,
                 git_branch: row.get(8)?,
-                created_at: row.get(9)?,
+                mode: row.get(9)?,
+                subtask_id: row.get(10)?,
+                created_at: row.get(11)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -97,16 +103,19 @@ pub fn create_branch(
         }
     };
 
+    let branch_mode = input.mode.as_deref().unwrap_or("chat");
     conn.execute(
         "INSERT INTO branches
-         (id, conversation_id, label, status, checkpoint_id, parent_branch_id, created_at)
-         VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?6)",
+         (id, conversation_id, label, status, checkpoint_id, parent_branch_id, mode, subtask_id, created_at)
+         VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?6, ?7, ?8)",
         params![
             id,
             input.conversation_id,
             label,
             input.checkpoint_id,
             input.parent_branch_id,
+            branch_mode,
+            input.subtask_id,
             now,
         ],
     )?;
@@ -121,6 +130,8 @@ pub fn create_branch(
         parent_branch_id: input.parent_branch_id,
         session_id: None,
         git_branch: None,
+        mode: Some(branch_mode.to_string()),
+        subtask_id: input.subtask_id,
         created_at: now,
     })
 }
@@ -150,12 +161,12 @@ pub fn open_branch_stream(
         > 0;
 
     if !exists {
-        // Resolve branch → parent conversation → project_key
-        let (parent_conv_id, branch_label): (String, String) = conn
+        // Resolve branch → parent conversation → project_key + branch mode
+        let (parent_conv_id, branch_label, branch_mode): (String, String, String) = conn
             .query_row(
-                "SELECT conversation_id, label FROM branches WHERE id = ?1",
+                "SELECT conversation_id, label, COALESCE(mode, 'chat') FROM branches WHERE id = ?1",
                 [&branch_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .map_err(|_| AppError::NotFound(format!("Branch '{}' not found", branch_id)))?;
 
@@ -174,11 +185,12 @@ pub fn open_branch_stream(
             "INSERT INTO conversations
              (id, project_key, label, type, mode, parent_id, source,
               created_at, updated_at, total_input_tokens, total_output_tokens, total_cost_usd)
-             VALUES (?1, ?2, ?3, 'branch', 'chat', ?4, 'tunadish', ?5, ?5, 0, 0, 0.0)",
+             VALUES (?1, ?2, ?3, 'branch', ?4, ?5, 'tunadish', ?6, ?6, 0, 0, 0.0)",
             params![
                 branch_conv_id,
                 project_key,
                 format!("Branch {}", branch_label),
+                branch_mode,
                 parent_conv_id,
                 now,
             ],
@@ -186,6 +198,19 @@ pub fn open_branch_stream(
     }
 
     Ok(branch_conv_id)
+}
+
+/// Set or clear the user-facing display label for a branch.
+/// Empty string → NULL (fallback to auto-generated label).
+#[tauri::command]
+pub fn rename_branch(id: String, custom_label: String, state: State<DbState>) -> Result<(), AppError> {
+    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let value: Option<&str> = if custom_label.trim().is_empty() { None } else { Some(custom_label.trim()) };
+    conn.execute(
+        "UPDATE branches SET custom_label = ?1 WHERE id = ?2",
+        params![value, id],
+    )?;
+    Ok(())
 }
 
 /// Delete a branch and its shadow conversation + messages.
@@ -234,11 +259,11 @@ pub fn adopt_branch(
     let conn = state.0.lock().map_err(|_| AppError::Lock)?;
 
     // Validate branch exists and is active
-    let branch_label: String = conn
+    let (branch_label, branch_mode): (String, String) = conn
         .query_row(
-            "SELECT label FROM branches WHERE id = ?1 AND status = 'active'",
+            "SELECT label, COALESCE(mode, 'chat') FROM branches WHERE id = ?1 AND status = 'active'",
             [&input.branch_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|_| AppError::NotFound(format!("Active branch '{}' not found", input.branch_id)))?;
 
@@ -248,12 +273,73 @@ pub fn adopt_branch(
         [&input.branch_id],
     )?;
 
-    // 2. Insert placeholder adopt-summary into parent conversation
+    // 2. Build adopt summary from actual branch data
+    let shadow_id = format!("branch:{}", input.branch_id);
+    let is_rt = branch_mode == "roundtable";
+
+    // Try to get RT brief first
+    let brief: Option<String> = conn
+        .query_row(
+            "SELECT content FROM memos
+             WHERE conversation_id = ?1 AND type = 'roundtable_brief'
+             ORDER BY created_at DESC LIMIT 1",
+            [&shadow_id],
+            |row| row.get(0),
+        )
+        .ok();
+
+    let summary_body = if let Some(ref brief_content) = brief {
+        // Extract Key Positions section from brief
+        let lines: Vec<&str> = brief_content.lines().collect();
+        let pos_start = lines.iter().position(|l| l.contains("Key Positions"));
+        let key_points = if let Some(idx) = pos_start {
+            lines[idx + 1..].iter()
+                .filter(|l| l.starts_with("- "))
+                .take(4)
+                .copied()
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            // Fallback: first meaningful lines from brief
+            lines.iter()
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .take(3)
+                .copied()
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        format!("### Key Points\n\n{}", key_points)
+    } else {
+        // Fallback for non-RT or RT without brief: last assistant message from branch
+        let last_msg: Option<String> = conn
+            .query_row(
+                "SELECT content FROM messages
+                 WHERE conversation_id = ?1 AND role = 'assistant' AND status = 'done'
+                 ORDER BY timestamp DESC LIMIT 1",
+                [&shadow_id],
+                |row| row.get(0),
+            )
+            .ok();
+        match last_msg {
+            Some(msg) => {
+                let preview = if msg.len() > 300 {
+                    let end = msg.char_indices().map(|(i,_)|i).take_while(|&i| i <= 300).last().unwrap_or(0);
+                    format!("{}...", &msg[..end])
+                } else {
+                    msg
+                };
+                format!("### Last Response\n\n{}", preview)
+            }
+            None => "No content available.".to_string(),
+        }
+    };
+
     let msg_id = Uuid::new_v4().to_string();
     let now = now_epoch_ms();
+    let type_label = if is_rt { "Roundtable" } else { "Thread" };
     let content = format!(
-        "<!-- branch-adopt-summary -->\nBranch {} adopted. Summary generation not implemented yet.",
-        branch_label
+        "<!-- branch-adopt-summary -->\n## {} Adopted: {}\n\n{}\n",
+        type_label, branch_label, summary_body
     );
     conn.execute(
         "INSERT INTO messages (id, conversation_id, role, content, timestamp, status)

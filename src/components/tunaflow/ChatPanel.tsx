@@ -5,6 +5,8 @@ import { StatusBar } from "./StatusBar";
 import { MessageItem } from "./MessageItem";
 import { RoundtableView } from "./RoundtableView";
 import { NewMessageInput } from "./NewMessageInput";
+import { BranchBar } from "./BranchBar";
+import { InlineRename } from "./InlineRename";
 import { Users, MessageSquare } from "lucide-react";
 
 export function ChatPanel() {
@@ -14,6 +16,7 @@ export function ChatPanel() {
     selectedConversationId,
     conversations,
     isRunning,
+    runningThreadIds,
     error,
     activeBranchId,
     activeSkills,
@@ -21,6 +24,8 @@ export function ChatPanel() {
     createBranch,
     createMemo,
     openThread,
+    sendFollowup,
+    renameConversation,
   } = useChatStore();
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -36,8 +41,8 @@ export function ChatPanel() {
 
   // Auto-scroll on new messages
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isRunning]);
+    bottomRef.current?.scrollIntoView({ behavior: "auto" });
+  }, [messages, runningThreadIds]);
 
   const branchObj = activeBranchId
     ? { id: activeBranchId, label: activeBranchId.slice(0, 12) + "..." }
@@ -70,8 +75,13 @@ export function ChatPanel() {
           ) : (
             <MessageSquare className="w-4 h-4 text-muted-foreground shrink-0" />
           )}
-          <h2 className="text-sm font-semibold text-foreground truncate">
-            {currentConv?.customLabel ?? currentConv?.label ?? "Conversation"}
+          <h2 className="text-sm font-semibold text-foreground truncate min-w-0">
+            {selectedConversationId && currentConv ? (
+              <InlineRename
+                value={currentConv.customLabel ?? currentConv.label}
+                onSave={(v) => renameConversation(selectedConversationId, v)}
+              />
+            ) : "Conversation"}
           </h2>
           <span className={cn(
             "text-[10px] font-medium px-1.5 py-0.5 rounded-full uppercase tracking-wide border shrink-0",
@@ -110,6 +120,11 @@ export function ChatPanel() {
         )}
       </div>
 
+      {/* Branch bar — relocated from right panel */}
+      {(activeBranchId || branches.length > 0) && (
+        <BranchBar />
+      )}
+
       {/* Error banner */}
       {error && (
         <div className="px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-destructive text-xs shrink-0">
@@ -123,7 +138,7 @@ export function ChatPanel() {
           <RoundtableView messages={messages} onBranch={(id) => createBranch(selectedConversationId, id)} />
         ) : (
           <div className="py-3 space-y-0.5">
-            {messages.length === 0 && !isRunning && (
+            {messages.length === 0 && !runningThreadIds.includes(selectedConversationId!) && (
               <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
                 No messages yet
               </div>
@@ -138,13 +153,15 @@ export function ChatPanel() {
                   key={msg.id}
                   message={msg}
                   onBranch={!activeBranchId ? (id) => createBranch(selectedConversationId, id) : undefined}
+                  onBranchRT={!activeBranchId ? (id) => createBranch(selectedConversationId, id, undefined, "roundtable") : undefined}
                   onMemo={!activeBranchId ? (id) => createMemo(id, msg.content) : undefined}
+                  onFollowup={(engine, content) => sendFollowup(engine, "message", content)}
                   threadBranches={msgBranches.length > 0 ? msgBranches : undefined}
                   onOpenThread={!activeBranchId ? (branchId) => openThread(branchId) : undefined}
                 />
               );
             })}
-            {isRunning && messages[messages.length - 1]?.status !== "streaming" && (
+            {runningThreadIds.includes(selectedConversationId!) && messages[messages.length - 1]?.status !== "streaming" && (
               <div className="flex items-center gap-1 px-4 py-3 text-muted-foreground text-xs">
                 <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
                 <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />

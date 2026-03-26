@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useMemo } from "react";
 import { X, Check, GitBranch, Maximize2, SendHorizonal, User, ChevronDown } from "lucide-react";
 import { cn, isKnownEngine, AGENT_COLORS, AGENT_DOT_COLORS, AGENT_DISPLAY_NAMES, formatTimestamp } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
@@ -20,17 +20,30 @@ export function BranchThreadPanel() {
     threadParentMessage,
     selectedConversationId,
     isRunning,
+    runningThreadIds,
     closeThread,
     adoptBranch,
     openBranchStream,
     sendThreadMessage,
+    engineModels,
   } = useChatStore();
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
   const [engine, setEngine] = useState<Engine>("claude");
+  const [selectedModel, setSelectedModel] = useState<string>("");
   const [showEnginePicker, setShowEnginePicker] = useState(false);
+
+  const currentModels = useMemo(
+    () => engineModels.filter((m) => m.engine === engine),
+    [engineModels, engine],
+  );
+
+  useEffect(() => {
+    const rec = currentModels.find((m) => m.recommended);
+    setSelectedModel(rec?.id ?? currentModels[0]?.id ?? "");
+  }, [engine, currentModels.length]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -47,9 +60,9 @@ export function BranchThreadPanel() {
 
   const handleSend = async () => {
     const prompt = text.trim();
-    if (!prompt || isRunning) return;
+    if (!prompt) return;
     setText("");
-    await sendThreadMessage(prompt, engine);
+    await sendThreadMessage(prompt, engine, selectedModel || undefined);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -80,7 +93,7 @@ export function BranchThreadPanel() {
     : null;
 
   return (
-    <div className="flex flex-col w-[480px] shrink-0 h-full border-l border-border bg-background">
+    <div className="flex flex-col w-full h-full bg-background">
       {/* ── Header — conversation-style, same visual weight as ChatPanel header ── */}
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border shrink-0">
         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -169,7 +182,7 @@ export function BranchThreadPanel() {
                 showActions={false}
               />
             ))}
-            {isRunning && threadMessages[threadMessages.length - 1]?.status !== "streaming" && (
+            {runningThreadIds.length > 0 && threadMessages[threadMessages.length - 1]?.status !== "streaming" && (
               <div className="flex items-center gap-1 px-4 py-3 text-muted-foreground text-xs">
                 <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
                 <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
@@ -215,6 +228,20 @@ export function BranchThreadPanel() {
                 </div>
               )}
             </div>
+            {/* 모델 셀렉터 */}
+            {currentModels.length > 0 && (
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="bg-input rounded px-1 py-0.5 text-[10px] outline-none border border-border text-muted-foreground max-w-[120px]"
+              >
+                {currentModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.recommended ? "★ " : ""}{m.label}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           <textarea
@@ -223,18 +250,17 @@ export function BranchThreadPanel() {
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Continue this thread... (⌘↵ to send)"
-            disabled={isRunning}
             rows={1}
-            className="w-full px-3 py-2.5 text-sm bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground leading-relaxed disabled:opacity-50"
+            className="w-full px-3 py-2.5 text-sm bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground leading-relaxed"
           />
           <div className="flex items-center gap-2 px-3 pb-2.5 pt-1">
             <span className="ml-auto text-[10px] text-muted-foreground font-mono">⌘↵ send</span>
             <button
               onClick={handleSend}
-              disabled={!text.trim() || isRunning}
+              disabled={!text.trim()}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
-                text.trim() && !isRunning
+                text.trim()
                   ? "bg-primary text-primary-foreground hover:bg-primary/90"
                   : "bg-muted text-muted-foreground cursor-not-allowed"
               )}

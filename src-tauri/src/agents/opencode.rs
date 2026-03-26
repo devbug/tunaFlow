@@ -6,10 +6,7 @@ use std::thread;
 use crate::agents::claude::{RunInput, RunOutput};
 use crate::errors::AppError;
 
-/// Non-project working directory so CLI agents don't enter coding mode.
-fn neutral_cwd() -> PathBuf {
-    std::env::temp_dir()
-}
+use super::claude::resolve_cwd;
 
 /// Resolve the opencode binary path.
 ///
@@ -100,7 +97,7 @@ pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
 
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .current_dir(neutral_cwd());
+        .current_dir(resolve_cwd(input.project_path.as_deref()));
 
     let mut child = cmd.spawn().map_err(|e| {
         AppError::Agent(format!("Failed to spawn opencode (tried: {}): {}", opencode_bin.display(), e))

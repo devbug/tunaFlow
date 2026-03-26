@@ -43,6 +43,8 @@ pub struct UpdateSubtaskStatusInput {
     /// "todo" | "in_progress" | "done" | "abandoned"
     pub status: String,
     pub outcome: Option<String>,
+    /// Agent name that performed this update (e.g. "claude", "codex")
+    pub updated_by: Option<String>,
 }
 
 // ─── Row mappers ─────────────────────────────────────────────────────────────
@@ -70,8 +72,10 @@ fn map_subtask(row: &rusqlite::Row) -> rusqlite::Result<PlanSubtask> {
         details: row.get(4)?,
         status: row.get(5)?,
         outcome: row.get(6)?,
-        created_at: row.get(7)?,
-        updated_at: row.get(8)?,
+        owner_agent: row.get(7)?,
+        last_updated_by: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 
@@ -79,7 +83,7 @@ const PLAN_COLS: &str =
     "id, conversation_id, branch_id, title, description, expected_outcome, status, created_at, updated_at";
 
 const SUBTASK_COLS: &str =
-    "id, plan_id, idx, title, details, status, outcome, created_at, updated_at";
+    "id, plan_id, idx, title, details, status, outcome, owner_agent, last_updated_by, created_at, updated_at";
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
@@ -190,6 +194,22 @@ pub fn list_subtasks(plan_id: String, state: State<DbState>) -> Result<Vec<PlanS
     Ok(rows)
 }
 
+/// Set the owner_agent for a subtask.
+#[tauri::command]
+pub fn set_subtask_owner(
+    id: String,
+    owner_agent: Option<String>,
+    state: State<DbState>,
+) -> Result<(), AppError> {
+    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let now = now_epoch_ms();
+    conn.execute(
+        "UPDATE plan_subtasks SET owner_agent = ?1, updated_at = ?2 WHERE id = ?3",
+        params![owner_agent, now, id],
+    )?;
+    Ok(())
+}
+
 /// Update the status (and optional outcome) of a single subtask.
 #[tauri::command]
 pub fn update_subtask_status(
@@ -199,8 +219,8 @@ pub fn update_subtask_status(
     let conn = state.0.lock().map_err(|_| AppError::Lock)?;
     let now = now_epoch_ms();
     conn.execute(
-        "UPDATE plan_subtasks SET status = ?1, outcome = ?2, updated_at = ?3 WHERE id = ?4",
-        params![input.status, input.outcome, now, input.id],
+        "UPDATE plan_subtasks SET status = ?1, outcome = ?2, last_updated_by = ?3, updated_at = ?4 WHERE id = ?5",
+        params![input.status, input.outcome, input.updated_by, now, input.id],
     )?;
     Ok(())
 }
@@ -240,6 +260,8 @@ pub fn replace_plan_subtasks(
             details: st.details.clone(),
             status: "todo".into(),
             outcome: None,
+            owner_agent: None,
+            last_updated_by: None,
             created_at: now,
             updated_at: now,
         });

@@ -1,13 +1,17 @@
 pub mod agents;
+pub mod agents_helpers;
 pub mod artifacts;
 pub mod branches;
 pub mod capabilities;
+pub mod context_queries;
 pub mod conversations;
 pub mod evaluation;
 pub mod memos;
+pub mod models;
 pub mod messages;
 pub mod plans;
 pub mod projects;
 pub mod roundtable;
+pub mod roundtable_helpers;
 pub mod skills;
 pub mod tracing;

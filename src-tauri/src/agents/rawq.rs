@@ -1,159 +1,334 @@
-/// Minimal rawq: keyword-based code file search for ContextPack injection.
-/// DATA_MODEL §1.7 — rawq search result → prompt prefix (§4.2 step 3).
+/// rawq integration — calls the real rawq CLI binary.
 ///
-/// All operations are runtime-only (no DB, no persistent index).
-use std::collections::HashSet;
-use std::fs;
-use std::path::Path;
+/// This module does NOT implement search logic. It delegates entirely to the
+/// rawq binary and maps its JSON output to tunaFlow's `SearchResult` type.
+///
+/// rawq is the source of truth for search behavior, options, and output format.
+/// See: D:\privateProject\_research\_util\rawq (local clone)
+///
+/// If rawq is not available, this module returns explicit errors — no silent fallback.
+use std::path::PathBuf;
+use std::process::Command;
 
-/// Maximum file size to read (skip larger files to avoid performance issues).
-const MAX_FILE_BYTES: u64 = 100_000;
-
-/// Maximum number of files to scan per request.
-const MAX_FILES: usize = 300;
-
-/// Maximum directory depth to recurse into.
-const MAX_DEPTH: usize = 6;
-
-/// Code file extensions to include in the search.
-const CODE_EXTENSIONS: &[&str] = &[
-    "rs", "ts", "tsx", "js", "jsx", "mjs",
-    "py", "go", "java", "c", "cpp", "h", "hpp",
-    "toml", "yaml", "yml",
-];
-
-/// Directories to skip entirely during scan.
-const SKIP_DIRS: &[&str] = &[
-    "node_modules", "target", "dist", ".git", ".next",
-    "__pycache__", "venv", ".venv", "vendor", "coverage",
-];
-
+/// Search result mapped from rawq JSON output.
 pub struct SearchResult {
-    /// File path relative to project root, forward-slash separated.
     pub file: String,
-    /// 1-based line number of the match.
     pub line: usize,
-    /// Trimmed content of the matched line.
     pub snippet: String,
 }
 
-/// Search `project_path` for code lines matching any keyword extracted from `query`.
-/// Returns at most `limit` results in file-path + line-number order.
-pub fn search(project_path: &str, query: &str, limit: usize) -> Vec<SearchResult> {
-    let keywords = extract_keywords(query);
-    if keywords.is_empty() || limit == 0 {
-        return Vec::new();
+#[derive(Debug)]
+pub enum RawqError {
+    NotFound(String),
+    ExecFailed(String),
+    NonZeroExit { code: i32, stderr: String },
+    ParseFailed(String),
+    NoResults,
+}
+
+impl std::fmt::Display for RawqError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound(msg) => write!(f, "rawq not found: {}", msg),
+            Self::ExecFailed(e) => write!(f, "rawq exec failed: {}", e),
+            Self::NonZeroExit { code, stderr } => write!(f, "rawq exit {}: {}", code, stderr),
+            Self::ParseFailed(e) => write!(f, "rawq JSON parse: {}", e),
+            Self::NoResults => write!(f, "rawq: 0 results"),
+        }
+    }
+}
+
+// ─── Binary resolution ───────────────────────────────────────────────────────
+
+/// Resolve the rawq binary path.
+///
+/// Priority:
+/// 1. `RAWQ_BIN` environment variable (explicit override)
+/// 2. Known local build path (development)
+/// 3. `rawq` on PATH (installed)
+fn resolve_rawq_bin() -> Result<PathBuf, RawqError> {
+    // 1. Env override
+    if let Ok(p) = std::env::var("RAWQ_BIN") {
+        let path = PathBuf::from(&p);
+        if path.is_file() {
+            return Ok(path);
+        }
+        return Err(RawqError::NotFound(format!("RAWQ_BIN={} does not exist", p)));
     }
 
-    let root = Path::new(project_path);
-    if !root.is_dir() {
-        return Vec::new();
+    // 2. Known local build (development convenience)
+    let local_paths = [
+        r"D:\privateProject\_research\_util\rawq\target\release\rawq.exe",
+        r"D:\privateProject\_research\_util\rawq\target\debug\rawq.exe",
+    ];
+    for p in &local_paths {
+        let path = PathBuf::from(p);
+        if path.is_file() {
+            return Ok(path);
+        }
     }
+
+    // 3. PATH lookup
+    let status = Command::new("rawq")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    if let Ok(s) = status {
+        if s.success() {
+            return Ok(PathBuf::from("rawq"));
+        }
+    }
+
+    Err(RawqError::NotFound(
+        "rawq not on PATH and no local build found".into(),
+    ))
+}
+
+/// Check if rawq binary is available (any resolution path).
+pub fn is_available() -> bool {
+    resolve_rawq_bin().is_ok()
+}
+
+// ─── Index management ────────────────────────────────────────────────────────
+
+/// Structured index info from `rawq index status --json`.
+pub struct IndexInfo {
+    pub files: u64,
+    pub chunks: u64,
+    pub model: String,
+}
+
+/// Get index status. Returns `Ok(Some(info))` if indexed, `Ok(None)` if not, `Err` on failure.
+pub fn index_status(project_path: &str) -> Result<Option<IndexInfo>, RawqError> {
+    let bin = resolve_rawq_bin()?;
+    let output = Command::new(&bin)
+        .args(["index", "status", project_path, "--json"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .map_err(|e| RawqError::ParseFailed(e.to_string()))?;
+
+    let indexed = parsed.get("indexed").and_then(|v| v.as_bool()).unwrap_or(false);
+    if !indexed {
+        return Ok(None);
+    }
+
+    Ok(Some(IndexInfo {
+        files: parsed.get("files").and_then(|v| v.as_u64()).unwrap_or(0),
+        chunks: parsed.get("chunks").and_then(|v| v.as_u64()).unwrap_or(0),
+        model: parsed.get("model").and_then(|v| v.as_str()).unwrap_or("unknown").to_string(),
+    }))
+}
+
+/// Check if a rawq index exists for the given path.
+/// Returns `true` if indexed, `false` otherwise.
+///
+/// CLI: `rawq index status <path> --json`
+/// Output: `{ "indexed": true/false, "files": N, "chunks": N, ... }`
+pub fn is_indexed(project_path: &str) -> Result<bool, RawqError> {
+    let bin = resolve_rawq_bin()?;
+    let output = Command::new(&bin)
+        .args(["index", "status", project_path, "--json"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
+
+    if !output.status.success() {
+        return Ok(false);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .map_err(|e| RawqError::ParseFailed(e.to_string()))?;
+
+    Ok(parsed.get("indexed").and_then(|v| v.as_bool()).unwrap_or(false))
+}
+
+/// Ensure a rawq index exists for the given path.
+/// Checks status first; only builds if not yet indexed.
+///
+/// CLI: `rawq index build <path> --json`
+/// Returns number of files indexed, or error.
+pub fn ensure_index(project_path: &str) -> Result<u64, RawqError> {
+    // Check first — skip if already indexed
+    match is_indexed(project_path) {
+        Ok(true) => {
+            eprintln!("[rawq] index already exists for {}", project_path);
+            return Ok(0);
+        }
+        Ok(false) => {
+            eprintln!("[rawq] no index for {} — building...", project_path);
+        }
+        Err(e) => {
+            eprintln!("[rawq] index status check failed: {} — attempting build", e);
+        }
+    }
+
+    let bin = resolve_rawq_bin()?;
+    let output = Command::new(&bin)
+        .args(["index", "build", project_path, "--json"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.is_empty() {
+        eprintln!("[rawq] build: {}", stderr.trim());
+    }
+
+    if !output.status.success() {
+        let code = output.status.code().unwrap_or(-1);
+        return Err(RawqError::NonZeroExit { code, stderr: stderr.trim().to_string() });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .map_err(|e| RawqError::ParseFailed(e.to_string()))?;
+
+    let total = parsed.get("total_files").and_then(|v| v.as_u64()).unwrap_or(0);
+    eprintln!("[rawq] index built: {} files", total);
+    Ok(total)
+}
+
+// ─── Search ──────────────────────────────────────────────────────────────────
+
+/// Search using the real rawq CLI. No fallback.
+///
+/// CLI invocation (from rawq source args.rs):
+///   rawq search "<query>" <path> -n <top> --threshold 0.3 -C 2 --json
+pub fn search(project_path: &str, query: &str, limit: usize) -> Result<Vec<SearchResult>, RawqError> {
+    if query.trim().is_empty() || limit == 0 {
+        return Err(RawqError::NoResults);
+    }
+
+    let bin = resolve_rawq_bin()?;
+    let t0 = std::time::Instant::now();
+
+    let mut child = Command::new(&bin)
+        .args([
+            "search",
+            query,
+            project_path,
+            "-n", &limit.to_string(),
+            "--threshold", "0.3",
+            "-C", "2",
+            "--json",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
+
+    // Timeout: 5 seconds max for search
+    let timeout = std::time::Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if t0.elapsed() > timeout {
+                    let _ = child.kill();
+                    eprintln!("[rawq] search timed out after {}ms", t0.elapsed().as_millis());
+                    return Err(RawqError::ExecFailed("search timed out (5s)".into()));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => return Err(RawqError::ExecFailed(e.to_string())),
+        }
+    }
+
+    let output = child.wait_with_output()
+        .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
+    eprintln!("[rawq] search completed in {}ms", t0.elapsed().as_millis());
+
+    if !output.status.success() {
+        let code = output.status.code().unwrap_or(-1);
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        // rawq exit code 1 = no results found (not an error)
+        if code == 1 {
+            return Err(RawqError::NoResults);
+        }
+        return Err(RawqError::NonZeroExit { code, stderr });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_json(&stdout, limit)
+}
+
+/// Parse rawq search --json output.
+///
+/// Schema (from rawq src/search/engine.rs):
+/// ```json
+/// {
+///   "schema_version": 1,
+///   "model": "snowflake-arctic-embed-s",
+///   "results": [{
+///     "file": "path/to/file.rs",
+///     "lines": [23, 41],
+///     "scope": "Struct.method",
+///     "confidence": 0.91,
+///     "content": "...",
+///     "token_count": 45
+///   }],
+///   "query_ms": 8,
+///   "total_tokens": 45
+/// }
+/// ```
+fn parse_json(json_str: &str, limit: usize) -> Result<Vec<SearchResult>, RawqError> {
+    let parsed: serde_json::Value = serde_json::from_str(json_str)
+        .map_err(|e| RawqError::ParseFailed(e.to_string()))?;
+
+    let results_arr = parsed
+        .get("results")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| RawqError::ParseFailed("missing 'results' array".into()))?;
+
+    let query_ms = parsed.get("query_ms").and_then(|v| v.as_u64()).unwrap_or(0);
 
     let mut results = Vec::new();
-    let mut files_scanned = 0usize;
-    scan_dir(root, root, &keywords, &mut results, &mut files_scanned, 0, limit);
-    results
-}
+    for item in results_arr.iter().take(limit) {
+        let file = item.get("file").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let line = item
+            .get("lines")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1) as usize;
+        let scope = item.get("scope").and_then(|v| v.as_str()).unwrap_or("");
+        let confidence = item.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let content = item.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
-/// Split query into unique lowercase tokens of length > 2 (char count).
-/// Takes up to 5 tokens to avoid overly broad searches.
-fn extract_keywords(query: &str) -> Vec<String> {
-    let mut seen = HashSet::new();
-    query
-        .split(|c: char| {
-            c.is_whitespace() || ".,;:!?()[]{}\"'`#@/\\=<>".contains(c)
-        })
-        .filter(|w| w.chars().count() > 2)
-        .map(|w| w.to_lowercase())
-        .filter(|w| seen.insert(w.clone()))
-        .take(5)
-        .collect()
-}
+        // First non-empty line as snippet
+        let snippet = content
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or(content)
+            .trim()
+            .to_string();
 
-fn scan_dir(
-    root: &Path,
-    dir: &Path,
-    keywords: &[String],
-    results: &mut Vec<SearchResult>,
-    files_scanned: &mut usize,
-    depth: usize,
-    limit: usize,
-) {
-    if depth > MAX_DEPTH || results.len() >= limit || *files_scanned >= MAX_FILES {
-        return;
-    }
-
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-
-    let mut entries: Vec<_> = entries.flatten().collect();
-    entries.sort_by_key(|e| e.file_name()); // deterministic order
-
-    for entry in entries {
-        if results.len() >= limit || *files_scanned >= MAX_FILES {
-            break;
-        }
-        let path = entry.path();
-
-        // Skip hidden entries and known large/irrelevant dirs
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.starts_with('.') || SKIP_DIRS.contains(&name) {
-                continue;
-            }
-        }
-
-        if path.is_dir() {
-            scan_dir(root, &path, keywords, results, files_scanned, depth + 1, limit);
-        } else if is_code_file(&path) {
-            *files_scanned += 1;
-            search_file(root, &path, keywords, results, limit);
-        }
-    }
-}
-
-fn is_code_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|ext| CODE_EXTENSIONS.contains(&ext))
-        .unwrap_or(false)
-}
-
-fn search_file(
-    root: &Path,
-    path: &Path,
-    keywords: &[String],
-    results: &mut Vec<SearchResult>,
-    limit: usize,
-) {
-    if let Ok(meta) = path.metadata() {
-        if meta.len() > MAX_FILE_BYTES {
-            return;
+        if !snippet.is_empty() {
+            eprintln!(
+                "[rawq] {}:{} [{}] {:.0}%",
+                file, line, scope, confidence * 100.0
+            );
+            results.push(SearchResult { file: file.to_string(), line, snippet });
         }
     }
 
-    let Ok(content) = fs::read_to_string(path) else {
-        return; // skip binary / non-UTF-8 files
-    };
-
-    let rel = path.strip_prefix(root).unwrap_or(path);
-    let file = rel.to_string_lossy().replace('\\', "/");
-
-    for (i, line) in content.lines().enumerate() {
-        if results.len() >= limit {
-            break;
-        }
-        let lower = line.to_lowercase();
-        if keywords.iter().any(|kw| lower.contains(kw.as_str())) {
-            let snippet = line.trim().to_string();
-            if !snippet.is_empty() {
-                results.push(SearchResult {
-                    file: file.clone(),
-                    line: i + 1,
-                    snippet,
-                });
-            }
-        }
+    if results.is_empty() {
+        return Err(RawqError::NoResults);
     }
+
+    eprintln!("[rawq] {} results in {}ms", results.len(), query_ms);
+    Ok(results)
 }

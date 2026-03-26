@@ -1,0 +1,641 @@
+use rusqlite::params;
+
+use crate::agents::{loader, rawq};
+
+/// Controls how much context is assembled into the system prompt.
+///
+/// | Mode     | Includes                                    | Use case                     |
+/// |----------|---------------------------------------------|------------------------------|
+/// | Lite     | project path + base prompt + context summary | 일반 대화, 단순 질문          |
+/// | Standard | Lite + plan + findings + artifacts           | follow-up, branch, plan 작업 |
+/// | Full     | Standard + rawq + cross-session + skills     | 코드 분석, 전체 검토          |
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub enum ContextMode {
+    Lite,
+    Standard,
+    Full,
+}
+
+/// Maximum number of rawq code search results.
+const RAWQ_MAX_RESULTS: usize = 5;
+/// Maximum number of prior messages for non-Claude lite context prefix.
+pub const LITE_CONTEXT_MESSAGES_LIMIT: i64 = 4;
+/// Maximum total characters for the lite context prefix.
+const LITE_CONTEXT_MAX_CHARS: usize = 4000;
+
+/// Truncate a string to `max` bytes (character boundary safe).
+fn truncate_str(s: &str, max: usize) -> String {
+    if s.len() > max {
+        let end = s
+            .char_indices()
+            .map(|(i, _)| i)
+            .take_while(|&i| i <= max)
+            .last()
+            .unwrap_or(0);
+        format!("{}…", &s[..end])
+    } else {
+        s.to_string()
+    }
+}
+
+fn format_section(header: &str, rows: &[(String, String)], max_chars: usize) -> String {
+    let mut out = format!("## {}\n", header);
+    for (role, content) in rows {
+        out.push_str(&format!("\n[{}] {}\n", role, truncate_str(content, max_chars)));
+    }
+    out
+}
+
+/// Combine multiple optional system-prompt sections, joining with double newline.
+pub fn combine_prompt_parts(parts: impl IntoIterator<Item = Option<String>>) -> Option<String> {
+    let joined: String = parts
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if joined.is_empty() { None } else { Some(joined) }
+}
+
+pub fn build_skills_section(skill_names: &[String]) -> Option<String> {
+    if skill_names.is_empty() {
+        return None;
+    }
+    let mut sections = Vec::new();
+    for name in skill_names {
+        if let Ok(skill) = crate::commands::skills::get_skill(name.clone()) {
+            sections.push(format!("### {}\n\n{}", skill.name, skill.content));
+        }
+    }
+    if sections.is_empty() {
+        return None;
+    }
+    Some(format!("## Active skills\n\n{}", sections.join("\n\n")))
+}
+
+pub fn build_cross_session_section(
+    cross_session: &[(String, Vec<(String, String)>)],
+) -> Option<String> {
+    if cross_session.is_empty() {
+        return None;
+    }
+    let mut blocks = Vec::new();
+    for (label, rows) in cross_session {
+        if rows.is_empty() {
+            continue;
+        }
+        let mut block = format!("### {}\n", label);
+        for (role, content) in rows {
+            block.push_str(&format!("\n[{}] {}\n", role, truncate_str(content, 200)));
+        }
+        blocks.push(block);
+    }
+    if blocks.is_empty() {
+        return None;
+    }
+    Some(format!("## Cross-session context\n\n{}", blocks.join("\n")))
+}
+
+/// Keywords that signal code-related intent — rawq is only useful for these.
+const CODE_SIGNAL_KEYWORDS: &[&str] = &[
+    // 한국어
+    "파일", "코드", "함수", "구현", "클래스", "구조", "모듈", "타입", "인터페이스",
+    "컴포넌트", "변수", "메서드", "에러", "버그", "수정", "리팩", "검색", "찾아",
+    // 영어
+    "file", "code", "function", "implement", "class", "struct", "module", "type",
+    "interface", "component", "variable", "method", "error", "bug", "fix", "refactor",
+    "search", "find", "where", "how does",
+    // 경로/확장자 패턴
+    "src/", "src\\", ".rs", ".ts", ".tsx", ".js", ".py", ".go", ".java",
+];
+
+/// Check if a prompt likely needs code context from rawq.
+fn prompt_needs_rawq(prompt: &str) -> bool {
+    let lower = prompt.to_lowercase();
+    CODE_SIGNAL_KEYWORDS.iter().any(|kw| lower.contains(kw))
+}
+
+pub fn build_rawq_section(project_path: Option<&str>, prompt: &str) -> Option<String> {
+    let path = project_path?;
+
+    if !prompt_needs_rawq(prompt) {
+        eprintln!("[context_pack] rawq skipped — no code signal in prompt");
+        return None;
+    }
+
+    match rawq::search(path, prompt, RAWQ_MAX_RESULTS) {
+        Ok(results) => {
+            let mut out = String::from("## Code context (rawq)\n");
+            for r in &results {
+                let snippet = if r.snippet.len() > 120 {
+                    let end = r.snippet.char_indices().map(|(i, _)| i).take_while(|&i| i <= 120).last().unwrap_or(0);
+                    format!("{}…", &r.snippet[..end])
+                } else {
+                    r.snippet.clone()
+                };
+                out.push_str(&format!("\n`{}` L{}: {}\n", r.file, r.line, snippet));
+            }
+            Some(out)
+        }
+        Err(e) => {
+            eprintln!("[context_pack] rawq: {}", e);
+            None
+        }
+    }
+}
+
+pub fn build_context_summary(
+    current_rows: &[(String, String)],
+    parent_rows: &[(String, String)],
+    is_branch: bool,
+) -> Option<String> {
+    let has_current = !current_rows.is_empty();
+    let has_parent = !parent_rows.is_empty();
+
+    if !has_current && !has_parent {
+        return None;
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+
+    if has_parent {
+        parts.push(format_section("Parent conversation context", parent_rows, 300));
+    }
+
+    if has_current {
+        let header = if is_branch {
+            "Branch conversation context"
+        } else {
+            "Recent conversation context"
+        };
+        parts.push(format_section(header, current_rows, 400));
+    }
+
+    Some(parts.join("\n"))
+}
+
+/// Build `## Recent Artifacts` from the most recent approved/draft artifacts.
+///
+/// Takes up to 3 recent artifacts for the conversation, showing title, type,
+/// status, and a short content preview. Returns None if no artifacts exist.
+pub fn build_artifact_handoff_section(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+) -> Option<String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT title, type, status, content FROM artifacts
+             WHERE conversation_id = ?1
+             ORDER BY updated_at DESC LIMIT 3",
+        )
+        .ok()?;
+    let rows: Vec<(String, String, String, String)> = stmt
+        .query_map([conversation_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .ok()?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    if rows.is_empty() {
+        return None;
+    }
+
+    let mut out = String::from("## Recent Artifacts\n");
+    for (title, art_type, status, content) in &rows {
+        let preview = if content.len() > 120 {
+            let end = content.char_indices().map(|(i, _)| i).take_while(|&i| i <= 117).last().unwrap_or(0);
+            format!("{}...", &content[..end])
+        } else {
+            content.clone()
+        };
+        out.push_str(&format!(
+            "\n**{}** ({}·{}): {}\n",
+            title, art_type, status, preview
+        ));
+    }
+
+    Some(out)
+}
+
+/// Build `## Recent Agent Findings` from the most recent roundtable_brief memos.
+///
+/// Queries briefs from:
+/// 1. The conversation itself
+/// 2. Any RT branch shadow conversations (`branch:{id}` where branch belongs to this conversation)
+///
+/// This ensures RT branch results are visible in the parent conversation's ContextPack.
+pub fn build_findings_section(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+) -> Option<String> {
+    // Briefs from this conversation + its branch shadow conversations
+    let mut stmt = conn
+        .prepare(
+            "SELECT content FROM memos
+             WHERE type = 'roundtable_brief'
+               AND (conversation_id = ?1
+                    OR conversation_id IN (
+                      SELECT 'branch:' || id FROM branches WHERE conversation_id = ?1
+                    ))
+             ORDER BY created_at DESC LIMIT 3",
+        )
+        .ok()?;
+    let briefs: Vec<String> = stmt
+        .query_map([conversation_id], |row| row.get::<_, String>(0))
+        .ok()?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    if briefs.is_empty() {
+        return None;
+    }
+
+    let mut out = String::from("## Recent Agent Findings\n");
+    for (i, brief) in briefs.iter().enumerate() {
+        // Take first 600 chars of each brief to keep section short
+        let truncated = if brief.len() > 600 {
+            let end = brief.char_indices().map(|(i, _)| i).take_while(|&i| i <= 597).last().unwrap_or(0);
+            format!("{}...", &brief[..end])
+        } else {
+            brief.clone()
+        };
+        if i > 0 {
+            out.push_str("\n---\n");
+        }
+        out.push('\n');
+        out.push_str(&truncated);
+        out.push('\n');
+    }
+
+    Some(out)
+}
+
+pub fn build_plan_section(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+) -> Option<String> {
+    let plan: (String, String, Option<String>) = conn
+        .query_row(
+            "SELECT id, title, description FROM plans
+             WHERE conversation_id = ?1 AND status = 'active'
+             ORDER BY updated_at DESC LIMIT 1",
+            [conversation_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .ok()?;
+
+    let (plan_id, title, description) = plan;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT title, status, details FROM plan_subtasks
+             WHERE plan_id = ?1 ORDER BY idx",
+        )
+        .ok()?;
+    let subtasks: Vec<(String, String, Option<String>)> = stmt
+        .query_map([&plan_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .ok()?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let mut out = format!("## Active Plan\n\n### {}\n", title);
+    if let Some(desc) = &description {
+        if !desc.is_empty() {
+            out.push_str(&format!("{}\n", desc));
+        }
+    }
+
+    let in_progress: Vec<&str> = subtasks
+        .iter()
+        .filter(|(_, s, _)| s == "in_progress")
+        .map(|(t, _, _)| t.as_str())
+        .collect();
+    if !in_progress.is_empty() {
+        out.push_str(&format!("\n**Current:** {}\n", in_progress.join(", ")));
+    }
+
+    if let Some((next_title, _, _)) = subtasks.iter().find(|(_, s, _)| s == "todo") {
+        out.push_str(&format!("**Next:** {}\n", next_title));
+    }
+
+    let done_count = subtasks.iter().filter(|(_, s, _)| s == "done").count();
+    let total = subtasks.len();
+    if total > 0 {
+        out.push_str(&format!("**Progress:** {}/{} done\n", done_count, total));
+    }
+
+    Some(out)
+}
+
+/// Resolve branch conversation_id to its parent for plan lookup.
+pub fn resolve_plan_conversation_id(conn: &rusqlite::Connection, conversation_id: &str) -> String {
+    if !conversation_id.starts_with("branch:") {
+        return conversation_id.to_string();
+    }
+    let branch_id = &conversation_id["branch:".len()..];
+    conn.query_row(
+        "SELECT conversation_id FROM branches WHERE id = ?1",
+        [branch_id],
+        |row| row.get::<_, String>(0),
+    )
+    .unwrap_or_else(|_| conversation_id.to_string())
+}
+
+/// Build a lightweight context prefix for non-Claude engines.
+///
+/// For branch conversations, also includes anchor message + recent parent turns
+/// so non-Claude engines in threads still get inherited context.
+pub fn build_lite_context_prompt(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+    user_prompt: &str,
+) -> String {
+    use crate::commands::context_queries::{load_anchor_message, load_recent_messages, parent_conversation_id};
+
+    let is_branch = conversation_id.starts_with("branch:");
+
+    // Parent context for branch conversations
+    let mut parent_prefix = String::new();
+    if is_branch {
+        if let Some((_role, content)) = load_anchor_message(conn, conversation_id) {
+            let truncated = truncate_str(&content, 400);
+            parent_prefix.push_str(&format!("Thread anchor:\n{}\n\n", truncated));
+        }
+        if let Some(parent_id) = parent_conversation_id(conn, conversation_id) {
+            let parent_rows = load_recent_messages(conn, &parent_id, 2);
+            if !parent_rows.is_empty() {
+                parent_prefix.push_str("Parent conversation:\n");
+                for (role, content) in &parent_rows {
+                    parent_prefix.push_str(&format!("[{}] {}\n", role, truncate_str(content, 200)));
+                }
+                parent_prefix.push_str("\n---\n\n");
+            }
+        }
+    }
+
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT role, content FROM messages
+         WHERE conversation_id = ?1
+         ORDER BY timestamp DESC LIMIT ?2",
+    ) else {
+        return format!("{}{}", parent_prefix, user_prompt);
+    };
+
+    let mut rows: Vec<(String, String)> = stmt
+        .query_map(params![conversation_id, LITE_CONTEXT_MESSAGES_LIMIT], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map(|mapped| mapped.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default();
+    rows.reverse();
+
+    if rows.is_empty() && parent_prefix.is_empty() {
+        return user_prompt.to_string();
+    }
+
+    let mut context = parent_prefix;
+    if !rows.is_empty() {
+        context.push_str("Recent conversation:\n");
+        let mut char_count = context.len();
+        for (role, content) in &rows {
+            let truncated = truncate_str(content, 600);
+            let line = format!("[{}] {}\n", role, truncated);
+            if char_count + line.len() > LITE_CONTEXT_MAX_CHARS {
+                break;
+            }
+            context.push_str(&line);
+            char_count += line.len();
+        }
+        context.push_str("\n---\n\n");
+    }
+
+    format!("{}{}", context, user_prompt)
+}
+
+// ─── Thread / RT inheritance helpers ─────────────────────────────────────────
+
+/// Maximum characters for the anchor message included in inheritance context.
+const ANCHOR_MAX_CHARS: usize = 600;
+/// Maximum recent parent turns for thread inheritance.
+const THREAD_PARENT_RECENT: i64 = 3;
+/// Maximum recent parent turns for RT inheritance (more concise).
+const RT_PARENT_RECENT: i64 = 2;
+
+/// Build an inheritance context section for a thread (branch) conversation.
+///
+/// Priority: anchor message > recent parent turns.
+/// Does NOT include full parent history — only checkpoint + last N turns.
+pub fn build_thread_inheritance_section(
+    conn: &rusqlite::Connection,
+    branch_conv_id: &str,
+) -> Option<String> {
+    use crate::commands::context_queries::{load_anchor_message, load_recent_messages, parent_conversation_id};
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // 1. Anchor message (the message this branch was created from)
+    if let Some((_role, content)) = load_anchor_message(conn, branch_conv_id) {
+        let truncated = truncate_str(&content, ANCHOR_MAX_CHARS);
+        parts.push(format!("### Thread Anchor\n\nThis thread was started from the following message:\n{}", truncated));
+    }
+
+    // 2. Recent parent turns (2-3)
+    if let Some(parent_id) = parent_conversation_id(conn, branch_conv_id) {
+        let recent = load_recent_messages(conn, &parent_id, THREAD_PARENT_RECENT);
+        if !recent.is_empty() {
+            parts.push(format_section("Recent parent conversation", &recent, 300));
+        }
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+    Some(format!("## Thread Context\n\n{}", parts.join("\n\n")))
+}
+
+/// Build an inheritance context section for a roundtable conversation.
+///
+/// Priority: explicit source > anchor message > recent parent turns.
+/// More concise than thread inheritance.
+pub fn build_rt_inheritance_section(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+    explicit_source: Option<&str>,
+) -> Option<String> {
+    use crate::commands::context_queries::{load_anchor_message, load_recent_messages, parent_conversation_id};
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // 1. Explicit source (highest priority)
+    if let Some(source) = explicit_source {
+        if !source.is_empty() {
+            let truncated = truncate_str(source, 800);
+            parts.push(format!("### Discussion Source\n\n{}", truncated));
+        }
+    }
+
+    // 2. Anchor message (if no explicit source, or as supplementary)
+    if parts.is_empty() {
+        if let Some((_role, content)) = load_anchor_message(conn, conversation_id) {
+            let truncated = truncate_str(&content, ANCHOR_MAX_CHARS);
+            parts.push(format!("### Discussion Anchor\n\n{}", truncated));
+        }
+    }
+
+    // 3. Recent parent turns (1-2, concise)
+    if let Some(parent_id) = parent_conversation_id(conn, conversation_id) {
+        let recent = load_recent_messages(conn, &parent_id, RT_PARENT_RECENT);
+        if !recent.is_empty() {
+            parts.push(format_section("Recent parent context", &recent, 200));
+        }
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+    Some(format!("## Roundtable Context\n\n{}", parts.join("\n\n")))
+}
+
+/// Assemble the system prompt component of ContextPack (step 1).
+/// If both agent prompt and extra system_prompt are present, they are concatenated.
+pub fn assemble_system_prompt(
+    agent_name: Option<&str>,
+    project_path: Option<&str>,
+    extra: Option<&str>,
+) -> Option<String> {
+    let agent_prompt = agent_name
+        .zip(project_path)
+        .and_then(|(name, path)| {
+            loader::load_agent(path, name)
+                .map(|a| a.system_prompt)
+                .ok()
+        });
+
+    match (agent_prompt, extra) {
+        (Some(a), Some(e)) => Some(format!("{}\n\n{}", a, e)),
+        (Some(a), None) => Some(a),
+        (None, Some(e)) => Some(e.to_string()),
+        (None, None) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── truncate_str ────────────────────────────────────────────────────
+    #[test]
+    fn truncate_str_within_limit() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_str_over_limit() {
+        let result = truncate_str("hello world", 5);
+        assert!(result.ends_with('…'));
+        assert!(result.len() <= 10); // 5 bytes + ellipsis
+    }
+
+    #[test]
+    fn truncate_str_empty() {
+        assert_eq!(truncate_str("", 10), "");
+    }
+
+    // ─── combine_prompt_parts ────────────────────────────────────────────
+    #[test]
+    fn combine_all_none() {
+        assert_eq!(combine_prompt_parts([None, None, None]), None);
+    }
+
+    #[test]
+    fn combine_some_parts() {
+        let result = combine_prompt_parts([
+            Some("part1".into()),
+            None,
+            Some("part2".into()),
+        ]);
+        assert_eq!(result, Some("part1\n\npart2".into()));
+    }
+
+    #[test]
+    fn combine_single_part() {
+        let result = combine_prompt_parts([Some("only".into()), None]);
+        assert_eq!(result, Some("only".into()));
+    }
+
+    // ─── build_context_summary ───────────────────────────────────────────
+    #[test]
+    fn context_summary_empty_inputs() {
+        assert_eq!(build_context_summary(&[], &[], false), None);
+    }
+
+    #[test]
+    fn context_summary_current_only() {
+        let current = vec![("user".into(), "hello".into())];
+        let result = build_context_summary(&current, &[], false).unwrap();
+        assert!(result.contains("Recent conversation context"));
+        assert!(result.contains("hello"));
+    }
+
+    #[test]
+    fn context_summary_parent_only() {
+        let parent = vec![("assistant".into(), "response".into())];
+        let result = build_context_summary(&[], &parent, false).unwrap();
+        assert!(result.contains("Parent conversation context"));
+    }
+
+    #[test]
+    fn context_summary_branch_mode() {
+        let current = vec![("user".into(), "msg".into())];
+        let result = build_context_summary(&current, &[], true).unwrap();
+        assert!(result.contains("Branch conversation context"));
+    }
+
+    #[test]
+    fn context_summary_both() {
+        let current = vec![("user".into(), "cur".into())];
+        let parent = vec![("user".into(), "par".into())];
+        let result = build_context_summary(&current, &parent, true).unwrap();
+        assert!(result.contains("Parent conversation context"));
+        assert!(result.contains("Branch conversation context"));
+    }
+
+    // ─── build_cross_session_section ─────────────────────────────────────
+    #[test]
+    fn cross_session_empty() {
+        assert_eq!(build_cross_session_section(&[]), None);
+    }
+
+    #[test]
+    fn cross_session_with_data() {
+        let data = vec![
+            ("Session A".into(), vec![("user".into(), "question".into())]),
+        ];
+        let result = build_cross_session_section(&data).unwrap();
+        assert!(result.contains("Cross-session context"));
+        assert!(result.contains("Session A"));
+    }
+
+    // ─── assemble_system_prompt ──────────────────────────────────────────
+    #[test]
+    fn assemble_no_agent_no_extra() {
+        assert_eq!(assemble_system_prompt(None, None, None), None);
+    }
+
+    #[test]
+    fn assemble_extra_only() {
+        let result = assemble_system_prompt(None, None, Some("custom prompt"));
+        assert_eq!(result, Some("custom prompt".into()));
+    }
+
+    // ─── format_section ─────────────────────────────────────────────────
+    #[test]
+    fn format_section_basic() {
+        let rows = vec![("user".into(), "hello".into())];
+        let result = format_section("Test", &rows, 100);
+        assert!(result.starts_with("## Test\n"));
+        assert!(result.contains("[user] hello"));
+    }
+}
