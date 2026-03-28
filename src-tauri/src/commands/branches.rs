@@ -36,7 +36,7 @@ pub fn list_branches(
     conversation_id: String,
     state: State<DbState>,
 ) -> Result<Vec<Branch>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let mut stmt = conn.prepare(
         "SELECT id, conversation_id, label, custom_label, status,
                 checkpoint_id, parent_branch_id, session_id, git_branch, mode, subtask_id, created_at
@@ -68,7 +68,7 @@ pub fn create_branch(
     input: CreateBranchInput,
     state: State<DbState>,
 ) -> Result<Branch, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let id = Uuid::new_v4().to_string();
     let now = now_epoch();
 
@@ -147,7 +147,7 @@ pub fn open_branch_stream(
     branch_id: String,
     state: State<DbState>,
 ) -> Result<String, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let branch_conv_id = format!("branch:{}", branch_id);
 
     // Idempotent: skip creation if shadow row already exists
@@ -204,7 +204,7 @@ pub fn open_branch_stream(
 /// Empty string → NULL (fallback to auto-generated label).
 #[tauri::command]
 pub fn rename_branch(id: String, custom_label: String, state: State<DbState>) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let value: Option<&str> = if custom_label.trim().is_empty() { None } else { Some(custom_label.trim()) };
     conn.execute(
         "UPDATE branches SET custom_label = ?1 WHERE id = ?2",
@@ -219,7 +219,7 @@ pub fn delete_branch(
     id: String,
     state: State<DbState>,
 ) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
 
     let branch_conv_id = format!("branch:{}", id);
 
@@ -256,7 +256,7 @@ pub fn adopt_branch(
     input: AdoptBranchInput,
     state: State<DbState>,
 ) -> Result<Message, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
 
     // Validate branch exists and is active
     let (branch_label, branch_mode): (String, String) = conn
@@ -267,13 +267,7 @@ pub fn adopt_branch(
         )
         .map_err(|_| AppError::NotFound(format!("Active branch '{}' not found", input.branch_id)))?;
 
-    // 1. Mark branch as adopted (irreversible per DATA_MODEL §7.1)
-    conn.execute(
-        "UPDATE branches SET status = 'adopted' WHERE id = ?1",
-        [&input.branch_id],
-    )?;
-
-    // 2. Build adopt summary from actual branch data
+    // 1. Check content BEFORE changing status — so empty_branch error doesn't leave status as 'adopted'
     let shadow_id = format!("branch:{}", input.branch_id);
     let is_rt = branch_mode == "roundtable";
 
@@ -334,10 +328,16 @@ pub fn adopt_branch(
         }
     };
 
-    // If branch has no content, return empty marker for frontend to handle
+    // If branch has no content, return error BEFORE changing status
     if summary_body.is_empty() {
         return Err(AppError::Agent("empty_branch".into()));
     }
+
+    // Now safe to mark as adopted — content exists
+    conn.execute(
+        "UPDATE branches SET status = 'adopted' WHERE id = ?1",
+        [&input.branch_id],
+    )?;
 
     // Get engine/model from the last assistant message in the branch
     let (last_engine, last_model): (Option<String>, Option<String>) = conn

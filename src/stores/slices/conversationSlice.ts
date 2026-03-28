@@ -69,7 +69,13 @@ export const createConversationSlice = (set: SetState, get: GetState): Conversat
   },
 
   selectConversation: async (id: string) => {
-    set({ selectedConversationId: id, messages: [], branches: [], memos: [], artifacts: [] });
+    // Close drawer/thread if open — conversation is the primary view
+    set({
+      selectedConversationId: id,
+      messages: [], branches: [], memos: [], artifacts: [],
+      threadBranchId: null, threadBranchConvId: null, threadMessages: [],
+      threadBranchLabel: null, threadParentMessage: null,
+    });
     import("@/lib/appStore").then(({ setSetting }) => setSetting("lastConversationId", id)).catch(() => {});
     try {
       const [messages, branches, memos, artifacts] = await Promise.all([

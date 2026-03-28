@@ -1,20 +1,23 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { ClipboardList, FileText, Activity, Zap, StickyNote } from "lucide-react";
+import { ClipboardList, FileText, Activity, Zap, StickyNote, FileSearch, TestTube } from "lucide-react";
 
 import { ArtifactsPanel } from "./context-panel/ArtifactsPanel";
 import { MemosPanel } from "./context-panel/MemosPanel";
 import { SkillsPanel } from "./context-panel/SkillsPanel";
 import { PlansPanel } from "./context-panel/PlansPanel";
 import { TracePanel } from "./context-panel/TracePanel";
+import { ReviewPanel } from "./context-panel/ReviewPanel";
+import { TestPanel } from "./context-panel/TestPanel";
 import { HarnessSummary } from "./context-panel/HarnessSummary";
 
-/** Workspace modes — Plan / Artifacts / Trace (Phase 1 MVP) */
-type WorkspaceMode = "plan" | "artifacts" | "trace";
+type WorkspaceMode = "plan" | "review" | "test" | "artifacts" | "trace";
 
 const MODE_TABS: { id: WorkspaceMode; label: string; icon: React.ReactNode }[] = [
   { id: "plan", label: "Plan", icon: <ClipboardList className="w-3.5 h-3.5" /> },
+  { id: "review", label: "Review", icon: <FileSearch className="w-3.5 h-3.5" /> },
+  { id: "test", label: "Test", icon: <TestTube className="w-3.5 h-3.5" /> },
   { id: "artifacts", label: "Artifacts", icon: <FileText className="w-3.5 h-3.5" /> },
   { id: "trace", label: "Trace", icon: <Activity className="w-3.5 h-3.5" /> },
 ];
@@ -23,22 +26,27 @@ export function ContextPanel() {
   const [mode, setMode] = useState<WorkspaceMode>("plan");
   const [memosOpen, setMemosOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
-  const { artifacts, memos, selectedConversationId, activeBranchId, parentConversationId } = useChatStore();
+  const artifacts = useChatStore((s) => s.artifacts);
+  const memos = useChatStore((s) => s.memos);
+  const selectedConversationId = useChatStore((s) => s.selectedConversationId);
+  const activeBranchId = useChatStore((s) => s.activeBranchId);
+  const parentConversationId = useChatStore((s) => s.parentConversationId);
   const canonicalConvId = activeBranchId && parentConversationId
     ? parentConversationId
     : selectedConversationId;
 
   return (
-    <aside className="flex flex-col w-full h-full bg-sidebar overflow-hidden">
+    <aside data-testid="workspace-panel" className="flex flex-col w-full h-full bg-sidebar overflow-hidden">
 
-      {/* Mode bar */}
-      <div className="flex items-center gap-0.5 px-2 h-9 border-b border-border/40 shrink-0">
+      {/* Mode bar — scrollable to fit all tabs */}
+      <div className="flex items-center gap-px px-1 h-9 border-b border-border/40 shrink-0 overflow-x-auto">
         {MODE_TABS.map((tab) => (
           <button
             key={tab.id}
+            data-testid={`mode-tab-${tab.id}`}
             onClick={() => setMode(tab.id)}
             className={cn(
-              "flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-medium transition-colors",
+              "flex items-center gap-1 px-1.5 py-1 rounded text-[9px] font-medium transition-colors shrink-0",
               mode === tab.id
                 ? "bg-accent text-foreground"
                 : "text-muted-foreground/70 hover:text-foreground hover:bg-accent/50"
@@ -49,6 +57,16 @@ export function ContextPanel() {
             {tab.id === "artifacts" && artifacts.length > 0 && (
               <span className="text-[8px] bg-primary/10 text-primary/70 px-1 rounded">
                 {artifacts.length}
+              </span>
+            )}
+            {tab.id === "review" && artifacts.filter((a) => a.type === "review-findings" || a.type === "architect-decision").length > 0 && (
+              <span className="text-[8px] bg-status-draft/10 text-status-draft/70 px-1 rounded">
+                {artifacts.filter((a) => a.type === "review-findings" || a.type === "architect-decision").length}
+              </span>
+            )}
+            {tab.id === "test" && artifacts.filter((a) => a.type === "test-report").length > 0 && (
+              <span className="text-[8px] bg-agent-codex/10 text-agent-codex/70 px-1 rounded">
+                {artifacts.filter((a) => a.type === "test-report").length}
               </span>
             )}
           </button>
@@ -63,6 +81,22 @@ export function ContextPanel() {
             {canonicalConvId && <HarnessSummary conversationId={canonicalConvId} />}
             <h3 className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-2.5">Plans</h3>
             <PlansPanel />
+          </>
+        )}
+
+        {/* ─── Review mode ─── */}
+        {mode === "review" && (
+          <>
+            <h3 className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-2.5">Review</h3>
+            <ReviewPanel />
+          </>
+        )}
+
+        {/* ─── Test mode ─── */}
+        {mode === "test" && (
+          <>
+            <h3 className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-2.5">Test</h3>
+            <TestPanel />
           </>
         )}
 

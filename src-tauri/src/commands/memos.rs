@@ -39,7 +39,7 @@ pub fn list_memos(
     project_key: String,
     state: State<DbState>,
 ) -> Result<Vec<Memo>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let sql = format!(
         "SELECT {} FROM memos WHERE project_key = ?1 ORDER BY created_at DESC",
         SELECT_COLS
@@ -56,7 +56,7 @@ pub fn list_memos_by_conversation(
     conversation_id: String,
     state: State<DbState>,
 ) -> Result<Vec<Memo>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let sql = format!(
         "SELECT {} FROM memos WHERE conversation_id = ?1 ORDER BY created_at DESC",
         SELECT_COLS
@@ -73,7 +73,7 @@ pub fn create_memo(
     input: CreateMemoInput,
     state: State<DbState>,
 ) -> Result<Memo, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let id = Uuid::new_v4().to_string();
     let now = now_epoch_ms();
     let memo_type = input.memo_type.as_deref().unwrap_or("context");
@@ -101,7 +101,7 @@ pub fn create_memo(
 /// Looks in the shadow conversation `branch:{id}`.
 #[tauri::command]
 pub fn get_branch_brief(branch_id: String, state: State<DbState>) -> Result<Option<String>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let shadow_id = format!("branch:{}", branch_id);
     let result: Option<String> = conn
         .query_row(
@@ -117,7 +117,7 @@ pub fn get_branch_brief(branch_id: String, state: State<DbState>) -> Result<Opti
 
 #[tauri::command]
 pub fn delete_memo(id: String, state: State<DbState>) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     conn.execute("DELETE FROM memos WHERE id = ?1", [&id])?;
     Ok(())
 }

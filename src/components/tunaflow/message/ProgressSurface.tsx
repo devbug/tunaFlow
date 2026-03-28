@@ -10,7 +10,7 @@ export function TypingIndicator() {
   );
 }
 
-export function ProgressBlock({ content, maxLines = 8 }: { content: string; maxLines?: number }) {
+export function ProgressBlock({ content, maxLines = 5 }: { content: string; maxLines?: number }) {
   const lines = content.split("\n");
   const visible = lines.slice(-maxLines);
   const truncated = lines.length > maxLines;

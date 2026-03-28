@@ -12,6 +12,46 @@ pub struct SpanInfo<'a> {
     pub status: &'a str,
 }
 
+/// ContextPack metadata — lightweight record of what went into the system prompt.
+/// Full prompt body is NOT stored; only mode/sections/length/hash for traceability.
+#[derive(Debug, Clone, Default)]
+pub struct ContextPackMeta {
+    pub mode: String,
+    pub sections: Vec<String>,
+    pub length: usize,
+    pub hash: String,
+    pub truncated: bool,
+}
+
+impl ContextPackMeta {
+    /// Build metadata from assembled prompt parts.
+    pub fn from_parts(
+        mode: &str,
+        section_flags: &[(&str, bool)],
+        prompt: &Option<String>,
+        was_truncated: bool,
+    ) -> Self {
+        let sections: Vec<String> = section_flags.iter()
+            .filter(|(_, present)| *present)
+            .map(|(name, _)| name.to_string())
+            .collect();
+        let length = prompt.as_ref().map_or(0, |s| s.len());
+        let hash = prompt.as_ref().map_or_else(String::new, |s| {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut h = DefaultHasher::new();
+            s.hash(&mut h);
+            format!("{:016x}", h.finish())
+        });
+        Self { mode: mode.to_string(), sections, length, hash, truncated: was_truncated }
+    }
+
+    /// JSON-encoded sections list for DB storage.
+    pub fn sections_json(&self) -> String {
+        serde_json::to_string(&self.sections).unwrap_or_else(|_| "[]".to_string())
+    }
+}
+
 /// Generate a new random span id (UUID v4 hex, no dashes, 32 chars).
 pub fn new_span_id() -> String {
     Uuid::new_v4().simple().to_string()
@@ -51,6 +91,33 @@ pub fn insert_trace_log(
             span.engine,
             span.duration_ms,
             span.status,
+        ],
+    );
+}
+
+/// Insert trace_log with ContextPack metadata.
+pub fn insert_trace_log_with_context(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+    input_tokens: i64,
+    output_tokens: i64,
+    cost_usd: f64,
+    recorded_at: i64,
+    span: &SpanInfo,
+    ctx: &ContextPackMeta,
+) {
+    let _ = conn.execute(
+        "INSERT INTO trace_log
+         (conversation_id, input_tokens, output_tokens, cost_usd, recorded_at,
+          trace_id, span_id, parent_span_id, operation, engine, duration_ms, status,
+          context_mode, context_sections, context_length, context_hash, context_truncated)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+        params![
+            conversation_id, input_tokens, output_tokens, cost_usd, recorded_at,
+            span.trace_id, span.span_id, span.parent_span_id,
+            span.operation, span.engine, span.duration_ms, span.status,
+            ctx.mode, ctx.sections_json(), ctx.length as i64, ctx.hash,
+            if ctx.truncated { 1 } else { 0 },
         ],
     );
 }

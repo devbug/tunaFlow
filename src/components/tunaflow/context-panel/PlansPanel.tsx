@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { ChevronDown, ChevronRight, Plus, ClipboardList, X, GitBranch } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, ClipboardList, X, GitBranch, Forward } from "lucide-react";
 import type { Plan, PlanSubtask, PlanStatus, SubtaskStatus, SubtaskInput } from "@/types";
+import { AgentAvatar } from "../AgentAvatar";
 import * as planApi from "@/lib/api/plans";
 
 // ─── Status configs ──────────────────────────────────────────────────────────
@@ -180,18 +181,40 @@ const OWNER_OPTIONS = ["claude", "codex", "gemini", "opencode"];
 
 function SubtaskRow({
   subtask,
+  planTitle,
   onStatusChange,
   onOwnerChange,
+  onForwardSubtask,
   linkedBranch,
   onOpenThread,
 }: {
   subtask: PlanSubtask;
+  planTitle: string;
   onStatusChange: (id: string, status: SubtaskStatus) => void;
   onOwnerChange: (id: string, owner: string | null) => void;
+  onForwardSubtask?: (engine: string, payload: string) => void;
   linkedBranch?: { id: string; label: string; customLabel?: string; status: string } | null;
   onOpenThread?: (branchId: string) => void;
 }) {
   const cfg = SUBTASK_STATUS_CFG[subtask.status];
+  const owner = subtask.ownerAgent;
+
+  // Build rich follow-up payload for this subtask
+  const buildPayload = () => {
+    const lines = [
+      `[Task] ${subtask.title}`,
+      `Plan: ${planTitle}`,
+      `Status: ${subtask.status}`,
+    ];
+    if (owner) lines.push(`Owner: ${owner}`);
+    if (subtask.details) lines.push(`\nDetails:\n${subtask.details}`);
+    if (linkedBranch) lines.push(`\nLinked branch: ${linkedBranch.customLabel ?? linkedBranch.label} (${linkedBranch.status})`);
+    lines.push("\n위 작업을 진행해주세요.");
+    return lines.join("\n");
+  };
+
+  const canForward = subtask.status === "approved" || subtask.status === "in_progress";
+
   return (
     <div className="flex items-start gap-2 py-1.5 border-b border-border/30 last:border-0">
       <button
@@ -205,23 +228,60 @@ function SubtaskRow({
         {cfg.label}
       </button>
       <div className="flex-1 min-w-0">
-        <p className="text-[11px] text-foreground leading-snug">{subtask.title}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-[11px] text-foreground leading-snug flex-1">{subtask.title}</p>
+          {owner ? (
+            <span className="inline-flex items-center gap-1 text-[8px] font-medium px-1.5 py-0.5 rounded bg-accent shrink-0" title={`Owner: ${owner}`}>
+              <AgentAvatar engine={owner} size="sm" className="w-3 h-3" />
+              {owner}
+            </span>
+          ) : (
+            <span className="text-[8px] text-muted-foreground/30 shrink-0">unassigned</span>
+          )}
+        </div>
         {subtask.details && (
           <p className="text-[10px] text-muted-foreground leading-snug mt-0.5 line-clamp-2">{subtask.details}</p>
         )}
-        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+          {/* Owner selector */}
           <select
-            value={subtask.ownerAgent || ""}
+            value={owner || ""}
             onChange={(e) => onOwnerChange(subtask.id, e.target.value || null)}
-            className="text-[9px] bg-transparent border border-border/30 rounded px-1 py-0 text-muted-foreground/70 outline-none"
-            title="Owner agent"
+            className="text-[9px] bg-transparent border border-border/30 rounded px-1 py-0 text-muted-foreground/60 outline-none"
+            title="Assign owner"
           >
-            <option value="">no owner</option>
+            <option value="">unassigned</option>
             {OWNER_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
           {subtask.lastUpdatedBy && (
-            <span className="text-[9px] text-muted-foreground/50">by: {subtask.lastUpdatedBy}</span>
+            <span className="text-[8px] text-muted-foreground/40">by: {subtask.lastUpdatedBy}</span>
           )}
+          {/* Forward actions — owner shortcut + manual target */}
+          {canForward && onForwardSubtask && (
+            <>
+              {owner && (
+                <button
+                  onClick={() => onForwardSubtask(owner, buildPayload())}
+                  className="inline-flex items-center gap-0.5 text-[8px] font-medium text-primary/70 hover:text-primary hover:underline transition-colors"
+                  title={`Forward task to ${owner}`}
+                >
+                  <Forward className="w-2.5 h-2.5" />
+                  → {owner}
+                </button>
+              )}
+              {/* Manual forward to any engine */}
+              {OWNER_OPTIONS.filter((e) => e !== owner).slice(0, 2).map((eng) => (
+                <button key={eng}
+                  onClick={() => onForwardSubtask(eng, buildPayload())}
+                  className="text-[7px] text-muted-foreground/40 hover:text-primary/60 hover:underline transition-colors"
+                  title={`Forward task to ${eng}`}
+                >
+                  → {eng}
+                </button>
+              ))}
+            </>
+          )}
+          {/* Linked branch */}
           {linkedBranch && (
             <button
               onClick={() => onOpenThread?.(linkedBranch.id)}
@@ -371,8 +431,10 @@ function PlanCard({
                 <SubtaskRow
                   key={st.id}
                   subtask={st}
+                  planTitle={plan.title}
                   onStatusChange={handleSubtaskStatus}
                   onOwnerChange={handleOwnerChange}
+                  onForwardSubtask={(engine, payload) => sendFollowup(engine, "plan", payload)}
                   linkedBranch={linked ? { id: linked.id, label: linked.label, customLabel: linked.customLabel, status: linked.status } : null}
                   onOpenThread={openThread}
                 />
@@ -381,7 +443,7 @@ function PlanCard({
           </div>
           {/* Plan forward — send plan context to an agent */}
           <div className="flex items-center gap-1.5 pl-5 pt-1.5 mt-1 border-t border-border/20">
-            <span className="text-[9px] text-muted-foreground/50">Forward:</span>
+            <span className="text-[9px] text-muted-foreground/50">Forward plan:</span>
             {OWNER_OPTIONS.map((eng) => (
               <button
                 key={eng}

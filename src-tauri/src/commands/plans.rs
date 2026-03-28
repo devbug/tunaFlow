@@ -94,7 +94,7 @@ pub fn create_plan(
     input: CreatePlanInput,
     state: State<DbState>,
 ) -> Result<Plan, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let id = Uuid::new_v4().to_string();
     let now = now_epoch_ms();
 
@@ -140,7 +140,7 @@ pub fn create_plan(
 /// Fetch a single plan by id.
 #[tauri::command]
 pub fn get_plan(id: String, state: State<DbState>) -> Result<Plan, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let sql = format!("SELECT {} FROM plans WHERE id = ?1", PLAN_COLS);
     conn.query_row(&sql, [&id], map_plan)
         .map_err(|_| AppError::NotFound(format!("plan {} not found", id)))
@@ -152,7 +152,7 @@ pub fn list_plans_by_conversation(
     conversation_id: String,
     state: State<DbState>,
 ) -> Result<Vec<Plan>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let sql = format!(
         "SELECT {} FROM plans WHERE conversation_id = ?1 ORDER BY created_at DESC",
         PLAN_COLS
@@ -170,7 +170,7 @@ pub fn update_plan_status(
     input: UpdatePlanStatusInput,
     state: State<DbState>,
 ) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let now = now_epoch_ms();
     conn.execute(
         "UPDATE plans SET status = ?1, updated_at = ?2 WHERE id = ?3",
@@ -182,7 +182,7 @@ pub fn update_plan_status(
 /// List all subtasks for a plan, ordered by idx.
 #[tauri::command]
 pub fn list_subtasks(plan_id: String, state: State<DbState>) -> Result<Vec<PlanSubtask>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let sql = format!(
         "SELECT {} FROM plan_subtasks WHERE plan_id = ?1 ORDER BY idx ASC",
         SUBTASK_COLS
@@ -201,7 +201,7 @@ pub fn set_subtask_owner(
     owner_agent: Option<String>,
     state: State<DbState>,
 ) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let now = now_epoch_ms();
     conn.execute(
         "UPDATE plan_subtasks SET owner_agent = ?1, updated_at = ?2 WHERE id = ?3",
@@ -216,7 +216,7 @@ pub fn update_subtask_status(
     input: UpdateSubtaskStatusInput,
     state: State<DbState>,
 ) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let now = now_epoch_ms();
     conn.execute(
         "UPDATE plan_subtasks SET status = ?1, outcome = ?2, last_updated_by = ?3, updated_at = ?4 WHERE id = ?5",
@@ -234,7 +234,7 @@ pub fn replace_plan_subtasks(
     subtasks: Vec<SubtaskInput>,
     state: State<DbState>,
 ) -> Result<Vec<PlanSubtask>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let now = now_epoch_ms();
 
     conn.execute("DELETE FROM plan_subtasks WHERE plan_id = ?1", [&plan_id])?;
@@ -273,7 +273,7 @@ pub fn replace_plan_subtasks(
 /// Delete a plan and all its subtasks (CASCADE handles subtasks).
 #[tauri::command]
 pub fn delete_plan(id: String, state: State<DbState>) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     conn.execute("DELETE FROM plans WHERE id = ?1", [&id])?;
     Ok(())
 }

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -31,7 +32,7 @@ interface MessageItemProps {
   variant?: "default" | "compact";
 }
 
-export function MessageItem({ message, onBranch, onBranchRT, onMemo, onFollowup, onDeletePair, threadBranches, onOpenThread, showActions = true, variant = "default" }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({ message, onBranch, onBranchRT, onMemo, onFollowup, onDeletePair, threadBranches, onOpenThread, showActions = true, variant = "default" }: MessageItemProps) {
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isCompact = variant === "compact";
@@ -93,4 +94,11 @@ export function MessageItem({ message, onBranch, onBranchRT, onMemo, onFollowup,
       )}
     </div>
   );
-}
+}, (prev, next) => {
+  // Only re-render when message content/status changes, or branches change
+  if (prev.message !== next.message) return false;
+  if (prev.threadBranches !== next.threadBranches) return false;
+  if (prev.showActions !== next.showActions) return false;
+  if (prev.variant !== next.variant) return false;
+  return true; // Skip re-render for callback prop changes
+});

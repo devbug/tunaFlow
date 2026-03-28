@@ -2,7 +2,19 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { Activity, Clock, Cpu, DollarSign, RefreshCw } from "lucide-react";
+import { Activity, Clock, Cpu, DollarSign, RefreshCw, Briefcase } from "lucide-react";
+
+interface AgentJob {
+  id: string;
+  conversationId: string;
+  messageId: string | null;
+  engine: string;
+  kind: string;
+  status: string;
+  error: string | null;
+  startedAt: number;
+  updatedAt: number;
+}
 
 interface TraceSpan {
   id: number;
@@ -18,6 +30,11 @@ interface TraceSpan {
   durationMs: number | null;
   status: string | null;
   recordedAt: number;
+  contextMode: string | null;
+  contextSections: string | null;
+  contextLength: number | null;
+  contextHash: string | null;
+  contextTruncated: number | null;
 }
 
 function formatDuration(ms: number | null): string {
@@ -38,15 +55,14 @@ function formatTime(epoch: number): string {
 }
 
 export function TracePanel() {
-  const {
-    selectedConversationId,
-    activeBranchId,
-    runningThreadIds,
-    messageQueue,
-    rawqStatus,
-  } = useChatStore();
+  const selectedConversationId = useChatStore((s) => s.selectedConversationId);
+  const activeBranchId = useChatStore((s) => s.activeBranchId);
+  const runningThreadIds = useChatStore((s) => s.runningThreadIds);
+  const messageQueue = useChatStore((s) => s.messageQueue);
+  const rawqStatus = useChatStore((s) => s.rawqStatus);
 
   const [spans, setSpans] = useState<TraceSpan[]>([]);
+  const [jobs, setJobs] = useState<AgentJob[]>([]);
   const [loading, setLoading] = useState(false);
 
   const convId = activeBranchId
@@ -69,8 +85,16 @@ export function TracePanel() {
     }
   };
 
+  const loadJobs = async () => {
+    try {
+      const data = await invoke<AgentJob[]>("list_active_jobs");
+      setJobs(data);
+    } catch { setJobs([]); }
+  };
+
   useEffect(() => {
     loadTraces();
+    loadJobs();
   }, [convId]);
 
   const threadRunning = convId ? runningThreadIds.includes(convId) : false;
@@ -116,6 +140,29 @@ export function TracePanel() {
           </div>
         )}
       </div>
+
+      {/* Active jobs */}
+      {jobs.length > 0 && (
+        <div className="space-y-1">
+          <div className="flex items-center gap-1.5">
+            <Briefcase className="w-3 h-3 text-primary/60" />
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+              Active Jobs ({jobs.length})
+            </span>
+          </div>
+          {jobs.map((j) => (
+            <div key={j.id} className="rounded border border-primary/20 bg-primary/5 px-2 py-1 text-[10px]">
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+                <span className="font-medium text-foreground/80">{j.engine}</span>
+                <span className="text-muted-foreground/50">{j.kind}</span>
+                <span className="ml-auto text-muted-foreground/40 font-mono">{j.id.slice(0, 12)}</span>
+              </div>
+              {j.error && <p className="text-[9px] text-destructive/60 mt-0.5 truncate">{j.error}</p>}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Aggregate stats */}
       {spans.length > 0 && (
@@ -195,6 +242,20 @@ export function TracePanel() {
               </span>
               <span className="ml-auto">{formatTime(sp.recordedAt)}</span>
             </div>
+            {/* ContextPack metadata */}
+            {sp.contextMode && (
+              <div className="mt-1 pt-1 border-t border-border/20 flex items-center gap-1.5 flex-wrap text-[9px] text-muted-foreground/50">
+                <span className="font-medium text-primary/50">{sp.contextMode}</span>
+                {sp.contextSections && (() => {
+                  try { const s = JSON.parse(sp.contextSections) as string[]; return s.map((sec) => (
+                    <span key={sec} className="bg-accent/60 px-1 py-0.5 rounded">{sec}</span>
+                  )); } catch { return null; }
+                })()}
+                {sp.contextLength != null && <span className="font-mono">{(sp.contextLength / 1000).toFixed(1)}k</span>}
+                {sp.contextHash && <span className="font-mono text-muted-foreground/30">{sp.contextHash.slice(0, 8)}</span>}
+                {sp.contextTruncated === 1 && <span className="text-amber-500/60">truncated</span>}
+              </div>
+            )}
           </div>
         ))}
       </div>

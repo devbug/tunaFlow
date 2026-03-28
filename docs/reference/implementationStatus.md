@@ -1,6 +1,6 @@
 # tunaFlow 구현 현황
 
-최종 갱신: 2026-03-26 (실제 코드 기준 검증)
+최종 갱신: 2026-03-28 (실제 코드 기준 검증)
 SSOT: `docs/reference/dataModelRevised.md`
 
 ---
@@ -24,16 +24,16 @@ SSOT: `docs/reference/dataModelRevised.md`
 
 | 기능 | 상태 | 비고 |
 |---|---|---|
-| Claude send + stream | done | ContextPack 5단계 조립, resume token |
-| Codex send | done | lite context prefix |
-| Gemini send | done | lite context prefix |
-| OpenCode send | done | lite context prefix |
+| Claude send + stream | done | ContextPack 5단계 조립, resume token, background start_claude_stream |
+| Codex send | done | lite context prefix, background start_codex_run |
+| Gemini send + stream | done | lite context prefix, stream-json 기반 실시간 스트리밍, background start_gemini_stream |
+| OpenCode send | done | lite context prefix, background start_opencode_run |
 | Roundtable run/followup | done | per-round participant selection, /follow command |
 | RT 모드 | done | Sequential + Deliberative (Independent 제거) |
 | RT progress event | done | 참가자별 `roundtable:progress` emit |
 | RT cancel | done | CancelRegistry thread-aware, participant 간 체크 |
 | Claude stream cancel | done | stream line 간 체크 + child.kill() |
-| 비스트리밍 agent cancel | UI only | subprocess 완료 대기, 프론트 상태만 해제 |
+| 비스트리밍 agent cancel | done | Codex/OpenCode도 background thread에서 실행, CancelRegistry 연동 |
 | Thread-aware cancel | done | CancelRegistry(Arc<Mutex<HashSet>>) conversation_id 기반 |
 
 ### Plan / Evaluation
@@ -46,6 +46,7 @@ SSOT: `docs/reference/dataModelRevised.md`
 | Branch-scoped plan | done | UI scope 토글 + canonical conversation id 보정 |
 | Evaluation harness | done (backend) | eval_runs + eval_results (V5), 6 commands. UI 미연결 |
 | Capability registry | done (backend) | list_capabilities (skills + MCP tools). UI 미연결 |
+| Skill registry UI | not started | skills 브라우저 / collections / applied skill visibility 없음 |
 
 ### Observability
 
@@ -128,6 +129,28 @@ SSOT: `docs/reference/dataModelRevised.md`
 | Project-centric docs | done | 프로젝트 중심 설계 원칙 문서화 |
 | Plans audit | done | 27개 plan 분류 (13 완료, 7 부분, 6 보류, 1 예정) |
 
+### 2026-03-28 세션
+
+| 기능 | 상태 | 비고 |
+|---|---|---|
+| React.memo MessageItem | done | custom areEqual — message/threadBranches/showActions/variant만 비교 |
+| Zustand selector 전환 | done | ChatPanel, Sidebar, StatusBar, ContextPanel, NewMessageInput 6개 컴포넌트 |
+| Auto-scroll 최적화 | done | scrollKey = length:id:status 기반 |
+| perflog.ts 제거 | done | countRender 인스트루멘테이션 파일 삭제 |
+| Claude tool_use progress | done | stream-json에서 tool_use 블록 추출 → 🔧 progress 표시 |
+| ProgressBlock maxLines | done | 8줄 → 5줄 기본값 변경 |
+| Gemini stream-json 스트리밍 | done | `--output-format stream-json` + delta 누적 + gemini:progress/chunk 이벤트 |
+| Background agent execution | done | start_claude_stream/start_gemini_stream/start_codex_run/start_opencode_run |
+| Arc<Mutex> DbState | done | background thread에서 DB 접근을 위해 Arc 래핑 |
+| agent:completed/error 이벤트 | done | 통합 완료/에러 이벤트, DB SSOT 기반 복구 |
+| Frontend event-driven 전환 | done | runtimeSlice 4개 send 함수를 fire-and-forget + event listener 패턴으로 전환 |
+| Durable job registry | done | agent_jobs 테이블 (v10), create/complete/list_active/cleanup_stale |
+| RT background 전환 | done | start_roundtable_run/start_roundtable_followup + event-driven frontend |
+| RT 라운드별 intent 표시 | done | Original Topic vs per-round intent, follow-up prompt 표시 |
+| Jobs 가시화 | done | TracePanel Active Jobs 섹션 |
+| TracePanel selector 전환 | done | broad useChatStore() → 개별 selector |
+| RT/Jobs smoke tests | done | smoke-rt-rounds (4), smoke-jobs (5) |
+
 ### 미구현
 
 | 기능 | 우선순위 | 비고 |
@@ -139,7 +162,10 @@ SSOT: `docs/reference/dataModelRevised.md`
 | Evaluation UI | P2 | backend 완료, frontend 미연결 |
 | Capability UI | P3 | backend 완료, frontend 미연결 |
 | Sidecar 계층 | 보류 | direct-call로 충분, 필요 시 재검토 |
+| Agent daemon roadmap | P2 | Phase 1 background worker 완료. Phase 2 durable job registry → Phase 3 daemon extraction 진행 예정 |
 | 자연어 handoff 고도화 | P3 | 완전 자유 자연어 intent parser |
+| Skill registry UI / collections | P3 | backend skill loading 있음. chops 참고 구조는 미도입 |
+| Context budget scaling | P3 | 현재 60k chars guardrail 유지. background execution 안정화 후 베타에서 단계적 상향 실험 검토 |
 | Thread 모델 전면 통합 | P3 | branch 확장 방식으로 대체 중 |
 | ~~프로젝트별 conversation 캐시~~ | 해당 없음 | 현재 프로젝트만 로드하는 것은 의도된 프로젝트 중심 설계. 전역 캐시 불필요 |
 
@@ -152,8 +178,9 @@ SSOT: `docs/reference/dataModelRevised.md`
 | ContextPack (full) | O | X | X | X |
 | Lite context prefix | - | O | O | O |
 | Resume token | O | X | X | X |
-| Streaming | O | X | X | X |
-| Token/cost tracking | O | O | X | X |
+| Streaming | O | X | O | X |
+| Background execution | O | O | O | O |
+| Token/cost tracking | O | O | partial | X |
 | OTel span recording | O | O | O | O |
 
 ---
@@ -165,7 +192,8 @@ SSOT: `docs/reference/dataModelRevised.md`
 | Rust unit | 27 | cargo test |
 | Rust DB integration | 13 | in-memory SQLite |
 | Frontend API | 13 | vitest + jsdom |
-| **Total** | **53** | |
+| Frontend smoke | 16 | vitest + jsdom (store, RT rounds, jobs) |
+| **Total** | **69** | |
 
 CI: `.github/workflows/ci.yml` (cargo check/test + tsc + vitest + vite build)
 
@@ -181,12 +209,17 @@ CI: `.github/workflows/ci.yml` (cargo check/test + tsc + vitest + vite build)
 | v4 | artifacts.subtask_id column |
 | v5 | eval_runs + eval_results tables |
 | v6 | trace_log OTel columns (trace_id, span_id, etc.) |
+| v7 | plan_subtasks agent ownership columns |
+| v8 | branches.mode column (chat/roundtable) |
+| v9 | branches.subtask_id column |
+| v10 | agent_jobs table (durable job registry) |
 
 ---
 
 ## 다음 단계 권장
 
-1. **Evaluation UI** — backend 완료, frontend 연결만 하면 RT 결과 비교 가능
-2. **FTS 검색** — messages_fts 트리거 + UI 검색바
-3. **rawq 실제 연동** — 프로젝트 코드 검색 → ContextPack 주입
-4. **Capability UI** — list_capabilities → ContextPanel에 표시
+1. **Durable job registry (Phase 2)** — jobs 테이블 + 앱 재시작 시 stale streaming 정리
+2. **RT background 전환** — roundtable_run/followup을 background/event 패턴으로 전환
+3. **Evaluation UI** — backend 완료, frontend 연결만 하면 RT 결과 비교 가능
+4. **FTS 검색** — messages_fts 트리거 + UI 검색바
+5. **Capability UI** — list_capabilities → ContextPanel에 표시

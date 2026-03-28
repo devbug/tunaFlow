@@ -52,6 +52,15 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     if current < 9 {
         apply_v9(conn)?;
     }
+    if current < 10 {
+        apply_v10(conn)?;
+    }
+    if current < 11 {
+        apply_v11(conn)?;
+    }
+    if current < 12 {
+        apply_v12(conn)?;
+    }
     Ok(())
 }
 
@@ -162,6 +171,31 @@ fn apply_v9(conn: &Connection) -> Result<(), AppError> {
     add_column_if_missing(conn, "branches", "subtask_id", "TEXT REFERENCES plan_subtasks(id) ON DELETE SET NULL")?;
     conn.execute(
         "INSERT INTO schema_version (version, applied_at) VALUES (9, ?1)",
+        [now_epoch()],
+    )?;
+    Ok(())
+}
+
+fn apply_v12(conn: &Connection) -> Result<(), AppError> {
+    add_column_if_missing(conn, "conversations", "rt_config", "TEXT")?;
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (12, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+fn apply_v11(conn: &Connection) -> Result<(), AppError> {
+    add_column_if_missing(conn, "trace_log", "context_mode", "TEXT")?;
+    add_column_if_missing(conn, "trace_log", "context_sections", "TEXT")?;
+    add_column_if_missing(conn, "trace_log", "context_length", "INTEGER")?;
+    add_column_if_missing(conn, "trace_log", "context_hash", "TEXT")?;
+    add_column_if_missing(conn, "trace_log", "context_truncated", "INTEGER DEFAULT 0")?;
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (11, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+fn apply_v10(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(schema::V10_SCHEMA)?;
+    conn.execute(
+        "INSERT INTO schema_version (version, applied_at) VALUES (10, ?1)",
         [now_epoch()],
     )?;
     Ok(())

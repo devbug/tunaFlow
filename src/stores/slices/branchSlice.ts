@@ -3,6 +3,7 @@ import type {
   SetState,
   GetState,
   Branch,
+  Conversation,
   Message,
   Memo,
   Artifact,
@@ -63,15 +64,24 @@ export const createBranchSlice = (set: SetState, get: GetState): BranchSlice => 
   },
 
   deleteBranch: async (branchId: string) => {
-    const { selectedConversationId, threadBranchId } = get();
+    const { selectedConversationId, parentConversationId, activeBranchId, threadBranchId } = get();
     try {
       await invoke("delete_branch", { id: branchId });
-      if (selectedConversationId) {
-        const branches = await invoke<Branch[]>("list_branches", {
-          conversationId: selectedConversationId,
-        });
+
+      // Reload branches for the correct parent conversation
+      const convId = parentConversationId ?? selectedConversationId;
+      if (convId && !convId.startsWith("branch:")) {
+        const branches = await invoke<Branch[]>("list_branches", { conversationId: convId });
         set({ branches });
       }
+
+      // If the deleted branch was open in full view, go back to parent
+      if (activeBranchId === branchId && parentConversationId) {
+        const { selectConversation } = get();
+        await selectConversation(parentConversationId);
+        return;
+      }
+
       // Close thread drawer if the deleted branch was open
       if (threadBranchId === branchId) {
         set({
@@ -140,19 +150,23 @@ export const createBranchSlice = (set: SetState, get: GetState): BranchSlice => 
     const { selectedConversationId } = get();
     if (!selectedConversationId) return;
     try {
-      // Ensure shadow conversations row exists, get branch conv id
+      // Ensure shadow conversation row exists, get branch conv id
       const branchConvId = await invoke<string>("open_branch_stream", { branchId });
-      const branchMessages = await invoke<Message[]>("list_messages", {
-        conversationId: branchConvId,
-      });
-      set({
+      const [branchMessages, branchConv] = await Promise.all([
+        invoke<Message[]>("list_messages", { conversationId: branchConvId }),
+        invoke<Conversation>("get_conversation", { id: branchConvId }),
+      ]);
+      // Add shadow conversation to conversations array so ChatPanel can find it
+      set((state) => ({
         parentConversationId: selectedConversationId,
         activeBranchId: branchId,
         selectedConversationId: branchConvId,
+        conversations: state.conversations.some((c) => c.id === branchConvId)
+          ? state.conversations
+          : [...state.conversations, branchConv],
         messages: branchMessages,
-        branches: [],
         error: null,
-      });
+      }));
     } catch (e) {
       set({ error: String(e) });
     }

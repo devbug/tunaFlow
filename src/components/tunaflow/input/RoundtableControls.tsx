@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import { Users } from "lucide-react";
-import { ROUNDTABLE_PARTICIPANTS } from "@/lib/constants";
-import type { RtMode } from "@/types";
+import type { RtMode, RoundtableParticipant } from "@/types";
+import { AgentAvatar } from "../AgentAvatar";
 
 const RT_MODES: { id: RtMode; label: string; title: string }[] = [
   { id: "sequential", label: "Sequential", title: "Each agent sees prior agents' replies within the round" },
@@ -11,11 +11,13 @@ const RT_MODES: { id: RtMode; label: string; title: string }[] = [
 interface RoundtableControlsProps {
   rtMode: RtMode;
   setRtMode: (m: RtMode) => void;
+  /** All participants available for this RT (from config or fallback) */
+  participants: RoundtableParticipant[];
   activeParticipants: Set<string>;
   toggleParticipant: (name: string) => void;
 }
 
-export function RoundtableControls({ rtMode, setRtMode, activeParticipants, toggleParticipant }: RoundtableControlsProps) {
+export function RoundtableControls({ rtMode, setRtMode, participants, activeParticipants, toggleParticipant }: RoundtableControlsProps) {
   return (
     <>
       <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium bg-agent-gemini/8 text-agent-gemini/70 shrink-0">
@@ -35,20 +37,27 @@ export function RoundtableControls({ rtMode, setRtMode, activeParticipants, togg
       </select>
       <span className="h-3 w-px bg-border/30" />
       <div className="flex items-center gap-0.5 flex-wrap">
-        {ROUNDTABLE_PARTICIPANTS.map((p) => {
+        {participants.map((p) => {
           const active = activeParticipants.has(p.name);
           return (
             <button
               key={p.name}
               onClick={() => toggleParticipant(p.name)}
               className={cn(
-                "text-[9px] px-1 py-0.5 rounded transition-colors",
+                "flex items-center gap-1 text-[9px] px-1 py-0.5 rounded transition-colors",
                 active
                   ? "text-foreground/70 bg-accent font-medium"
                   : "text-muted-foreground/30 line-through"
               )}
+              title={`${p.engine ?? "claude"}${p.model ? ` · ${p.model}` : " · engine default"}`}
             >
+              <AgentAvatar engine={p.engine} size="sm" className="w-3 h-3" />
               {p.name}
+              {active && p.model && (
+                <span className="text-[7px] font-mono text-foreground/40">
+                  {p.model}
+                </span>
+              )}
             </button>
           );
         })}

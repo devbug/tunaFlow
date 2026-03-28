@@ -96,6 +96,7 @@ pub fn is_available() -> bool {
 pub struct IndexInfo {
     pub files: u64,
     pub chunks: u64,
+    #[allow(dead_code)]
     pub model: String,
 }
 

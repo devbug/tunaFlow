@@ -148,3 +148,72 @@ pub fn persist_assistant_message(
         persona: None,
     })
 }
+
+/// Same as `persist_assistant_message` but uses a pre-generated message ID.
+/// Required for streaming commands where the ID is emitted to the frontend before DB persist.
+pub fn persist_assistant_message_with_id(
+    conn: &Connection,
+    msg_id: &str,
+    conversation_id: &str,
+    engine: &str,
+    model: &Option<String>,
+    run: &AgentRunResult,
+    duration_ms: u128,
+) -> Result<Message, AppError> {
+    let now = now_epoch_ms();
+
+    conn.execute(
+        "INSERT INTO messages
+         (id, conversation_id, role, content, timestamp, status, engine, model)
+         VALUES (?1, ?2, 'assistant', ?3, ?4, ?5, ?6, ?7)",
+        params![msg_id, conversation_id, run.content, now, run.status, engine, model],
+    )?;
+
+    if run.in_tokens > 0 || run.out_tokens > 0 || run.cost_usd > 0.0 {
+        conn.execute(
+            "UPDATE conversations SET
+                 total_input_tokens  = total_input_tokens  + ?1,
+                 total_output_tokens = total_output_tokens + ?2,
+                 total_cost_usd      = total_cost_usd      + ?3,
+                 updated_at          = ?4
+             WHERE id = ?5",
+            params![run.in_tokens, run.out_tokens, run.cost_usd, now / 1000, conversation_id],
+        )?;
+    } else {
+        conn.execute(
+            "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
+            params![now / 1000, conversation_id],
+        )?;
+    }
+
+    insert_trace_log(
+        conn,
+        conversation_id,
+        run.in_tokens,
+        run.out_tokens,
+        run.cost_usd,
+        now,
+        &SpanInfo {
+            trace_id: &new_trace_id(),
+            span_id: new_span_id(),
+            parent_span_id: None,
+            operation: "agent.send",
+            engine,
+            duration_ms: duration_ms as i64,
+            status: if run.status == "done" { "ok" } else { "error" },
+        },
+    );
+
+    Ok(Message {
+        id: msg_id.to_string(),
+        conversation_id: conversation_id.to_string(),
+        role: "assistant".into(),
+        content: run.content.clone(),
+        timestamp: now,
+        status: run.status.clone(),
+        progress_content: None,
+        engine: Some(engine.into()),
+        model: model.clone(),
+        persona: None,
+    })
+}

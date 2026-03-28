@@ -1,37 +1,34 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { StatusBar } from "./StatusBar";
 import { MessageItem } from "./MessageItem";
 import { RoundtableView } from "./RoundtableView";
 import { NewMessageInput } from "./NewMessageInput";
-import { BranchBar } from "./BranchBar";
 import { ChatObjectTabs } from "./ChatObjectTabs";
 import { InlineRename } from "./InlineRename";
+import { CreateRoundtableDialog } from "./CreateRoundtableDialog";
 import { Users, MessageSquare } from "lucide-react";
 
 export function ChatPanel() {
-  const {
-    messages,
-    branches,
-    selectedConversationId,
-    conversations,
-    isRunning,
-    runningThreadIds,
-    error,
-    activeBranchId,
-    activeSkills,
-    crossSessionIds,
-    createBranch,
-    createMemo,
-    openThread,
-    sendFollowup,
-    renameConversation,
-    deleteMessagePair,
-  } = useChatStore();
+  // Selective subscriptions — only re-render when these specific fields change
+  const messages = useChatStore((s) => s.messages);
+  const branches = useChatStore((s) => s.branches);
+  const selectedConversationId = useChatStore((s) => s.selectedConversationId);
+  const conversations = useChatStore((s) => s.conversations);
+  const runningThreadIds = useChatStore((s) => s.runningThreadIds);
+  const error = useChatStore((s) => s.error);
+  const activeBranchId = useChatStore((s) => s.activeBranchId);
+  const createBranch = useChatStore((s) => s.createBranch);
+  const createMemo = useChatStore((s) => s.createMemo);
+  const openThread = useChatStore((s) => s.openThread);
+  const sendFollowup = useChatStore((s) => s.sendFollowup);
+  const renameConversation = useChatStore((s) => s.renameConversation);
+  const deleteMessagePair = useChatStore((s) => s.deleteMessagePair);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<"stream" | "roundtable">("stream");
+  const [rtDialogCheckpoint, setRtDialogCheckpoint] = useState<string | null>(null);
 
   const currentConv = conversations.find((c) => c.id === selectedConversationId);
   const isRoundtable = currentConv?.mode === "roundtable";
@@ -42,13 +39,12 @@ export function ChatPanel() {
   }, [isRoundtable, selectedConversationId]);
 
   // Auto-scroll on new messages
+  // Auto-scroll — only when last message changes or new messages arrive
+  const lastMsg = messages[messages.length - 1];
+  const scrollKey = `${messages.length}:${lastMsg?.id}:${lastMsg?.status}`;
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "auto" });
-  }, [messages, runningThreadIds]);
-
-  const branchObj = activeBranchId
-    ? { id: activeBranchId, label: activeBranchId.slice(0, 12) + "..." }
-    : undefined;
+  }, [scrollKey]);
 
   if (!selectedConversationId) {
     return (
@@ -59,15 +55,9 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-w-0 h-full bg-background">
-      {/* Status Bar */}
-      <StatusBar
-        mode={isRoundtable ? "roundtable" : "chat"}
-        branch={branchObj}
-        agentCount={3}
-        activeSkills={activeSkills.length}
-        crossSessionCount={crossSessionIds.length}
-      />
+    <div data-testid="chat-panel" className="flex flex-col flex-1 min-w-0 h-full bg-background">
+      {/* Breadcrumb path */}
+      <StatusBar />
 
       {/* Chat object tabs — main + open branch/RT */}
       <ChatObjectTabs />
@@ -94,7 +84,7 @@ export function ChatPanel() {
               ? "text-agent-gemini/80 bg-agent-gemini/8"
               : "text-muted-foreground/60 bg-muted"
           )}>
-            {isRoundtable ? "RT" : "Chat"}
+            {isRoundtable ? "Roundtable" : "Chat"}
           </span>
         </div>
 
@@ -125,11 +115,6 @@ export function ChatPanel() {
         )}
       </div>
 
-      {/* Branch bar — relocated from right panel */}
-      {(activeBranchId || branches.length > 0) && (
-        <BranchBar />
-      )}
-
       {/* Error banner */}
       {error && (
         <div className="px-4 py-1.5 bg-destructive/8 border-b border-destructive/15 text-destructive/80 text-[11px] shrink-0">
@@ -157,7 +142,7 @@ export function ChatPanel() {
                   key={msg.id}
                   message={msg}
                   onBranch={!activeBranchId ? (id) => createBranch(selectedConversationId, id) : undefined}
-                  onBranchRT={!activeBranchId ? (id) => createBranch(selectedConversationId, id, undefined, "roundtable") : undefined}
+                  onBranchRT={!activeBranchId ? (id) => setRtDialogCheckpoint(id) : undefined}
                   onMemo={!activeBranchId ? (id) => createMemo(id, msg.content) : undefined}
                   onFollowup={(engine, content) => sendFollowup(engine, "message", content)}
                   onDeletePair={(id) => deleteMessagePair(id)}
@@ -185,6 +170,11 @@ export function ChatPanel() {
           </div>
         </div>
       </div>
+      <CreateRoundtableDialog
+        open={rtDialogCheckpoint !== null}
+        onClose={() => setRtDialogCheckpoint(null)}
+        checkpointId={rtDialogCheckpoint}
+      />
     </div>
   );
 }

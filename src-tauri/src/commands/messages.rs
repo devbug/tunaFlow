@@ -52,7 +52,7 @@ pub fn list_messages(
     conversation_id: String,
     state: State<DbState>,
 ) -> Result<Vec<Message>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let mut stmt = conn.prepare(
         "SELECT id, conversation_id, role, content, timestamp, status,
                 progress_content, engine, model, persona
@@ -69,7 +69,7 @@ pub fn create_user_message(
     input: CreateUserMessageInput,
     state: State<DbState>,
 ) -> Result<Message, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let id = Uuid::new_v4().to_string();
     let now = now_epoch_ms();
     conn.execute(
@@ -96,7 +96,7 @@ pub fn append_assistant_message(
     input: AppendAssistantMessageInput,
     state: State<DbState>,
 ) -> Result<Message, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let id = Uuid::new_v4().to_string();
     let now = now_epoch_ms();
     let status = input.status.as_deref().unwrap_or("done").to_string();
@@ -133,7 +133,7 @@ pub fn update_message_status(
     input: UpdateMessageStatusInput,
     state: State<DbState>,
 ) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     if let Some(content) = input.content {
         conn.execute(
             "UPDATE messages SET status = ?1, content = ?2 WHERE id = ?3",
@@ -159,7 +159,7 @@ pub fn delete_message_pair(
     message_id: String,
     state: State<DbState>,
 ) -> Result<i32, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
 
     // Fetch the target message
     let (role, conv_id, ts): (String, String, i64) = conn

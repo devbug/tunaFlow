@@ -1,8 +1,19 @@
 import { cn, AGENT_DOT_COLORS, formatTimestamp, normalizeEngine } from "@/lib/utils";
 import { AgentAvatar } from "./AgentAvatar";
 import type { Message } from "@/types";
-import { Copy, Users } from "lucide-react";
-import { useState } from "react";
+import { Copy, Users, Loader2 } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { useChatStore } from "@/stores/chatStore";
+
+interface ParticipantStatus {
+  name: string;
+  engine: string;
+  model: string | null;
+  round: number;
+  status: "running" | "done" | "error";
+  updatedAt: number;
+}
 
 interface RoundtableViewProps {
   messages: Message[];
@@ -149,6 +160,11 @@ function RoundtableMessage({ message, isLast }: { message: Message; isLast: bool
             <span className={cn("w-1.5 h-1.5 rounded-full", dotColor)} />
             <span className="text-[10px] font-medium text-foreground/80">{name}</span>
           </span>
+          {message.model && (
+            <span className="text-[8px] text-foreground/40 font-mono bg-accent/40 px-1 py-0.5 rounded">
+              {message.model}
+            </span>
+          )}
           <span className="text-[9px] text-muted-foreground/40 font-mono">
             {formatTimestamp(message.timestamp)}
           </span>
@@ -202,9 +218,54 @@ const RT_MODE_LABELS: Record<string, string> = {
 export function RoundtableView({ messages }: RoundtableViewProps) {
   const participants = getParticipants(messages);
   const rounds = groupIntoRounds(messages);
+  const selectedConversationId = useChatStore((s) => s.selectedConversationId);
+  const runningThreadIds = useChatStore((s) => s.runningThreadIds);
+  const isRunning = !!selectedConversationId && runningThreadIds.includes(selectedConversationId);
+
+  // ─── Real-time participant telemetry ─────────────────────────────
+  const [pStatuses, setPStatuses] = useState<Map<string, ParticipantStatus>>(new Map());
+  const statusesRef = useRef(pStatuses);
+  statusesRef.current = pStatuses;
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    listen<{ conversationId: string; name: string; engine: string; model?: string; round: number; status: string }>(
+      "roundtable:participant_status",
+      (event) => {
+        if (cancelled) return;
+        const { conversationId, name, engine, model, round, status } = event.payload;
+        if (conversationId !== selectedConversationId) return;
+        setPStatuses((prev) => {
+          const next = new Map(prev);
+          next.set(name, { name, engine, model: model ?? null, round, status: status as ParticipantStatus["status"], updatedAt: Date.now() });
+          return next;
+        });
+      },
+    ).then((fn) => { unlisten = fn; });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [selectedConversationId]);
+
+  // Clear statuses when RT finishes (no more running)
+  useEffect(() => {
+    if (!isRunning && pStatuses.size > 0) {
+      // Keep for 2s after completion so user sees final state, then clear
+      const timer = setTimeout(() => setPStatuses(new Map()), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [isRunning]);
 
   const userMessages = messages.filter((m) => m.role === "user");
-  const topic = userMessages.length > 0 ? userMessages[userMessages.length - 1].content : null;
+  const originalTopic = userMessages.length > 0 ? userMessages[0].content : null;
+
+  const roundTopics: (string | null)[] = rounds.map((_, i) =>
+    i < userMessages.length ? userMessages[i].content : null
+  );
 
   const firstRtMsg = messages.find((m) => m.role === "assistant" && m.engine !== "system" && m.progressContent);
   const firstSources = firstRtMsg ? parsePromptSources(firstRtMsg) : null;
@@ -223,10 +284,12 @@ export function RoundtableView({ messages }: RoundtableViewProps) {
     <div className="px-5 py-4 max-w-3xl mx-auto w-full">
       {/* Topic + meta */}
       <div className="mb-5 pb-3 border-b border-border/30 space-y-2">
-        {topic && (
+        {originalTopic && (
           <div className="rounded-md bg-accent/30 p-2.5">
-            <p className="text-[9px] font-semibold text-muted-foreground/40 uppercase tracking-widest mb-0.5">Topic</p>
-            <p className="text-[13px] text-foreground/90 leading-relaxed">{topic}</p>
+            <p className="text-[9px] font-semibold text-muted-foreground/40 uppercase tracking-widest mb-0.5">
+              {rounds.length > 1 ? "Original Topic" : "Topic"}
+            </p>
+            <p className="text-[13px] text-foreground/90 leading-relaxed">{originalTopic}</p>
           </div>
         )}
 
@@ -261,11 +324,17 @@ export function RoundtableView({ messages }: RoundtableViewProps) {
         const roundParticipants = [...new Set(
           round.filter((m) => m.persona).map((m) => m.persona!)
         )];
+        const roundIntent = roundTopics[roundIdx];
+        // For Round 1 don't repeat topic (already shown in header)
+        const showIntent = roundIdx > 0 && roundIntent && roundIntent !== originalTopic;
+        const intentSummary = showIntent
+          ? (roundIntent!.length > 80 ? roundIntent!.slice(0, 80) + "…" : roundIntent!)
+          : null;
 
         return (
           <div key={roundIdx} className="mb-6">
             {/* Round divider */}
-            <div className="flex items-center gap-2.5 mb-4">
+            <div className="flex items-center gap-2.5 mb-2">
               <div className="flex-1 h-px bg-border/20" />
               <span className="text-[9px] font-semibold uppercase tracking-widest text-primary/50 bg-primary/6 px-2 py-0.5 rounded">
                 Round {roundIdx + 1}
@@ -285,6 +354,13 @@ export function RoundtableView({ messages }: RoundtableViewProps) {
               )}
               <div className="flex-1 h-px bg-border/20" />
             </div>
+            {/* Round intent — shown for follow-up rounds with a different prompt */}
+            {intentSummary && (
+              <div className="mb-3 mx-1 rounded bg-accent/20 px-2.5 py-1.5">
+                <p className="text-[9px] text-muted-foreground/50 uppercase tracking-wider mb-0.5">Intent</p>
+                <p className="text-[11px] text-foreground/70 leading-relaxed">{intentSummary}</p>
+              </div>
+            )}
 
             {/* Messages */}
             <div>
@@ -295,6 +371,37 @@ export function RoundtableView({ messages }: RoundtableViewProps) {
           </div>
         );
       })}
+
+      {/* ─── Live participant telemetry ─── */}
+      {pStatuses.size > 0 && (
+        <div className="mt-2 mb-4 rounded-md border border-border/30 bg-card/40 px-3 py-2 space-y-1">
+          <p className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-1">
+            Participant Status
+          </p>
+          {Array.from(pStatuses.values()).map((ps) => {
+            const knownEngine = normalizeEngine(ps.engine);
+            const dotColor = knownEngine ? AGENT_DOT_COLORS[knownEngine] : "bg-muted-foreground/40";
+            return (
+              <div key={ps.name} className="flex items-center gap-2 text-[10px]">
+                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dotColor)} />
+                <span className="font-medium text-foreground/70 min-w-[60px]">{ps.name}</span>
+                {ps.model && <span className="text-[8px] text-foreground/35 font-mono bg-accent/30 px-0.5 rounded">{ps.model}</span>}
+                <span className="text-muted-foreground/40">R{ps.round}</span>
+                {ps.status === "running" ? (
+                  <span className="flex items-center gap-1 text-primary/60">
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                    running
+                  </span>
+                ) : ps.status === "error" ? (
+                  <span className="text-destructive/60">error</span>
+                ) : (
+                  <span className="text-status-approved/60">done</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

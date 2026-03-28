@@ -48,7 +48,7 @@ pub fn list_artifacts(
     conversation_id: String,
     state: State<DbState>,
 ) -> Result<Vec<Artifact>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let sql = format!(
         "SELECT {} FROM artifacts WHERE conversation_id = ?1 ORDER BY updated_at DESC",
         SELECT_COLS
@@ -65,7 +65,7 @@ pub fn list_artifacts_by_branch(
     branch_id: String,
     state: State<DbState>,
 ) -> Result<Vec<Artifact>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let sql = format!(
         "SELECT {} FROM artifacts WHERE branch_id = ?1 ORDER BY updated_at DESC",
         SELECT_COLS
@@ -82,7 +82,7 @@ pub fn create_artifact(
     input: CreateArtifactInput,
     state: State<DbState>,
 ) -> Result<Artifact, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let id = Uuid::new_v4().to_string();
     let now = now_epoch_ms();
 
@@ -121,7 +121,7 @@ pub fn update_artifact_status(
     input: UpdateArtifactStatusInput,
     state: State<DbState>,
 ) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let now = now_epoch_ms();
     conn.execute(
         "UPDATE artifacts SET status = ?1, updated_at = ?2 WHERE id = ?3",
@@ -138,7 +138,7 @@ pub fn link_artifact_to_subtask(
     subtask_id: String,
     state: State<DbState>,
 ) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let now = now_epoch_ms();
     conn.execute(
         "UPDATE artifacts SET subtask_id = ?1, updated_at = ?2 WHERE id = ?3",
@@ -149,7 +149,7 @@ pub fn link_artifact_to_subtask(
 
 #[tauri::command]
 pub fn delete_artifact(id: String, state: State<DbState>) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     conn.execute("DELETE FROM artifacts WHERE id = ?1", [&id])?;
     Ok(())
 }

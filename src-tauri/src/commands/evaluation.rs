@@ -84,7 +84,7 @@ pub fn create_eval_run(
     input: CreateEvalRunInput,
     state: State<DbState>,
 ) -> Result<EvalRun, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let id = Uuid::new_v4().to_string();
     let now = now_epoch_ms();
     let rounds = input.rounds.unwrap_or(1);
@@ -114,7 +114,7 @@ pub fn list_eval_runs(
     conversation_id: String,
     state: State<DbState>,
 ) -> Result<Vec<EvalRun>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let sql = format!(
         "SELECT {} FROM eval_runs WHERE conversation_id = ?1 ORDER BY created_at DESC",
         RUN_COLS
@@ -131,7 +131,7 @@ pub fn add_eval_result(
     input: AddEvalResultInput,
     state: State<DbState>,
 ) -> Result<EvalResult, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let id = Uuid::new_v4().to_string();
     let now = now_epoch_ms();
 
@@ -174,7 +174,7 @@ pub fn list_eval_results(
     eval_run_id: String,
     state: State<DbState>,
 ) -> Result<Vec<EvalResult>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let sql = format!(
         "SELECT {} FROM eval_results WHERE eval_run_id = ?1 ORDER BY round, agent_name",
         RESULT_COLS
@@ -192,7 +192,7 @@ pub fn update_eval_run_status(
     status: String,
     state: State<DbState>,
 ) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     conn.execute(
         "UPDATE eval_runs SET status = ?1 WHERE id = ?2",
         params![status, id],
@@ -206,7 +206,7 @@ pub fn delete_eval_run(
     id: String,
     state: State<DbState>,
 ) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     conn.execute("DELETE FROM eval_runs WHERE id = ?1", [&id])?;
     Ok(())
 }

@@ -14,13 +14,26 @@ import { AddProjectForm } from "./sidebar/AddProjectForm";
 import { useProjectBranches } from "./sidebar/useProjectBranches";
 
 export function Sidebar() {
-  const {
-    projects, selectedProjectKey, selectProject, createProject,
-    conversations, selectedConversationId, selectConversation,
-    createConversation, deleteConversation, renameConversation,
-    branches: storeBranches, renameBranch,
-    activeBranchId, threadBranchId, openThread, rawqStatus,
-  } = useChatStore();
+  const projects = useChatStore((s) => s.projects);
+  const selectedProjectKey = useChatStore((s) => s.selectedProjectKey);
+  const selectProject = useChatStore((s) => s.selectProject);
+  const createProject = useChatStore((s) => s.createProject);
+  const conversations = useChatStore((s) => s.conversations);
+  const selectedConversationId = useChatStore((s) => s.selectedConversationId);
+  const selectConversation = useChatStore((s) => s.selectConversation);
+  const createConversation = useChatStore((s) => s.createConversation);
+  const deleteConversation = useChatStore((s) => s.deleteConversation);
+  const renameConversation = useChatStore((s) => s.renameConversation);
+  const storeBranches = useChatStore((s) => s.branches);
+  const renameBranch = useChatStore((s) => s.renameBranch);
+  const deleteBranch = useChatStore((s) => s.deleteBranch);
+  const activeBranchId = useChatStore((s) => s.activeBranchId);
+  const threadBranchId = useChatStore((s) => s.threadBranchId);
+  const openThread = useChatStore((s) => s.openThread);
+  const openBranchStream = useChatStore((s) => s.openBranchStream);
+  const rawqStatus = useChatStore((s) => s.rawqStatus);
+  const runningThreadIds = useChatStore((s) => s.runningThreadIds);
+  const messageQueue = useChatStore((s) => s.messageQueue);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddProject, setShowAddProject] = useState(false);
@@ -54,6 +67,13 @@ export function Sidebar() {
     setRenameCounter((c) => c + 1);
   };
 
+  const handleDeleteBranch = async (branchId: string, label: string) => {
+    if (window.confirm(`"${label}" 브랜치를 삭제하시겠습니까?`)) {
+      await deleteBranch(branchId);
+      setRenameCounter((c) => c + 1); // trigger sidebar branch re-fetch
+    }
+  };
+
   const handleCreateChat = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!selectedProjectKey) return;
@@ -70,7 +90,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="flex flex-col w-full bg-sidebar h-full overflow-hidden text-sidebar-foreground">
+    <aside data-testid="sidebar" className="flex flex-col w-full bg-sidebar h-full overflow-hidden text-sidebar-foreground">
       {/* Logo */}
       <div className="flex items-center gap-2 px-3 h-9 border-b border-white/[0.06] shrink-0">
         <div className="w-5 h-5 rounded bg-primary/15 flex items-center justify-center">
@@ -97,11 +117,23 @@ export function Sidebar() {
 
       <nav className="flex-1 overflow-y-auto py-1">
         {/* PROJECTS */}
-        <ProjectsSection
-          projects={projects}
-          selectedProjectKey={selectedProjectKey}
-          selectProject={selectProject}
-        />
+        {(() => {
+          // Derive project-scoped concurrency status
+          const currentConvIds = new Set(conversations.map((c) => c.id));
+          const currentRunning = runningThreadIds.filter((id) => currentConvIds.has(id)).length;
+          const currentQueued = messageQueue.filter((q) => currentConvIds.has(q.threadId)).length;
+          const otherRunning = runningThreadIds.some((id) => !currentConvIds.has(id));
+          return (
+            <ProjectsSection
+              projects={projects}
+              selectedProjectKey={selectedProjectKey}
+              selectProject={selectProject}
+              runningCount={currentRunning}
+              queuedCount={currentQueued}
+              hasOtherRunning={otherRunning}
+            />
+          );
+        })()}
 
         {/* Below sections show data for the selected project only */}
         {selectedProjectKey && (
@@ -129,8 +161,10 @@ export function Sidebar() {
               selectConversation={selectConversation}
               renameConversation={renameConversation}
               openThread={openThread}
+              openBranchStream={openBranchStream}
               handleDelete={handleDelete}
               handleRenameBranch={handleRenameBranch}
+              onDeleteBranch={handleDeleteBranch}
               onCreateRT={() => setShowCreateRT(true)}
             />
 
@@ -143,6 +177,7 @@ export function Sidebar() {
               threadBranchId={threadBranchId}
               openThread={openThread}
               handleRenameBranch={handleRenameBranch}
+              onDeleteBranch={handleDeleteBranch}
             />
 
             <FilesSection

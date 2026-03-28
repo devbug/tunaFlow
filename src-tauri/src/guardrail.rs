@@ -19,6 +19,7 @@ pub const MAX_ARTIFACTS_SECTION: usize = 2_000;
 
 /// Default subprocess timeout in seconds (applied at the OS level via wait).
 /// Currently advisory — actual enforcement depends on the CLI tool's own timeout.
+#[allow(dead_code)]
 pub const DEFAULT_TIMEOUT_SECS: u64 = 120;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

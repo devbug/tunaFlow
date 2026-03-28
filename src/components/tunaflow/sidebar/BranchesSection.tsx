@@ -1,4 +1,4 @@
-import { GitBranch, Users } from "lucide-react";
+import { GitBranch, Users, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TreeRow, SectionHeader } from "./TreeRow";
 import { InlineRename } from "../InlineRename";
@@ -13,11 +13,12 @@ interface BranchesSectionProps {
   threadBranchId: string | null;
   openThread: (branchId: string) => void;
   handleRenameBranch: (branchId: string, newLabel: string) => Promise<void>;
+  onDeleteBranch?: (branchId: string, label: string) => void;
 }
 
 export function BranchesSection({
   branchesOpen, setBranchesOpen, topLevelBranches, childMap,
-  activeBranchId, threadBranchId, openThread, handleRenameBranch,
+  activeBranchId, threadBranchId, openThread, handleRenameBranch, onDeleteBranch,
 }: BranchesSectionProps) {
   const renderBranch = (b: Branch, depth: number) => {
     const isActive = b.id === activeBranchId || b.id === threadBranchId;
@@ -32,6 +33,12 @@ export function BranchesSection({
             b.status === "adopted" && "text-status-approved/60 bg-status-approved/8",
             b.status === "archived" && "text-sidebar-foreground/30 bg-white/5",
           )}>{b.status}</span>}
+          actions={onDeleteBranch ? (
+            <button onClick={(e) => { e.stopPropagation(); onDeleteBranch(b.id, b.customLabel ?? b.label); }}
+              className="p-0.5 rounded text-sidebar-foreground/20 hover:text-destructive transition-colors" title="Delete">
+              <Trash2 className="w-3 h-3" />
+            </button>
+          ) : undefined}
           onClick={() => openThread(b.id)} />
         {children.map((child) => renderBranch(child, depth + 1))}
       </div>

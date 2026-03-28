@@ -51,8 +51,11 @@ pub fn run() {
                 .unwrap_or_else(|_| std::path::PathBuf::from(".tunaflow_data"));
             std::fs::create_dir_all(&data_dir)?;
             let db_path = data_dir.join("tunaflow.db");
-            let conn = db::init(db_path)?;
-            app.manage(DbState(std::sync::Mutex::new(conn)));
+            let (write_conn, read_conn) = db::init(db_path)?;
+            app.manage(DbState {
+                write: std::sync::Arc::new(std::sync::Mutex::new(write_conn)),
+                read: std::sync::Arc::new(std::sync::Mutex::new(read_conn)),
+            });
             app.manage(CancelRegistry(std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()))));
             Ok(())
         })
@@ -70,6 +73,8 @@ pub fn run() {
             commands::conversations::get_conversation,
             commands::conversations::delete_conversation,
             commands::conversations::rename_conversation,
+            commands::conversations::save_rt_config,
+            commands::conversations::get_rt_config,
             // Message
             commands::messages::list_messages,
             commands::messages::create_user_message,
@@ -88,11 +93,21 @@ pub fn run() {
             commands::agents::stream_with_claude,
             commands::agents::send_with_codex,
             commands::agents::send_with_gemini,
+            commands::agents::stream_with_gemini,
             commands::agents::send_with_opencode,
+            commands::agents::start_claude_stream,
+            commands::agents::start_gemini_stream,
+            commands::agents::start_codex_run,
+            commands::agents::start_opencode_run,
+            // Jobs
+            commands::jobs::list_active_jobs,
+            commands::jobs::cleanup_stale_jobs,
             // Roundtable
             commands::roundtable::roundtable_run,
             commands::roundtable::roundtable_followup,
             commands::roundtable::cancel_running,
+            commands::roundtable::start_roundtable_run,
+            commands::roundtable::start_roundtable_followup,
             // Skill
             commands::skills::list_skills,
             commands::skills::get_skill,

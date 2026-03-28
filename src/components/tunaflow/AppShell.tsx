@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "@/stores/chatStore";
 import { getSetting, setSetting } from "@/lib/appStore";
 import { Sidebar } from "./Sidebar";
@@ -41,6 +42,9 @@ export function AppShell() {
       setContextW(clamp(cw, CONTEXT_MIN, CONTEXT_MAX));
       setDrawerW(Math.max(dw, DRAWER_MIN));
       setLoaded(true);
+
+      // Cleanup stale jobs/messages from interrupted background runs
+      invoke("cleanup_stale_jobs").catch(() => {});
 
       await loadProjects();
       loadEngineModels();

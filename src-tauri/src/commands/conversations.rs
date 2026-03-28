@@ -51,7 +51,7 @@ pub fn list_conversations(
     project_key: String,
     state: State<DbState>,
 ) -> Result<Vec<Conversation>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let sql = format!(
         "SELECT {} FROM conversations WHERE project_key = ?1 ORDER BY updated_at DESC",
         SELECT_COLS
@@ -68,7 +68,7 @@ pub fn create_conversation(
     input: CreateConversationInput,
     state: State<DbState>,
 ) -> Result<Conversation, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let id = Uuid::new_v4().to_string();
     let now = now_epoch();
     let conv_type = input.conv_type.as_deref().unwrap_or("main").to_string();
@@ -122,7 +122,7 @@ pub fn create_conversation(
 /// Also deletes shadow branch conversations (parent_id = this conversation).
 #[tauri::command]
 pub fn delete_conversation(id: String, state: State<DbState>) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
 
     // Manual cleanup for tables without FK CASCADE
     conn.execute("DELETE FROM memos WHERE conversation_id = ?1", [&id])?;
@@ -157,7 +157,7 @@ pub fn delete_conversation(id: String, state: State<DbState>) -> Result<(), AppE
 /// Empty string → NULL (fallback to auto-generated label).
 #[tauri::command]
 pub fn rename_conversation(id: String, custom_label: String, state: State<DbState>) -> Result<(), AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let value: Option<&str> = if custom_label.trim().is_empty() { None } else { Some(custom_label.trim()) };
     conn.execute(
         "UPDATE conversations SET custom_label = ?1, updated_at = ?2 WHERE id = ?3",
@@ -168,11 +168,38 @@ pub fn rename_conversation(id: String, custom_label: String, state: State<DbStat
 
 #[tauri::command]
 pub fn get_conversation(id: String, state: State<DbState>) -> Result<Conversation, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let sql = format!(
         "SELECT {} FROM conversations WHERE id = ?1",
         SELECT_COLS
     );
     conn.query_row(&sql, [&id], map_row)
         .map_err(|_| AppError::NotFound(format!("Conversation '{}' not found", id)))
+}
+
+/// Save RT config (participants + mode) as JSON in conversations.rt_config.
+/// Persists across app restarts (unlike sessionStorage).
+#[tauri::command]
+pub fn save_rt_config(conversation_id: String, config_json: String, state: State<DbState>) -> Result<(), AppError> {
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    conn.execute(
+        "UPDATE conversations SET rt_config = ?1 WHERE id = ?2",
+        params![config_json, conversation_id],
+    )?;
+    Ok(())
+}
+
+/// Load RT config for a conversation. Returns null if none saved.
+#[tauri::command]
+pub fn get_rt_config(conversation_id: String, state: State<DbState>) -> Result<Option<String>, AppError> {
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
+    let result: Option<String> = conn
+        .query_row(
+            "SELECT rt_config FROM conversations WHERE id = ?1",
+            [&conversation_id],
+            |row| row.get(0),
+        )
+        .ok()
+        .flatten();
+    Ok(result)
 }

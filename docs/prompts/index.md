@@ -15,3 +15,6 @@ Opus/Claude에 전달하는 실행 지시문, hand-off 문서, 초기 구현 프
 - [sidebarThreeSectionPrompt](./sidebarThreeSectionPrompt.md): 좌측 Sidebar를 Chats / Branches & RT / Files 3섹션 구조로 재구성하는 Phase 1 실행 프롬프트
 - [threadContextInheritancePrompt](./threadContextInheritancePrompt.md): thread와 RT에 parent anchor/source/recent turns를 상속시키는 1차 구현 프롬프트
 - [workspacePanelRedesignPrompt](./workspacePanelRedesignPrompt.md): ContextPanel을 3모드 우선의 workflow형 workspace panel로 재구성하는 Phase 1 실행 프롬프트
+
+- [backgroundAgentExecutionPrompt](./backgroundAgentExecutionPrompt.md): 장기 agent 실행을 background worker + event + DB 기반으로 전환하는 실행 프롬프트
+- [contextBudgetScalingPrompt](./contextBudgetScalingPrompt.md): ContextPack budget을 베타에서 단계적으로 상향 실험하기 위한 준비 프롬프트

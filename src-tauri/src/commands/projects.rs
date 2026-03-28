@@ -20,7 +20,7 @@ pub struct CreateProjectInput {
 
 #[tauri::command]
 pub fn list_projects(state: State<DbState>) -> Result<Vec<Project>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let mut stmt = conn.prepare(
         "SELECT key, name, path, type, default_engine, workspace_root, source, updated_at
          FROM projects ORDER BY updated_at DESC",
@@ -47,7 +47,7 @@ pub fn create_project(
     input: CreateProjectInput,
     state: State<DbState>,
 ) -> Result<Project, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
 
     // Normalize path for duplicate check (canonicalize resolves symlinks, case, slashes)
     let normalized_path = input.path.as_ref().and_then(|p| {
@@ -124,7 +124,7 @@ pub fn create_project(
 
 #[tauri::command]
 pub fn get_project(key: String, state: State<DbState>) -> Result<Project, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     conn.query_row(
         "SELECT key, name, path, type, default_engine, workspace_root, source, updated_at
          FROM projects WHERE key = ?1",

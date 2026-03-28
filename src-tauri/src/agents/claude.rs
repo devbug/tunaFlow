@@ -48,6 +48,9 @@ struct StreamContentBlock {
     block_type: String,
     text: Option<String>,
     thinking: Option<String>,
+    // tool_use fields
+    name: Option<String>,
+    input: Option<serde_json::Value>,
 }
 
 /// Extract thinking content from assistant message (for progress display).
@@ -61,6 +64,27 @@ fn extract_thinking(msg: &StreamAssistantMsg) -> Option<String> {
                 .next()
                 .map(|s| s.to_string())
         })
+}
+
+/// Extract tool_use invocations from assistant message (for progress display).
+fn extract_tool_uses(msg: &StreamAssistantMsg) -> Vec<String> {
+    msg.content
+        .as_ref()
+        .map(|blocks| {
+            blocks.iter()
+                .filter(|b| b.block_type == "tool_use")
+                .filter_map(|b| {
+                    let name = b.name.as_deref()?;
+                    // Summarize input — show first ~80 chars of stringified input
+                    let input_summary = b.input.as_ref().map(|v| {
+                        let s = v.to_string();
+                        if s.len() > 80 { format!("{}…", &s[..80]) } else { s }
+                    }).unwrap_or_default();
+                    Some(format!("🔧 {} {}", name, input_summary))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn extract_text(msg: &StreamAssistantMsg) -> String {
@@ -213,6 +237,10 @@ where
                                 on_progress(format!("💭 {}", last_line.trim()));
                             }
                         }
+                    }
+                    // Tool use → progress
+                    for tool_line in extract_tool_uses(msg) {
+                        on_progress(tool_line);
                     }
                     // Text → final answer chunk
                     let text = extract_text(msg);

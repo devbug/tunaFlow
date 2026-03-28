@@ -1,4 +1,5 @@
 use tauri::Emitter;
+use serde::{Deserialize, Serialize};
 
 use crate::agents::{claude, codex, gemini, opencode};
 use crate::db::{models::Message, DbState};
@@ -8,9 +9,19 @@ use crate::CancelRegistry;
 use super::prompt::{build_round_prompt, PromptSources};
 use super::persist::persist_single;
 
-use serde::Deserialize;
+/// Real-time participant execution status — emitted at actual subprocess lifecycle points.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RtParticipantStatus {
+    pub conversation_id: String,
+    pub name: String,
+    pub engine: String,
+    pub model: Option<String>,
+    pub round: u32,
+    pub status: String, // "running" | "done" | "error"
+}
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RoundtableParticipant {
     pub name: String,
@@ -45,6 +56,7 @@ pub fn run_participant(
     project_path: Option<String>,
 ) -> ParticipantResult {
     let engine_key = p.engine.as_deref().unwrap_or("claude");
+    eprintln!("[rt] running participant={} engine={} model={:?}", p.name, engine_key, p.model);
 
     let run_input = claude::RunInput {
         prompt,
@@ -98,6 +110,12 @@ pub fn run_participant(
 }
 
 /// Run all participants in a single round, persisting and emitting each result.
+///
+/// - **Sequential**: serial execution. Each participant runs after the previous finishes.
+/// - **Deliberative**: parallel execution. All participants run simultaneously.
+///
+/// Prompt is passed through as-is — no forced context injection.
+/// Users control what context to include in their prompt per round.
 pub fn execute_round(
     participants: &[RoundtableParticipant],
     transcript: &[(String, String)],
@@ -114,7 +132,32 @@ pub fn execute_round(
     root_span_id: &str,
     project_path: Option<&str>,
 ) -> Result<(Vec<Message>, Vec<(String, String)>), AppError> {
-    let mut messages: Vec<Message> = Vec::new();
+    let prior_refs: Vec<String> = transcript.iter().map(|(n, _)| n.clone()).collect();
+
+    match strategy {
+        RoundStrategy::Sequential => execute_sequential(
+            participants, transcript, &prior_refs, round_num, total_rounds, topic, rt_mode,
+            conversation_id, state, app, cancel, trace_id, root_span_id, project_path,
+        ),
+        RoundStrategy::Deliberative => execute_parallel(
+            participants, transcript, &prior_refs, round_num, total_rounds, topic, rt_mode,
+            conversation_id, state, app, cancel, trace_id, root_span_id, project_path,
+        ),
+    }
+}
+
+/// Sequential: run participants one by one. Each sees prior-round + current-round context.
+fn execute_sequential(
+    participants: &[RoundtableParticipant],
+    transcript: &[(String, String)],
+    prior_refs: &[String],
+    round_num: u32, total_rounds: u32,
+    topic: &str, rt_mode: &str,
+    conversation_id: &str, state: &DbState, app: &tauri::AppHandle,
+    cancel: &CancelRegistry, trace_id: &str, root_span_id: &str,
+    project_path: Option<&str>,
+) -> Result<(Vec<Message>, Vec<(String, String)>), AppError> {
+    let mut messages = Vec::new();
     let mut round_responses: Vec<(String, String)> = Vec::new();
 
     for p in participants {
@@ -122,32 +165,112 @@ pub fn execute_round(
             return Err(AppError::Agent("cancelled by user".into()));
         }
 
-        let (prior_refs, current_refs, prompt) = match strategy {
-            RoundStrategy::Sequential => (
-                transcript.iter().map(|(n, _)| n.clone()).collect(),
-                round_responses.iter().map(|(n, _)| n.clone()).collect(),
-                build_round_prompt(topic, transcript, &round_responses),
-            ),
-            RoundStrategy::Deliberative => (
-                transcript.iter().map(|(n, _)| n.clone()).collect(),
-                Vec::new(),
-                build_round_prompt(topic, transcript, &[]),
-            ),
-        };
-
         let sources = PromptSources {
-            round: round_num,
-            total_rounds,
+            round: round_num, total_rounds,
             mode: rt_mode.to_string(),
-            prior_round_refs: prior_refs,
-            current_round_refs: current_refs,
+            prior_round_refs: prior_refs.to_vec(),
+            current_round_refs: round_responses.iter().map(|(n, _)| n.clone()).collect(),
         };
         let sources_json = serde_json::to_string(&sources).unwrap_or_default();
 
+        let engine_key = p.engine.as_deref().unwrap_or("claude");
+        let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
+            conversation_id: conversation_id.to_string(),
+            name: p.name.clone(), engine: engine_key.to_string(), model: p.model.clone(),
+            round: round_num, status: "running".into(),
+        });
+
+        // Build prompt with discussion context (prior rounds + current round peers)
+        let prompt = build_round_prompt(topic, transcript, &round_responses);
         let r = run_participant(p, prompt, sources_json, project_path.map(|s| s.to_string()));
 
+        let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
+            conversation_id: conversation_id.to_string(),
+            name: r.name.clone(), engine: r.engine.clone(), model: r.model.clone(),
+            round: round_num, status: r.status.clone(),
+        });
+
         let msg = {
-            let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+            let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+            persist_single(&conn, conversation_id, &r, trace_id, root_span_id)?
+        };
+        let _ = app.emit("roundtable:progress", &msg);
+        messages.push(msg);
+
+        if r.status == "done" {
+            round_responses.push((r.name.clone(), r.content.clone()));
+        }
+    }
+
+    Ok((messages, round_responses))
+}
+
+/// Deliberative: run all participants in parallel, then persist results.
+/// Each sees prior-round context but not current-round peers.
+fn execute_parallel(
+    participants: &[RoundtableParticipant],
+    transcript: &[(String, String)],
+    prior_refs: &[String],
+    round_num: u32, total_rounds: u32,
+    topic: &str, rt_mode: &str,
+    conversation_id: &str, state: &DbState, app: &tauri::AppHandle,
+    cancel: &CancelRegistry, trace_id: &str, root_span_id: &str,
+    project_path: Option<&str>,
+) -> Result<(Vec<Message>, Vec<(String, String)>), AppError> {
+    if cancel.check_and_consume(conversation_id) {
+        return Err(AppError::Agent("cancelled by user".into()));
+    }
+
+    // Emit "running" for all participants at once
+    for p in participants {
+        let engine_key = p.engine.as_deref().unwrap_or("claude");
+        let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
+            conversation_id: conversation_id.to_string(),
+            name: p.name.clone(), engine: engine_key.to_string(), model: p.model.clone(),
+            round: round_num, status: "running".into(),
+        });
+    }
+
+    // Build sources metadata (same for all — no current-round refs in deliberative)
+    let sources = PromptSources {
+        round: round_num, total_rounds,
+        mode: rt_mode.to_string(),
+        prior_round_refs: prior_refs.to_vec(),
+        current_round_refs: Vec::new(),
+    };
+    let sources_json = serde_json::to_string(&sources).unwrap_or_default();
+
+    // Build prompt with prior-round context (same for all — no current-round peers in deliberative)
+    let prompt = build_round_prompt(topic, transcript, &[]);
+
+    // Spawn all participants in parallel
+    let handles: Vec<_> = participants.iter().map(|p| {
+        let p_clone = p.clone();
+        let pr = prompt.clone();
+        let sj = sources_json.clone();
+        let pp = project_path.map(|s| s.to_string());
+        std::thread::spawn(move || run_participant(&p_clone, pr, sj, pp))
+    }).collect();
+
+    // Collect results as threads finish (join order = participant order)
+    let mut messages = Vec::new();
+    let mut round_responses: Vec<(String, String)> = Vec::new();
+
+    for handle in handles {
+        let r = handle.join().unwrap_or_else(|_| ParticipantResult {
+            name: "unknown".into(), engine: "unknown".into(), model: None,
+            content: "participant thread panicked".into(), status: "error".into(),
+            cost_usd: 0.0, in_tokens: 0, out_tokens: 0, prompt_sources: String::new(),
+        });
+
+        let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
+            conversation_id: conversation_id.to_string(),
+            name: r.name.clone(), engine: r.engine.clone(), model: r.model.clone(),
+            round: round_num, status: r.status.clone(),
+        });
+
+        let msg = {
+            let conn = state.write.lock().map_err(|_| AppError::Lock)?;
             persist_single(&conn, conversation_id, &r, trace_id, root_span_id)?
         };
         let _ = app.emit("roundtable:progress", &msg);

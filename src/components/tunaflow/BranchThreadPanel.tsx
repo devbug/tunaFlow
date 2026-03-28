@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useMemo } from "react";
-import { X, Check, GitBranch, Maximize2, SendHorizonal, ChevronDown } from "lucide-react";
+import { X, Check, GitBranch, Users, Maximize2, SendHorizonal, ChevronDown, Trash2 } from "lucide-react";
 import { AgentAvatar } from "./AgentAvatar";
 import { cn, normalizeEngine, AGENT_DOT_COLORS, AGENT_DISPLAY_NAMES, formatTimestamp } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
@@ -28,6 +28,8 @@ export function BranchThreadPanel() {
     openBranchStream,
     sendThreadMessage,
     renameBranch,
+    deleteBranch,
+    branches,
     engineModels,
   } = useChatStore();
 
@@ -110,17 +112,25 @@ export function BranchThreadPanel() {
 
   return (
     <div className="flex flex-col w-full h-full bg-background">
-      {/* Header */}
+      {/* Header — RT vs Branch differentiation */}
+      {(() => {
+        const threadBranch = threadBranchId ? branches.find((b) => b.id === threadBranchId) : null;
+        const isRT = threadBranch?.mode === "roundtable";
+        return (
       <div className="flex items-center gap-2.5 px-3.5 h-10 border-b border-border/40 shrink-0">
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          <GitBranch className="w-3 h-3 text-primary/60 shrink-0" />
+          {isRT
+            ? <Users className="w-3.5 h-3.5 text-agent-gemini/60 shrink-0" />
+            : <GitBranch className="w-3 h-3 text-primary/60 shrink-0" />}
           <h2 className="text-[12px] font-medium text-foreground truncate min-w-0">
             {threadBranchId ? (
               <InlineRename value={threadBranchLabel ?? ""} onSave={(v) => renameBranch(threadBranchId, v)} inputClassName="text-[11px] w-full" />
             ) : threadBranchLabel}
           </h2>
-          <span className="text-[8px] font-medium px-1 py-0.5 rounded uppercase tracking-wider shrink-0 text-primary/50 bg-primary/6">
-            Branch
+          <span className={cn("text-[8px] font-medium px-1 py-0.5 rounded uppercase tracking-wider shrink-0",
+            isRT ? "text-agent-gemini/60 bg-agent-gemini/8" : "text-primary/50 bg-primary/6"
+          )}>
+            {isRT ? "Roundtable" : "Branch"}
           </span>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
@@ -130,11 +140,20 @@ export function BranchThreadPanel() {
           <button onClick={handleOpenFull} title="Full view" className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors">
             <Maximize2 className="w-3 h-3" />
           </button>
+          <button onClick={() => {
+            if (window.confirm(`"${threadBranchLabel}" 브랜치를 삭제하시겠습니까?`)) {
+              closeThread();
+              deleteBranch(threadBranchId);
+            }
+          }} title="Delete" className="p-1 rounded text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors">
+            <Trash2 className="w-3 h-3" />
+          </button>
           <button onClick={closeThread} title="Close" className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors">
             <X className="w-3 h-3" />
           </button>
         </div>
       </div>
+        ); })()}
 
       {/* Parent anchor */}
       {threadParentMessage && (

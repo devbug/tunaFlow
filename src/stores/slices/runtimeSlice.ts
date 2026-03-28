@@ -79,7 +79,6 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     const { selectedProjectKey, selectedConversationId, runningThreadIds } = get();
     if (!selectedProjectKey || !selectedConversationId) return;
 
-    // Queue if this thread is already running
     if (runningThreadIds.includes(selectedConversationId)) {
       get()._enqueue(selectedConversationId, prompt.slice(0, 30), () =>
         get().sendMessage(prompt, model, systemPrompt),
@@ -97,95 +96,56 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
       ],
     }));
 
-    // Subscribe to progress events (thinking/tool steps — shown as plain text during streaming)
-    const unlistenProgress = await listen<{ messageId: string; text: string }>(
-      "claude:progress",
-      (event) => {
-        const { messageId, text } = event.payload;
-        set((state) => {
-          const existing = state.messages.find((m) => m.id === messageId);
-          if (existing) {
-            // Append to progressContent
+    // Helper: replace placeholder with real message on first event
+    const replaceOrUpdate = (messageId: string, field: "progressContent" | "content", text: string) => {
+      set((state) => {
+        const existing = state.messages.find((m) => m.id === messageId);
+        if (existing) {
+          if (field === "progressContent") {
             const prev = existing.progressContent || "";
-            const updated = prev ? `${prev}\n${text}` : text;
-            return {
-              messages: state.messages.map((m) =>
-                m.id === messageId ? { ...m, progressContent: updated } : m
-              ),
-            };
+            return { messages: state.messages.map((m) => m.id === messageId ? { ...m, progressContent: prev ? `${prev}\n${text}` : text } : m) };
           }
-          // First progress event: replace thinking placeholder
-          const withoutPlaceholder = state.messages.filter(
-            (m) => !m.id.startsWith("temp-thinking-"),
-          );
-          return {
-            messages: [...withoutPlaceholder, {
-              id: messageId,
-              conversationId: selectedConversationId,
-              role: "assistant" as const,
-              content: "",
-              progressContent: text,
-              timestamp: Date.now(),
-              status: "streaming" as const,
-              engine: "claude-code",
-              model,
-            }],
-          };
-        });
-      },
-    );
+          return { messages: state.messages.map((m) => m.id === messageId ? { ...m, content: text } : m) };
+        }
+        const withoutPlaceholder = state.messages.filter((m) => !m.id.startsWith("temp-thinking-"));
+        return { messages: [...withoutPlaceholder, { id: messageId, conversationId: selectedConversationId, role: "assistant" as const, content: field === "content" ? text : "", progressContent: field === "progressContent" ? text : undefined, timestamp: Date.now(), status: "streaming" as const, engine: "claude-code", model }] };
+      });
+    };
 
-    // Subscribe to streaming chunks (final answer text)
-    const unlisten = await listen<{ messageId: string; text: string }>(
-      "claude:chunk",
-      (event) => {
-        const { messageId, text } = event.payload;
-        set((state) => {
-          const existing = state.messages.find((m) => m.id === messageId);
-          if (existing) {
-            return {
-              messages: state.messages.map((m) =>
-                m.id === messageId ? { ...m, content: text } : m
-              ),
-            };
-          }
-          // First chunk: replace thinking placeholder with real streaming message
-          const withoutPlaceholder = state.messages.filter(
-            (m) => !m.id.startsWith("temp-thinking-"),
-          );
-          const streamingMsg: Message = {
-            id: messageId,
-            conversationId: selectedConversationId,
-            role: "assistant",
-            content: text,
-            timestamp: Date.now(),
-            status: "streaming",
-            engine: "claude-code",
-            model,
-          };
-          return { messages: [...withoutPlaceholder, streamingMsg] };
-        });
-      }
-    );
+    const unlistenProgress = await listen<{ messageId: string; text: string }>("claude:progress", (e) => replaceOrUpdate(e.payload.messageId, "progressContent", e.payload.text));
+    const unlistenChunk = await listen<{ messageId: string; text: string }>("claude:chunk", (e) => replaceOrUpdate(e.payload.messageId, "content", e.payload.text));
+
+    const cleanup = () => { unlistenProgress(); unlistenChunk(); unlistenDone(); unlistenErr(); };
+
+    const unlistenDone = await listen<{ messageId: string; conversationId: string }>("agent:completed", async (e) => {
+      if (e.payload.conversationId !== selectedConversationId) return;
+      cleanup();
+      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+      set({ messages });
+      get()._endRun(selectedConversationId);
+    });
+
+    const unlistenErr = await listen<{ messageId: string; conversationId: string; error: string }>("agent:error", async (e) => {
+      if (e.payload.conversationId !== selectedConversationId) return;
+      cleanup();
+      set({ error: e.payload.error });
+      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+      set({ messages });
+      get()._endRun(selectedConversationId);
+    });
 
     try {
       const input: SendWithClaudeInput = {
         projectKey: selectedProjectKey,
         conversationId: selectedConversationId,
-        prompt,
-        model,
-        systemPrompt,
+        prompt, model, systemPrompt,
         activeSkills: get().activeSkills,
         crossSessionIds: get().crossSessionIds,
       };
-      const assistantMsg = await invoke<Message>("stream_with_claude", { input });
-      // Load final messages from DB to replace temp + streaming states
-      const messages = await invoke<Message[]>("list_messages", {
-        conversationId: selectedConversationId,
-      });
-      set({ messages });
-      get()._endRun(selectedConversationId);
+      await invoke<{ messageId: string }>("start_claude_stream", { input });
+      // Command returns immediately — events drive the rest
     } catch (e) {
+      cleanup();
       set((state) => ({
         error: String(e),
         messages: state.messages
@@ -193,9 +153,6 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
           .map((m) => m.status === "streaming" ? { ...m, status: "error", content: m.content || String(e) } : m),
       }));
       get()._endRun(selectedConversationId);
-    } finally {
-      unlisten();
-      unlistenProgress();
     }
   },
 
@@ -212,20 +169,40 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
       messages: [
         ...state.messages,
         { id: `temp-user-${now}`, conversationId: selectedConversationId, role: "user", content: prompt, timestamp: now, status: "done" },
-        { id: `temp-thinking-${now}`, conversationId: selectedConversationId, role: "assistant", content: "", progressContent: "", timestamp: now, status: "streaming", engine: "codex", model },
+        { id: `temp-thinking-${now}`, conversationId: selectedConversationId, role: "assistant", content: "", progressContent: "Codex starting...", timestamp: now, status: "streaming", engine: "codex", model },
       ],
     }));
-    try {
-      const input: SendWithClaudeInput = { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model };
-      await invoke<Message>("send_with_codex", { input });
+
+    const ulP = await listen<{ messageId: string; text: string }>("codex:progress", (e) => {
+      set((state) => {
+        const existing = state.messages.find((m) => m.id === e.payload.messageId);
+        if (existing) {
+          const prev = existing.progressContent || "";
+          return { messages: state.messages.map((m) => m.id === e.payload.messageId ? { ...m, progressContent: prev ? `${prev}\n${e.payload.text}` : e.payload.text } : m) };
+        }
+        const withoutPlaceholder = state.messages.filter((m) => !m.id.startsWith("temp-thinking-"));
+        return { messages: [...withoutPlaceholder, { id: e.payload.messageId, conversationId: selectedConversationId, role: "assistant" as const, content: "", progressContent: e.payload.text, timestamp: Date.now(), status: "streaming" as const, engine: "codex", model }] };
+      });
+    });
+    const cleanup = () => { ulP(); ulD(); ulE(); };
+    const ulD = await listen<{ conversationId: string }>("agent:completed", async (e) => {
+      if (e.payload.conversationId !== selectedConversationId) return;
+      cleanup();
       const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
-      set({ messages });
-      get()._endRun(selectedConversationId);
+      set({ messages }); get()._endRun(selectedConversationId);
+    });
+    const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
+      if (e.payload.conversationId !== selectedConversationId) return;
+      cleanup(); set({ error: e.payload.error });
+      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+      set({ messages }); get()._endRun(selectedConversationId);
+    });
+
+    try {
+      await invoke<{ messageId: string }>("start_codex_run", { input: { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model } });
     } catch (e) {
-      set((state) => ({
-        error: String(e),
-        messages: state.messages.filter((m) => !m.id.startsWith("temp-thinking-")),
-      }));
+      cleanup();
+      set((state) => ({ error: String(e), messages: state.messages.filter((m) => !m.id.startsWith("temp-thinking-")) }));
       get()._endRun(selectedConversationId);
     }
   },
@@ -243,20 +220,47 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
       messages: [
         ...state.messages,
         { id: `temp-user-${now}`, conversationId: selectedConversationId, role: "user", content: prompt, timestamp: now, status: "done" },
-        { id: `temp-thinking-${now}`, conversationId: selectedConversationId, role: "assistant", content: "", progressContent: "", timestamp: now, status: "streaming", engine: "gemini", model },
+        { id: `temp-thinking-${now}`, conversationId: selectedConversationId, role: "assistant", content: "", progressContent: "Gemini initializing...", timestamp: now, status: "streaming", engine: "gemini", model },
       ],
     }));
+
+    const replaceOrUpdate = (messageId: string, field: "progressContent" | "content", text: string) => {
+      set((state) => {
+        const existing = state.messages.find((m) => m.id === messageId);
+        if (existing) {
+          if (field === "progressContent") {
+            const prev = existing.progressContent || "";
+            return { messages: state.messages.map((m) => m.id === messageId ? { ...m, progressContent: prev ? `${prev}\n${text}` : text } : m) };
+          }
+          return { messages: state.messages.map((m) => m.id === messageId ? { ...m, content: text } : m) };
+        }
+        const withoutPlaceholder = state.messages.filter((m) => !m.id.startsWith("temp-thinking-"));
+        return { messages: [...withoutPlaceholder, { id: messageId, conversationId: selectedConversationId, role: "assistant" as const, content: field === "content" ? text : "", progressContent: field === "progressContent" ? text : undefined, timestamp: Date.now(), status: "streaming" as const, engine: "gemini", model }] };
+      });
+    };
+
+    const ulP = await listen<{ messageId: string; text: string }>("gemini:progress", (e) => replaceOrUpdate(e.payload.messageId, "progressContent", e.payload.text));
+    const ulC = await listen<{ messageId: string; text: string }>("gemini:chunk", (e) => replaceOrUpdate(e.payload.messageId, "content", e.payload.text));
+    const cleanup = () => { ulP(); ulC(); ulD(); ulE(); };
+    const ulD = await listen<{ conversationId: string }>("agent:completed", async (e) => {
+      if (e.payload.conversationId !== selectedConversationId) return;
+      cleanup();
+      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+      set({ messages }); get()._endRun(selectedConversationId);
+    });
+    const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
+      if (e.payload.conversationId !== selectedConversationId) return;
+      cleanup(); set({ error: e.payload.error });
+      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+      set({ messages }); get()._endRun(selectedConversationId);
+    });
+
     try {
       const input: SendWithClaudeInput = { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model };
-      await invoke<Message>("send_with_gemini", { input });
-      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
-      set({ messages });
-      get()._endRun(selectedConversationId);
+      await invoke<{ messageId: string }>("start_gemini_stream", { input });
     } catch (e) {
-      set((state) => ({
-        error: String(e),
-        messages: state.messages.filter((m) => !m.id.startsWith("temp-thinking-")),
-      }));
+      cleanup();
+      set((state) => ({ error: String(e), messages: state.messages.filter((m) => !m.id.startsWith("temp-thinking-")).map((m) => m.status === "streaming" ? { ...m, status: "error", content: m.content || String(e) } : m) }));
       get()._endRun(selectedConversationId);
     }
   },
@@ -274,20 +278,40 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
       messages: [
         ...state.messages,
         { id: `temp-user-${now}`, conversationId: selectedConversationId, role: "user", content: prompt, timestamp: now, status: "done" },
-        { id: `temp-thinking-${now}`, conversationId: selectedConversationId, role: "assistant", content: "", progressContent: "", timestamp: now, status: "streaming", engine: "opencode", model },
+        { id: `temp-thinking-${now}`, conversationId: selectedConversationId, role: "assistant", content: "", progressContent: "OpenCode starting...", timestamp: now, status: "streaming", engine: "opencode", model },
       ],
     }));
-    try {
-      const input: SendWithClaudeInput = { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model };
-      await invoke<Message>("send_with_opencode", { input });
+
+    const ulP = await listen<{ messageId: string; text: string }>("opencode:progress", (e) => {
+      set((state) => {
+        const existing = state.messages.find((m) => m.id === e.payload.messageId);
+        if (existing) {
+          const prev = existing.progressContent || "";
+          return { messages: state.messages.map((m) => m.id === e.payload.messageId ? { ...m, progressContent: prev ? `${prev}\n${e.payload.text}` : e.payload.text } : m) };
+        }
+        const withoutPlaceholder = state.messages.filter((m) => !m.id.startsWith("temp-thinking-"));
+        return { messages: [...withoutPlaceholder, { id: e.payload.messageId, conversationId: selectedConversationId, role: "assistant" as const, content: "", progressContent: e.payload.text, timestamp: Date.now(), status: "streaming" as const, engine: "opencode", model }] };
+      });
+    });
+    const cleanup = () => { ulP(); ulD(); ulE(); };
+    const ulD = await listen<{ conversationId: string }>("agent:completed", async (e) => {
+      if (e.payload.conversationId !== selectedConversationId) return;
+      cleanup();
       const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
-      set({ messages });
-      get()._endRun(selectedConversationId);
+      set({ messages }); get()._endRun(selectedConversationId);
+    });
+    const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
+      if (e.payload.conversationId !== selectedConversationId) return;
+      cleanup(); set({ error: e.payload.error });
+      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+      set({ messages }); get()._endRun(selectedConversationId);
+    });
+
+    try {
+      await invoke<{ messageId: string }>("start_opencode_run", { input: { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model } });
     } catch (e) {
-      set((state) => ({
-        error: String(e),
-        messages: state.messages.filter((m) => !m.id.startsWith("temp-thinking-")),
-      }));
+      cleanup();
+      set((state) => ({ error: String(e), messages: state.messages.filter((m) => !m.id.startsWith("temp-thinking-")) }));
       get()._endRun(selectedConversationId);
     }
   },
@@ -326,37 +350,35 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     }));
 
     let placeholderCleared = false;
-    const unlisten = await listen<Message>("roundtable:progress", (event) => {
+    const ulRT = await listen<Message>("roundtable:progress", (event) => {
       const msg = event.payload;
       if (msg.role === "user") return;
       set((state) => {
         if (!placeholderCleared) {
           placeholderCleared = true;
-          const filtered = state.messages.filter((m) => !m.id.startsWith("temp-thinking-"));
-          return { messages: [...filtered, msg] };
+          return { messages: [...state.messages.filter((m) => !m.id.startsWith("temp-thinking-")), msg] };
         }
         return { messages: [...state.messages, msg] };
       });
     });
+    const cleanup = () => { ulRT(); ulD(); ulE(); };
+    const ulD = await listen<{ conversationId: string }>("agent:completed", async (e) => {
+      if (e.payload.conversationId !== selectedConversationId) return;
+      cleanup();
+      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+      set({ messages }); get()._endRun(selectedConversationId);
+    });
+    const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
+      if (e.payload.conversationId !== selectedConversationId) return;
+      cleanup(); set({ error: e.payload.error });
+      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+      set({ messages }); get()._endRun(selectedConversationId);
+    });
 
     try {
-      const input: RoundtableRunInput = {
-        conversationId: selectedConversationId,
-        prompt,
-        participants,
-        mode,
-      };
-      await invoke<Message[]>("roundtable_run", { input });
-      const messages = await invoke<Message[]>("list_messages", {
-        conversationId: selectedConversationId,
-      });
-      set({ messages });
-      get()._endRun(selectedConversationId);
+      await invoke<{ messageId: string }>("start_roundtable_run", { input: { conversationId: selectedConversationId, prompt, participants, mode } });
     } catch (e) {
-      set({ error: String(e) });
-      get()._endRun(selectedConversationId);
-    } finally {
-      unlisten();
+      cleanup(); set({ error: String(e) }); get()._endRun(selectedConversationId);
     }
   },
 
@@ -378,37 +400,35 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     }));
 
     let placeholderCleared2 = false;
-    const unlisten = await listen<Message>("roundtable:progress", (event) => {
+    const ulRT = await listen<Message>("roundtable:progress", (event) => {
       const msg = event.payload;
       if (msg.role === "user") return;
       set((state) => {
         if (!placeholderCleared2) {
           placeholderCleared2 = true;
-          const filtered = state.messages.filter((m) => !m.id.startsWith("temp-thinking-"));
-          return { messages: [...filtered, msg] };
+          return { messages: [...state.messages.filter((m) => !m.id.startsWith("temp-thinking-")), msg] };
         }
         return { messages: [...state.messages, msg] };
       });
     });
+    const cleanup = () => { ulRT(); ulD(); ulE(); };
+    const ulD = await listen<{ conversationId: string }>("agent:completed", async (e) => {
+      if (e.payload.conversationId !== selectedConversationId) return;
+      cleanup();
+      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+      set({ messages }); get()._endRun(selectedConversationId);
+    });
+    const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
+      if (e.payload.conversationId !== selectedConversationId) return;
+      cleanup(); set({ error: e.payload.error });
+      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+      set({ messages }); get()._endRun(selectedConversationId);
+    });
 
     try {
-      const input: RoundtableRunInput = {
-        conversationId: selectedConversationId,
-        prompt,
-        participants,
-        mode,
-      };
-      await invoke<Message[]>("roundtable_followup", { input });
-      const messages = await invoke<Message[]>("list_messages", {
-        conversationId: selectedConversationId,
-      });
-      set({ messages });
-      get()._endRun(selectedConversationId);
+      await invoke<{ messageId: string }>("start_roundtable_followup", { input: { conversationId: selectedConversationId, prompt, participants, mode } });
     } catch (e) {
-      set({ error: String(e) });
-      get()._endRun(selectedConversationId);
-    } finally {
-      unlisten();
+      cleanup(); set({ error: String(e) }); get()._endRun(selectedConversationId);
     }
   },
 

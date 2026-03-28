@@ -52,11 +52,12 @@ fn fallback_models(engine: &str) -> Vec<(&'static str, &'static str, bool)> {
             ("haiku", "Haiku (latest)", false),
         ],
         "codex" => vec![
-            ("o3-mini", "o3-mini", true),
-            ("gpt-4o", "GPT-4o", false),
-            ("gpt-4o-mini", "GPT-4o Mini", false),
-            ("o3", "o3", false),
-            ("o4-mini", "o4-mini", false),
+            ("gpt-5.4-mini", "GPT-5.4 Mini", true),
+            ("gpt-5.4", "GPT-5.4", false),
+            ("gpt-5.3-codex", "GPT-5.3 Codex", false),
+            ("gpt-5.2-codex", "GPT-5.2 Codex", false),
+            ("gpt-5.1-codex-mini", "GPT-5.1 Codex Mini", false),
+            ("o3-mini", "o3-mini", false),
         ],
         "gemini" => vec![
             ("gemini-2.5-pro", "Gemini 2.5 Pro", true),

@@ -6,6 +6,34 @@ CREATE TABLE IF NOT EXISTS schema_version (
 );
 ";
 
+/// Migration v11: ContextPack traceability columns on trace_log.
+/// Stores metadata (not full prompt body) for each agent execution.
+#[allow(dead_code)]
+pub const V11_SCHEMA: &str = "
+ALTER TABLE trace_log ADD COLUMN context_mode     TEXT;
+ALTER TABLE trace_log ADD COLUMN context_sections TEXT;
+ALTER TABLE trace_log ADD COLUMN context_length   INTEGER;
+ALTER TABLE trace_log ADD COLUMN context_hash     TEXT;
+ALTER TABLE trace_log ADD COLUMN context_truncated INTEGER DEFAULT 0;
+";
+
+/// Migration v10: agent_jobs table for durable job tracking.
+pub const V10_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS agent_jobs (
+    id               TEXT    PRIMARY KEY,
+    conversation_id  TEXT    NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    message_id       TEXT    REFERENCES messages(id) ON DELETE SET NULL,
+    engine           TEXT    NOT NULL,
+    kind             TEXT    NOT NULL DEFAULT 'agent',
+    status           TEXT    NOT NULL DEFAULT 'running',
+    error            TEXT,
+    started_at       INTEGER NOT NULL,
+    updated_at       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_jobs_conversation_id ON agent_jobs(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_agent_jobs_status ON agent_jobs(status);
+";
+
 /// Migration v9: add subtask_id to branches for developer lane linkage.
 #[allow(dead_code)]
 pub const V9_SCHEMA: &str = "

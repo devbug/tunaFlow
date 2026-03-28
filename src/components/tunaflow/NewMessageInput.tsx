@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { ROUNDTABLE_PARTICIPANTS } from "@/lib/constants";
 import { SendHorizonal } from "lucide-react";
-import type { RtMode } from "@/types";
+import type { RtMode, RoundtableParticipant } from "@/types";
 
 import { EngineSelector, type Engine } from "./input/EngineSelector";
 import { ModelSelector } from "./input/ModelSelector";
@@ -12,19 +13,16 @@ import { ContextBadges } from "./input/ContextBadges";
 import { useSendActions } from "./input/useSendActions";
 
 export function NewMessageInput() {
-  const {
-    selectedConversationId,
-    conversations,
-    isRunning,
-    activeBranchId,
-    closeBranchStream,
-    cancelOperation,
-    runningThreadIds,
-    messageQueue,
-    activeSkills,
-    crossSessionIds,
-    engineModels,
-  } = useChatStore();
+  const selectedConversationId = useChatStore((s) => s.selectedConversationId);
+  const conversations = useChatStore((s) => s.conversations);
+  const activeBranchId = useChatStore((s) => s.activeBranchId);
+  const closeBranchStream = useChatStore((s) => s.closeBranchStream);
+  const cancelOperation = useChatStore((s) => s.cancelOperation);
+  const runningThreadIds = useChatStore((s) => s.runningThreadIds);
+  const messageQueue = useChatStore((s) => s.messageQueue);
+  const activeSkills = useChatStore((s) => s.activeSkills);
+  const crossSessionIds = useChatStore((s) => s.crossSessionIds);
+  const engineModels = useChatStore((s) => s.engineModels);
 
   const [text, setText] = useState("");
   const [engine, setEngine] = useState<Engine>("claude");
@@ -34,20 +32,46 @@ export function NewMessageInput() {
     () => new Set(ROUNDTABLE_PARTICIPANTS.map((p) => p.name)),
   );
 
-  // Load RT config when entering an RT conversation
+  // Load RT config when entering an RT conversation or branch
   const currentConv = conversations.find((c) => c.id === selectedConversationId);
+  const isRtConv = currentConv?.mode === "roundtable";
+  // RT config key: for branches use shadow ID, for conversations use conversation ID
+  const rtConfigKey = activeBranchId ? `branch:${activeBranchId}` : selectedConversationId;
+  const [rtParticipants, setRtParticipants] = useState<RoundtableParticipant[]>(ROUNDTABLE_PARTICIPANTS);
   useEffect(() => {
-    if (!selectedConversationId || currentConv?.mode !== "roundtable") return;
-    try {
-      const raw = sessionStorage.getItem(`rt_config:${selectedConversationId}`);
-      if (!raw) return;
-      const config = JSON.parse(raw) as { participants?: { name: string; engine?: string; model?: string }[]; mode?: RtMode };
-      if (config.mode) setRtMode(config.mode);
-      if (config.participants?.length) {
-        setActiveParticipants(new Set(config.participants.map((p) => p.name)));
+    if (!selectedConversationId || !isRtConv) {
+      setRtParticipants(ROUNDTABLE_PARTICIPANTS);
+      return;
+    }
+    // Load RT config from DB (persists across app restarts)
+    const configId = rtConfigKey ?? selectedConversationId;
+    invoke<string | null>("get_rt_config", { conversationId: configId }).then((raw) => {
+      if (!raw) {
+        // Try parent conversation if this is a branch
+        if (configId !== selectedConversationId) {
+          return invoke<string | null>("get_rt_config", { conversationId: selectedConversationId });
+        }
+        return null;
       }
-    } catch { /* ignore parse errors */ }
-  }, [selectedConversationId]);
+      return raw;
+    }).then((raw) => {
+      if (!raw) {
+        console.warn("[RT] No config in DB for", configId);
+        setRtParticipants(ROUNDTABLE_PARTICIPANTS);
+        return;
+      }
+      try {
+        const config = JSON.parse(raw) as { participants?: RoundtableParticipant[]; mode?: RtMode };
+        if (config.mode) setRtMode(config.mode);
+        if (config.participants?.length) {
+          setRtParticipants(config.participants);
+          setActiveParticipants(new Set(config.participants.map((p) => p.name)));
+        } else {
+          setRtParticipants(ROUNDTABLE_PARTICIPANTS);
+        }
+      } catch { setRtParticipants(ROUNDTABLE_PARTICIPANTS); }
+    }).catch(() => setRtParticipants(ROUNDTABLE_PARTICIPANTS));
+  }, [selectedConversationId, activeBranchId]);
 
   const isCurrentThreadRunning = !!selectedConversationId && runningThreadIds.includes(selectedConversationId);
   const currentQueueLength = messageQueue.filter((q) => q.threadId === selectedConversationId).length;
@@ -93,10 +117,16 @@ export function NewMessageInput() {
   return (
     <div className="px-4 pb-3 pt-1.5 shrink-0">
       {/* Branch stream banner */}
-      {activeBranchId && (
-        <div className="mb-1.5 flex items-center gap-2 text-[10px] text-muted-foreground/60 bg-primary/5 rounded px-2.5 py-1">
-          <span className="text-primary/60 font-mono text-[9px] uppercase tracking-wide">Branch</span>
-          <span className="font-medium text-foreground/60 flex-1 truncate">{activeBranchId.slice(0, 16)}...</span>
+      {activeBranchId && (() => {
+        const { branches } = useChatStore.getState();
+        const ab = branches.find((b) => b.id === activeBranchId);
+        const abIsRT = ab?.mode === "roundtable";
+        const abLabel = ab?.customLabel ?? ab?.label ?? "Branch";
+        return (
+        <div className={cn("mb-1.5 flex items-center gap-2 text-[10px] rounded px-2.5 py-1",
+          abIsRT ? "text-agent-gemini/60 bg-agent-gemini/5" : "text-muted-foreground/60 bg-primary/5")}>
+          <span className="font-mono text-[9px] uppercase tracking-wide">{abIsRT ? "RT Branch" : "Branch"}</span>
+          <span className="font-medium text-foreground/60 flex-1 truncate">{abLabel}</span>
           <button
             onClick={closeBranchStream}
             className="ml-auto text-muted-foreground/50 hover:text-foreground text-[10px]"
@@ -104,7 +134,7 @@ export function NewMessageInput() {
             ← Back
           </button>
         </div>
-      )}
+        ); })()}
 
       {/* Context status */}
       <ContextBadges activeSkills={activeSkills} crossSessionIds={crossSessionIds} />
@@ -116,6 +146,7 @@ export function NewMessageInput() {
             <RoundtableControls
               rtMode={rtMode}
               setRtMode={setRtMode}
+              participants={rtParticipants}
               activeParticipants={activeParticipants}
               toggleParticipant={toggleParticipant}
             />

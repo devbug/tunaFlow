@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { ROUNDTABLE_PARTICIPANTS } from "@/lib/constants";
@@ -16,10 +17,12 @@ const ENGINES = ["claude", "codex", "gemini", "opencode"] as const;
 interface CreateRoundtableDialogProps {
   open: boolean;
   onClose: () => void;
+  /** If set, creates an RT branch from this message instead of a new RT conversation */
+  checkpointId?: string | null;
 }
 
-export function CreateRoundtableDialog({ open, onClose }: CreateRoundtableDialogProps) {
-  const { selectedProjectKey, createConversation, selectConversation, engineModels } = useChatStore();
+export function CreateRoundtableDialog({ open, onClose, checkpointId }: CreateRoundtableDialogProps) {
+  const { selectedProjectKey, selectedConversationId, createConversation, createBranch, selectConversation, openBranchStream, engineModels } = useChatStore();
 
   const [label, setLabel] = useState("");
   const [mode, setMode] = useState<RtMode>("sequential");
@@ -78,24 +81,40 @@ export function CreateRoundtableDialog({ open, onClose }: CreateRoundtableDialog
     });
   };
 
+  const noModelParticipants = activeParticipants.filter((p) => !p.model);
+
   const handleCreate = async () => {
-    if (!selectedProjectKey || activeParticipants.length < 2) return;
+    if (activeParticipants.length < 2) return;
     setCreating(true);
     try {
-      const rtLabel = label.trim() || `Roundtable ${Date.now() % 10000}`;
-      const conv = await createConversation({
-        projectKey: selectedProjectKey,
-        label: rtLabel,
-        type: "main",
-        mode: "roundtable",
-        source: "tunadish",
-      });
-      // Store RT config keyed by conversation ID — NewMessageInput reads this
-      sessionStorage.setItem(`rt_config:${conv.id}`, JSON.stringify({
-        participants: activeParticipants,
-        mode,
-      }));
-      await selectConversation(conv.id);
+      if (checkpointId && selectedConversationId) {
+        // Create RT branch from a message
+        await createBranch(selectedConversationId, checkpointId, label.trim() || undefined, "roundtable");
+        // Find the newly created branch and store config
+        const { branches } = useChatStore.getState();
+        const newBranch = branches.find((b) => b.checkpointId === checkpointId && b.mode === "roundtable");
+        if (newBranch) {
+          const shadowId = `branch:${newBranch.id}`;
+          const configJson = JSON.stringify({ participants: activeParticipants, mode });
+          invoke("save_rt_config", { conversationId: shadowId, configJson }).catch(() => {});
+          // Open RT branch in full view (not drawer) — drawer doesn't support RT controls
+          await openBranchStream(newBranch.id);
+        }
+      } else {
+        // Create RT conversation
+        if (!selectedProjectKey) return;
+        const rtLabel = label.trim() || `Roundtable ${Date.now() % 10000}`;
+        const conv = await createConversation({
+          projectKey: selectedProjectKey,
+          label: rtLabel,
+          type: "main",
+          mode: "roundtable",
+          source: "tunadish",
+        });
+        const configJson = JSON.stringify({ participants: activeParticipants, mode });
+        invoke("save_rt_config", { conversationId: conv.id, configJson }).catch(() => {});
+        await selectConversation(conv.id);
+      }
       onClose();
     } catch {
       // silent
@@ -165,16 +184,17 @@ export function CreateRoundtableDialog({ open, onClose }: CreateRoundtableDialog
                     <input value={p.name} onChange={(e) => updateName(idx, e.target.value)}
                       className="w-[80px] bg-transparent text-[11px] font-medium text-foreground outline-none border-b border-transparent focus:border-border/40" />
                     <select value={p.engine ?? "claude"} onChange={(e) => updateEngine(idx, e.target.value)}
-                      className="bg-transparent text-[10px] text-muted-foreground/70 outline-none">
+                      className="bg-accent/50 rounded px-1.5 py-0.5 text-[10px] text-foreground/70 outline-none border border-border/20 focus:border-ring/40 cursor-pointer">
                       {ENGINES.map((eng) => <option key={eng} value={eng}>{eng}</option>)}
                     </select>
-                    {models.length > 0 && (
-                      <select value={p.model ?? ""} onChange={(e) => updateModel(idx, e.target.value)}
-                        className="bg-transparent text-[9px] text-muted-foreground/50 outline-none max-w-[100px]">
-                        <option value="">default</option>
-                        {models.map((m) => <option key={m.id} value={m.id}>{m.recommended ? "★ " : ""}{m.label}</option>)}
-                      </select>
-                    )}
+                    <select value={p.model ?? ""} onChange={(e) => updateModel(idx, e.target.value)}
+                      className={cn(
+                        "bg-accent/50 rounded px-1.5 py-0.5 text-[9px] outline-none border focus:border-ring/40 cursor-pointer max-w-[140px]",
+                        p.model ? "text-foreground/60 border-border/20" : "text-destructive/50 border-destructive/20"
+                      )}>
+                      <option value="">engine default</option>
+                      {models.map((m) => <option key={m.id} value={m.id}>{m.recommended ? "★ " : ""}{m.label}</option>)}
+                    </select>
                     <span className="flex-1" />
                     <button onClick={() => removeParticipant(idx)} title="Remove"
                       className="p-0.5 rounded text-muted-foreground/30 hover:text-destructive transition-colors">
@@ -185,6 +205,13 @@ export function CreateRoundtableDialog({ open, onClose }: CreateRoundtableDialog
               })}
             </div>
           </div>
+
+          {/* Validation warnings */}
+          {noModelParticipants.length > 0 && (
+            <div className="text-[10px] text-amber-500/70 bg-amber-500/5 rounded px-2.5 py-1.5">
+              {noModelParticipants.map((p) => p.name).join(", ")} — 모델 미선택 (엔진 기본값 사용)
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex items-center gap-2 pt-2 border-t border-border/20">

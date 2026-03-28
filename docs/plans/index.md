@@ -2,7 +2,7 @@
 
 실행 계획, 로드맵, 리팩토링 계획, 테스트 계획 문서.
 
-## 진행 현황 (2026-03-27 기준)
+## 진행 현황 (2026-03-28 기준)
 
 ### 완료
 
@@ -11,12 +11,15 @@
 | [agentCollaborationPlan](./agentCollaborationPlan.md) | Shared Brief, Findings, Artifact Handoff, Follow-up UX — Phase 1-3 구현 완료 |
 | [chatUiMarkdownUpgradePlan](./chatUiMarkdownUpgradePlan.md) | react-markdown + remark-gfm + MarkdownComponents 구현 완료 |
 | [claudeContextLightweightPlan](./claudeContextLightweightPlan.md) | ContextMode lite/standard/full + rawq 조건부 skip 구현 완료 |
+| [conversationVectorSearchPlan](./conversationVectorSearchPlan.md) | 대화 의미 검색(sentence-transformers/sqlite-vec) 도입 가능성 검토 메모 |
 | [engineModelCatalogPlan](./engineModelCatalogPlan.md) | curated catalog + list_engine_models + UI selector 구현 완료 |
 | [modelsCommandCatalogPlan](./modelsCommandCatalogPlan.md) | `!models` 명령 + engineModels 통합 구현 완료 |
 | [naturalLanguageHandoffPlan](./naturalLanguageHandoffPlan.md) | Phase A 구현 완료 — ENGINE_ALIASES + GOAL_ALIASES + source 우선순위 |
 | [progressFirstStreamingPlan](./progressFirstStreamingPlan.md) | progressContent + ProgressBlock/ProgressSummary + stream/done 분리 구현 완료 |
 | [rawqIntegrationPlan](./rawqIntegrationPlan.md) | rawq CLI 실제 연동, search/index/status, auto-indexing 구현 완료 |
 | [scalabilityRefactorPlan](./scalabilityRefactorPlan.md) | 확장 대비 store/sidebar/input/agents.rs 중심 리팩토링 로드맵 |
+
+| [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md) | Phase 1 구현 완료 — start_* background commands + event-driven frontend + DB SSOT |
 | [threadLocalRunQueuePlan](./threadLocalRunQueuePlan.md) | runningThreadIds[] + messageQueue[] + thread-aware cancel 구현 완료 |
 | [threadContextInheritancePlan](./threadContextInheritancePlan.md) | anchor message + parent turns + RT inheritance Phase 1 구현 완료 |
 | [workspacePanelRedesignPlan](./workspacePanelRedesignPlan.md) | 3-mode workspace panel (Plan/Artifacts/Trace) Phase A 구현 완료 |
@@ -35,6 +38,7 @@
 | [projectOnboardingLifecyclePlan](./projectOnboardingLifecyclePlan.md) | folder picker + validation + auto main conv + rawq indexing | workspace scan, template, guided setup |
 | [threadModelRoundtableRedesign](./threadModelRoundtableRedesign.md) | branch.mode + RT branch + shadow conversation 구현 | thread-first 모델 통합, reviewer thread |
 | [projectScopedConcurrencyPlan](./projectScopedConcurrencyPlan.md) | thread-local queue 구현 (선행 조건 충족) | 프로젝트 간 병렬 UI 표시, cross-project queue |
+| [skillRegistryPlan](./skillRegistryPlan.md) | chops 참고 메모 기반 상위 계획 | UI registry, collections, applied skill visibility |
 
 ### 보류
 
@@ -51,15 +55,19 @@
 
 | 문서 | 우선순위 |
 |------|---------|
+| [agentDaemonRoadmapPlan](./agentDaemonRoadmapPlan.md) | Phase 1-2 완료 (background worker + job registry). Phase 3 daemon extraction 진행 예정 |
+| [contextBudgetScalingPlan](./contextBudgetScalingPlan.md) | background execution 안정화 후 베타에서 단계적 context budget 상향 실험 |
 | [planBasedFollowupPlan](./planBasedFollowupPlan.md) | PlansPanel Forward 버튼은 구현됨. subtask 단위 자동 dispatch는 미구현 |
-| [contextPackTraceabilityPlan](./contextPackTraceabilityPlan.md) | 에이전트 응답에 어떤 ContextPack이 사용되었는지 추적하는 구조. trace_log 확장 + UI 표시 |
 
 ## 문서 목록
 
 - [agentCollaborationPlan](./agentCollaborationPlan.md)
+- [agentDaemonRoadmapPlan](./agentDaemonRoadmapPlan.md)
 - [chatUiMarkdownUpgradePlan](./chatUiMarkdownUpgradePlan.md)
 - [claudeContextLightweightPlan](./claudeContextLightweightPlan.md)
+- [conversationVectorSearchPlan](./conversationVectorSearchPlan.md)
 - [contextPackTraceabilityPlan](./contextPackTraceabilityPlan.md)
+- [contextBudgetScalingPlan](./contextBudgetScalingPlan.md)
 - [engineModelCatalogPlan](./engineModelCatalogPlan.md)
 - [gitAwareBranchModelPlan](./gitAwareBranchModelPlan.md)
 - [harnessEngineeringAdoptionPlan](./harnessEngineeringAdoptionPlan.md)
@@ -80,6 +88,8 @@
 - [rawqIntegrationPlan](./rawqIntegrationPlan.md)
 - [roundtableCreationConfigPlan](./roundtableCreationConfigPlan.md)
 - [scalabilityRefactorPlan](./scalabilityRefactorPlan.md)
+- [skillRegistryPlan](./skillRegistryPlan.md)
+- [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md)
 - [sidebarThreeSectionPlan](./sidebarThreeSectionPlan.md)
 - [sidecarMigrationPlan](./sidecarMigrationPlan.md)
 - [tauri2PluginAdoptionPlan](./tauri2PluginAdoptionPlan.md)
@@ -87,3 +97,4 @@
 - [threadLocalRunQueuePlan](./threadLocalRunQueuePlan.md)
 - [threadModelRoundtableRedesign](./threadModelRoundtableRedesign.md)
 - [workspacePanelRedesignPlan](./workspacePanelRedesignPlan.md)
+

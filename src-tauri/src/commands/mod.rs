@@ -7,6 +7,7 @@ pub mod context_queries;
 pub mod conversations;
 pub mod evaluation;
 pub mod files;
+pub mod jobs;
 pub mod memos;
 pub mod model_discovery;
 pub mod messages;

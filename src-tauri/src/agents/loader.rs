@@ -3,10 +3,12 @@ use crate::errors::AppError;
 
 /// Parsed agent definition (DATA_MODEL §1.6)
 pub struct AgentDef {
+    #[allow(dead_code)]
     pub name: String,
     /// YAML body = system prompt injected via --append-system-prompt
     pub system_prompt: String,
     /// `model:` field from frontmatter (optional override)
+    #[allow(dead_code)]
     pub model: Option<String>,
 }
 

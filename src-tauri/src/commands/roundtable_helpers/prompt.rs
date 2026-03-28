@@ -15,7 +15,11 @@ pub fn truncate(s: &str, max: usize) -> String {
     format!("{}...", &s[..end])
 }
 
-/// Build prompt for a single participant.
+/// Build context-enriched prompt for a single participant.
+///
+/// Prepends prior-round and current-round responses as reference context,
+/// then appends the user's prompt. No directive text is injected —
+/// the user controls what to ask, agents just see the discussion context.
 pub fn build_round_prompt(
     topic: &str,
     transcript: &[(String, String)],
@@ -27,23 +31,20 @@ pub fn build_round_prompt(
         let lines: Vec<String> = transcript
             .iter()
             .map(|(name, content)| {
-                format!("**[{}]**:\n{}", name, truncate(content, MAX_ANSWER_LENGTH))
+                format!("[{}]:\n{}", name, truncate(content, MAX_ANSWER_LENGTH))
             })
             .collect();
-        sections.push(format!("이전 라운드 응답:\n\n{}", lines.join("\n\n")));
+        sections.push(format!("## Prior round responses\n\n{}", lines.join("\n\n")));
     }
 
     if !current_round.is_empty() {
         let lines: Vec<String> = current_round
             .iter()
             .map(|(name, content)| {
-                format!("**[{}]**:\n{}", name, truncate(content, MAX_ANSWER_LENGTH))
+                format!("[{}]:\n{}", name, truncate(content, MAX_ANSWER_LENGTH))
             })
             .collect();
-        sections.push(format!(
-            "이번 라운드 다른 에이전트 답변:\n\n{}",
-            lines.join("\n\n")
-        ));
+        sections.push(format!("## This round (other agents)\n\n{}", lines.join("\n\n")));
     }
 
     if sections.is_empty() {
@@ -52,7 +53,7 @@ pub fn build_round_prompt(
 
     let context_block = sections.join("\n\n---\n\n");
     format!(
-        "{}\n\n---\n\n위 의견들을 참고하여 답변해주세요: {}",
+        "{}\n\n---\n\n{}",
         context_block, topic
     )
 }

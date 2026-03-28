@@ -5,14 +5,22 @@ import type { Engine } from "./EngineSelector";
 
 // ─── RT config helpers ───────────────────────────────────────────────────────
 
-/** Read RT participant config stored by CreateRoundtableDialog */
-function getRtConfigParticipants(conversationId: string | null): RoundtableParticipant[] | null {
+/** Read RT participant config from DB. */
+async function getRtConfigParticipants(conversationId: string | null): Promise<RoundtableParticipant[] | null> {
   if (!conversationId) return null;
   try {
-    const raw = sessionStorage.getItem(`rt_config:${conversationId}`);
-    if (!raw) return null;
+    const { invoke } = await import("@tauri-apps/api/core");
+    const raw = await invoke<string | null>("get_rt_config", { conversationId });
+    if (!raw) {
+      console.warn("[RT config] not found in DB for:", conversationId);
+      return null;
+    }
     const config = JSON.parse(raw) as { participants?: RoundtableParticipant[] };
-    return config.participants?.length ? config.participants : null;
+    if (config.participants?.length) {
+      console.log("[RT config] loaded:", conversationId, config.participants.map((p) => `${p.name}(${p.engine}/${p.model ?? "default"})`));
+      return config.participants;
+    }
+    return null;
   } catch { return null; }
 }
 
@@ -203,18 +211,43 @@ export function useSendActions({
     setText("");
 
     if (isRoundtable) {
-      // Determine participants: /follow override → RT config → UI toggles
+      // Determine participants: /follow override → RT config (DB) → warn on missing config
       let participants: RoundtableParticipant[];
-      const allParticipants = getRtConfigParticipants(selectedConversationId) ?? ROUNDTABLE_PARTICIPANTS;
+      const configParticipants = await getRtConfigParticipants(selectedConversationId);
+      const allParticipants = configParticipants ?? ROUNDTABLE_PARTICIPANTS;
       const followCmd = parseFollowCommand(prompt, allParticipants);
       if (followCmd) {
         participants = followCmd.participants;
         prompt = followCmd.prompt;
         setActiveParticipants(new Set(participants.map((p) => p.name)));
+      } else if (configParticipants) {
+        participants = configParticipants;
       } else {
-        participants = allParticipants.filter((p) =>
+        // No RT config found — warn user instead of silent Haiku fallback
+        console.warn("[RT] No rt_config found for", selectedConversationId, "— using default participants");
+        const now = Date.now();
+        useChatStore.setState((state) => ({
+          messages: [...state.messages, {
+            id: `local-rt-warn-${now}`,
+            conversationId: selectedConversationId,
+            role: "assistant" as const,
+            content: "⚠️ **RT 설정을 불러오지 못했습니다.** 기본 참가자로 실행합니다.\n\n새 RT를 만들거나 사이드바에서 [+]로 다시 설정하세요.",
+            timestamp: now,
+            status: "done",
+            engine: "system",
+          }],
+        }));
+        participants = ROUNDTABLE_PARTICIPANTS.filter((p) =>
           activeParticipants.has(p.name),
         );
+      }
+
+      // Log actual participants being sent
+      console.log("[RT send] convId:", selectedConversationId, "hasRtMessages:", hasRtMessages,
+        "participants:", participants.map((p) => `${p.name}(${p.engine}/${p.model ?? "NO MODEL"})`));
+      const noModel = participants.filter((p) => !p.model);
+      if (noModel.length > 0) {
+        console.warn("[RT] Participants without explicit model:", noModel.map((p) => p.name).join(", "), "— engine default will be used");
       }
 
       if (hasRtMessages) {

@@ -31,6 +31,12 @@ pub struct TraceSpan {
     pub duration_ms: Option<i64>,
     pub status: Option<String>,
     pub recorded_at: i64,
+    // ContextPack traceability (v11)
+    pub context_mode: Option<String>,
+    pub context_sections: Option<String>,
+    pub context_length: Option<i64>,
+    pub context_hash: Option<String>,
+    pub context_truncated: Option<i64>,
 }
 
 /// List trace spans for a conversation, ordered by recorded_at descending.
@@ -41,12 +47,13 @@ pub fn list_traces(
     trace_id: Option<String>,
     state: State<DbState>,
 ) -> Result<Vec<TraceSpan>, AppError> {
-    let conn = state.0.lock().map_err(|_| AppError::Lock)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
 
     let (sql, arg_trace) = if let Some(ref tid) = trace_id {
         (
             "SELECT id, conversation_id, trace_id, span_id, parent_span_id, operation, engine,
-                    input_tokens, output_tokens, cost_usd, duration_ms, status, recorded_at
+                    input_tokens, output_tokens, cost_usd, duration_ms, status, recorded_at,
+                    context_mode, context_sections, context_length, context_hash, context_truncated
              FROM trace_log
              WHERE conversation_id = ?1 AND trace_id = ?2
              ORDER BY recorded_at DESC",
@@ -55,7 +62,8 @@ pub fn list_traces(
     } else {
         (
             "SELECT id, conversation_id, trace_id, span_id, parent_span_id, operation, engine,
-                    input_tokens, output_tokens, cost_usd, duration_ms, status, recorded_at
+                    input_tokens, output_tokens, cost_usd, duration_ms, status, recorded_at,
+                    context_mode, context_sections, context_length, context_hash, context_truncated
              FROM trace_log
              WHERE conversation_id = ?1
              ORDER BY recorded_at DESC",
@@ -105,5 +113,10 @@ fn map_span(row: &rusqlite::Row) -> rusqlite::Result<TraceSpan> {
         duration_ms: row.get(10)?,
         status: row.get(11)?,
         recorded_at: row.get(12)?,
+        context_mode: row.get(13)?,
+        context_sections: row.get(14)?,
+        context_length: row.get(15)?,
+        context_hash: row.get(16)?,
+        context_truncated: row.get(17)?,
     })
 }
