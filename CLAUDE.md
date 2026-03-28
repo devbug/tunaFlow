@@ -296,7 +296,25 @@ npm run tauri build
 
 ---
 
-## 15. 코딩 컨벤션
+## 15. Skill 로딩 규칙
+
+작업 시작 전에 현재 작업 유형에 맞는 skill 1~3개를 `~/.tunaflow/skills/`에서 먼저 읽고 그 규칙에 따라 진행한다.
+
+| 작업 유형 | 추천 스킬 |
+|---|---|
+| 프론트엔드 구현 | `anthropic-frontend-design`, `microsoft-zustand-store-ts` |
+| 프론트엔드 리뷰 | `microsoft-frontend-design-review`, `anthropic-webapp-testing` |
+| OpenAI/Codex 연동 | `openai-openai-docs` |
+| Claude/Anthropic 연동 | `anthropic-claude-api` |
+| MCP/tool 연동 | `anthropic-mcp-builder` |
+
+- 관련 없는 스킬은 켜지 않는다
+- 모든 스킬을 다 읽지 않는다
+- `~/.tunaflow/skills`는 snapshot 전용 — 수동 편집 금지 (`docs/how-to/skills-runtime-policy.md` 참조)
+
+---
+
+## 16. 코딩 컨벤션
 
 - **한국어 응답**: 사용자 대면 텍스트는 한국어, 코드/경로/식별자는 원문
 - **Zustand selector**: broad `useChatStore()` 금지, 개별 `useChatStore((s) => s.field)` 사용

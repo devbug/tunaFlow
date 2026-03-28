@@ -11,6 +11,17 @@ pub struct SkillDef {
     pub name: String,
     pub description: String,
     pub content: String,
+    pub vendor: Option<String>,
+    pub source_path: Option<String>,
+}
+
+/// Snapshot-level metadata from `~/.tunaflow/skills/_snapshot.json`
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsSnapshotInfo {
+    pub published_at: Option<String>,
+    pub total_skills: u64,
+    pub source: Option<String>,
 }
 
 /// Skill base directory: `~/.tunaflow/skills/`
@@ -54,10 +65,16 @@ pub fn list_skills() -> Result<Vec<SkillDef>, AppError> {
             .to_string();
 
         let (description, body) = parse_skill(&content);
+
+        // Read _meta.json for vendor/source metadata
+        let (vendor, source_path) = read_meta(&path);
+
         skills.push(SkillDef {
             name,
             description,
             content: body,
+            vendor,
+            source_path,
         });
     }
 
@@ -77,10 +94,48 @@ pub fn get_skill(name: String) -> Result<SkillDef, AppError> {
     })?;
 
     let (description, body) = parse_skill(&content);
+    let skill_dir = base.join(&name);
+    let (vendor, source_path) = read_meta(&skill_dir);
     Ok(SkillDef {
         name,
         description,
         content: body,
+        vendor,
+        source_path,
+    })
+}
+
+/// Read `_meta.json` from a skill directory for vendor/source metadata.
+fn read_meta(skill_dir: &std::path::Path) -> (Option<String>, Option<String>) {
+    let meta_file = skill_dir.join("_meta.json");
+    let Ok(text) = fs::read_to_string(&meta_file) else {
+        return (None, None);
+    };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return (None, None);
+    };
+    let vendor = val.get("vendor").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let source_path = val.get("source_path").and_then(|v| v.as_str()).map(|s| s.to_string());
+    (vendor, source_path)
+}
+
+/// Return snapshot-level metadata from `~/.tunaflow/skills/_snapshot.json`.
+#[tauri::command]
+pub fn get_skills_snapshot() -> Result<SkillsSnapshotInfo, AppError> {
+    let base = skills_dir().ok_or_else(|| {
+        AppError::NotFound("skills directory not found".into())
+    })?;
+    let snap_file = base.join("_snapshot.json");
+    let text = fs::read_to_string(&snap_file).map_err(|e| {
+        AppError::NotFound(format!("_snapshot.json not found: {}", e))
+    })?;
+    let val: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+        AppError::Agent(format!("_snapshot.json parse error: {}", e))
+    })?;
+    Ok(SkillsSnapshotInfo {
+        published_at: val.get("published_at").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        total_skills: val.get("total_skills").and_then(|v| v.as_u64()).unwrap_or(0),
+        source: val.get("source").and_then(|v| v.as_str()).map(|s| s.to_string()),
     })
 }
 

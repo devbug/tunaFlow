@@ -177,16 +177,21 @@ pub fn send_with_claude(
         (None, None, None)
     };
 
-    // Full 섹션 (skills, rawq, cross-session)
-    let (skills_s, rawq_s, cross_s) = if ctx_mode >= ContextMode::Full {
+    // Skills + cross-session (Full mode or active skills present)
+    let (skills_s, cross_s) = if ctx_mode >= ContextMode::Full || !input.active_skills.is_empty() {
         (
             guardrail::truncate_section(build_skills_section(&input.active_skills), guardrail::MAX_SKILLS_SECTION),
-            guardrail::truncate_section(build_rawq_section(project_path.as_deref(), &input.prompt), guardrail::MAX_RAWQ_SECTION),
             maybe_compress_section(build_cross_session_section(&cross_session_data), guardrail::MAX_CROSS_SESSION_SECTION),
         )
     } else {
-        (None, None, None)
+        (None, None)
     };
+
+    // rawq: mode-independent — prompt_needs_rawq() internally decides
+    let rawq_s = guardrail::truncate_section(
+        build_rawq_section(project_path.as_deref(), &input.prompt),
+        guardrail::MAX_RAWQ_SECTION,
+    );
 
     let system_prompt = guardrail::enforce_total_limit(
         combine_prompt_parts([project_context, base_system_prompt, plan_s, findings_s, artifacts_s, skills_s, rawq_s, cross_s, thread_inheritance.clone(), context_summary]),
@@ -294,12 +299,12 @@ pub fn send_with_codex(
 ) -> Result<Message, AppError> {
     use super::agents_helpers::send_common::*;
 
-    // Step 1: persist user message + build lite context (single lock block)
+    // Step 1: persist user message + build normalized context
     let (enriched_prompt, project_path) = {
         let conn = state.write.lock().map_err(|_| AppError::Lock)?;
         persist_user_message(&conn, &input.conversation_id, &input.prompt, &input.user_message_id)?;
         let pp = load_project_path(&conn, &input.project_key);
-        let prompt = build_lite_enriched_prompt(&conn, &input.conversation_id, &input.prompt, pp.as_deref());
+        let prompt = build_normalized_prompt(&conn, &input.conversation_id, &input.prompt, pp.as_deref(), &input.active_skills, &input.cross_session_ids);
         (prompt, pp)
     };
 
@@ -348,12 +353,12 @@ pub fn send_with_gemini(
 ) -> Result<Message, AppError> {
     use super::agents_helpers::send_common::*;
 
-    // Step 1: persist user message + build lite context (single lock block)
+    // Step 1: persist user message + build normalized context
     let (enriched_prompt, project_path) = {
         let conn = state.write.lock().map_err(|_| AppError::Lock)?;
         persist_user_message(&conn, &input.conversation_id, &input.prompt, &input.user_message_id)?;
         let pp = load_project_path(&conn, &input.project_key);
-        let prompt = build_lite_enriched_prompt(&conn, &input.conversation_id, &input.prompt, pp.as_deref());
+        let prompt = build_normalized_prompt(&conn, &input.conversation_id, &input.prompt, pp.as_deref(), &input.active_skills, &input.cross_session_ids);
         (prompt, pp)
     };
 
@@ -405,12 +410,12 @@ pub fn stream_with_gemini(
 ) -> Result<Message, AppError> {
     use super::agents_helpers::send_common::*;
 
-    // Step 1: persist user message + build lite context
+    // Step 1: persist user message + build normalized context
     let (enriched_prompt, project_path) = {
         let conn = state.write.lock().map_err(|_| AppError::Lock)?;
         persist_user_message(&conn, &input.conversation_id, &input.prompt, &input.user_message_id)?;
         let pp = load_project_path(&conn, &input.project_key);
-        let prompt = build_lite_enriched_prompt(&conn, &input.conversation_id, &input.prompt, pp.as_deref());
+        let prompt = build_normalized_prompt(&conn, &input.conversation_id, &input.prompt, pp.as_deref(), &input.active_skills, &input.cross_session_ids);
         (prompt, pp)
     };
 
@@ -497,7 +502,7 @@ pub fn send_with_opencode(
         let conn = state.write.lock().map_err(|_| AppError::Lock)?;
         persist_user_message(&conn, &input.conversation_id, &input.prompt, &input.user_message_id)?;
         let pp = load_project_path(&conn, &input.project_key);
-        let prompt = build_lite_enriched_prompt(&conn, &input.conversation_id, &input.prompt, pp.as_deref());
+        let prompt = build_normalized_prompt(&conn, &input.conversation_id, &input.prompt, pp.as_deref(), &input.active_skills, &input.cross_session_ids);
         (prompt, pp)
     };
 
@@ -914,7 +919,7 @@ pub fn start_gemini_stream(input:SendWithClaudeInput,app:AppHandle,state:State<D
     use super::agents_helpers::send_common::*;
     let(ep,pp,mid)={let conn=state.write.lock().map_err(|_|AppError::Lock)?;
         persist_user_message(&conn,&input.conversation_id,&input.prompt,&input.user_message_id)?;
-        let pp=load_project_path(&conn,&input.project_key);let ep=build_lite_enriched_prompt(&conn,&input.conversation_id,&input.prompt,pp.as_deref());
+        let pp=load_project_path(&conn,&input.project_key);let ep=build_normalized_prompt(&conn,&input.conversation_id,&input.prompt,pp.as_deref(),&input.active_skills,&input.cross_session_ids);
         let mid=format!("msg-{}",Uuid::new_v4());let now=now_epoch_ms();
         conn.execute("INSERT INTO messages(id,conversation_id,role,content,timestamp,status,engine,model)VALUES(?1,?2,'assistant','',?3,'streaming','gemini',?4)",params![mid,input.conversation_id,now,input.model])?;
         (ep,pp,mid)};
@@ -951,7 +956,7 @@ pub fn start_codex_run(input:SendWithClaudeInput,app:AppHandle,state:State<DbSta
     use super::agents_helpers::send_common::*;
     let(ep,pp,mid)={let conn=state.write.lock().map_err(|_|AppError::Lock)?;
         persist_user_message(&conn,&input.conversation_id,&input.prompt,&input.user_message_id)?;
-        let pp=load_project_path(&conn,&input.project_key);let ep=build_lite_enriched_prompt(&conn,&input.conversation_id,&input.prompt,pp.as_deref());
+        let pp=load_project_path(&conn,&input.project_key);let ep=build_normalized_prompt(&conn,&input.conversation_id,&input.prompt,pp.as_deref(),&input.active_skills,&input.cross_session_ids);
         let mid=format!("msg-{}",Uuid::new_v4());let now=now_epoch_ms();
         conn.execute("INSERT INTO messages(id,conversation_id,role,content,timestamp,status,engine,model)VALUES(?1,?2,'assistant','',?3,'streaming','codex',?4)",params![mid,input.conversation_id,now,input.model])?;
         (ep,pp,mid)};
@@ -960,8 +965,13 @@ pub fn start_codex_run(input:SendWithClaudeInput,app:AppHandle,state:State<DbSta
     let write_arc=std::sync::Arc::clone(&state.write);
     let ab=app;let r=mid.clone();let cid=input.conversation_id;
     std::thread::spawn(move||{
-        let _=ab.emit("codex:progress",ChunkPayload{message_id:mid.clone(),text:"Codex starting...".into()});
-        let rr=codex::run(claude::RunInput{prompt:ep,model:input.model.clone(),system_prompt:None,resume_token:None,project_path:pp});
+        let chunk_mid=mid.clone();let chunk_app=ab.clone();
+        let progress_mid=mid.clone();let progress_app=ab.clone();
+        let rr=codex::stream_run(
+            claude::RunInput{prompt:ep,model:input.model.clone(),system_prompt:None,resume_token:None,project_path:pp},
+            |event_type|{let _=progress_app.emit("codex:progress",ChunkPayload{message_id:progress_mid.clone(),text:format!("codex: {}",event_type)});},
+            |accumulated|{let _=chunk_app.emit("codex:chunk",ChunkPayload{message_id:chunk_mid.clone(),text:accumulated.to_string()});},
+        );
         if let Ok(conn)=write_arc.lock(){let now=now_epoch_ms();match rr{
             Ok(out)=>{let c=if out.content.is_empty(){"(codex returned no output)".into()}else{out.content};
                 let _=conn.execute("UPDATE messages SET content=?1,status='done',timestamp=?2 WHERE id=?3",params![c,now,mid]);
@@ -983,7 +993,7 @@ pub fn start_opencode_run(input:SendWithClaudeInput,app:AppHandle,state:State<Db
     use super::agents_helpers::send_common::*;
     let(ep,pp,mid)={let conn=state.write.lock().map_err(|_|AppError::Lock)?;
         persist_user_message(&conn,&input.conversation_id,&input.prompt,&input.user_message_id)?;
-        let pp=load_project_path(&conn,&input.project_key);let ep=build_lite_enriched_prompt(&conn,&input.conversation_id,&input.prompt,pp.as_deref());
+        let pp=load_project_path(&conn,&input.project_key);let ep=build_normalized_prompt(&conn,&input.conversation_id,&input.prompt,pp.as_deref(),&input.active_skills,&input.cross_session_ids);
         let mid=format!("msg-{}",Uuid::new_v4());let now=now_epoch_ms();
         conn.execute("INSERT INTO messages(id,conversation_id,role,content,timestamp,status,engine,model)VALUES(?1,?2,'assistant','',?3,'streaming','opencode',?4)",params![mid,input.conversation_id,now,input.model])?;
         (ep,pp,mid)};

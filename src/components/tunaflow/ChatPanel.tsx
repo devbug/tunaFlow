@@ -8,6 +8,8 @@ import { NewMessageInput } from "./NewMessageInput";
 import { ChatObjectTabs } from "./ChatObjectTabs";
 import { InlineRename } from "./InlineRename";
 import { CreateRoundtableDialog } from "./CreateRoundtableDialog";
+import { FileViewer } from "./chat/FileViewer";
+import { FileViewerContext } from "./chat/fileViewerContext";
 import { Users, MessageSquare } from "lucide-react";
 
 export function ChatPanel() {
@@ -26,9 +28,22 @@ export function ChatPanel() {
   const renameConversation = useChatStore((s) => s.renameConversation);
   const deleteMessagePair = useChatStore((s) => s.deleteMessagePair);
 
+  const selectedProjectKey = useChatStore((s) => s.selectedProjectKey);
+  const projects = useChatStore((s) => s.projects);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<"stream" | "roundtable">("stream");
   const [rtDialogCheckpoint, setRtDialogCheckpoint] = useState<string | null>(null);
+  const [viewerFile, setViewerFile] = useState<{ path: string; line?: number } | null>(null);
+
+  const projectPath = useMemo(() => {
+    const proj = projects.find((p) => p.key === selectedProjectKey);
+    return proj?.path ?? null;
+  }, [projects, selectedProjectKey]);
+
+  const fileViewerCtx = useMemo(() => ({
+    openFile: (path: string, line?: number) => setViewerFile({ path, line }),
+  }), []);
 
   const currentConv = conversations.find((c) => c.id === selectedConversationId);
   const isRoundtable = currentConv?.mode === "roundtable";
@@ -55,6 +70,7 @@ export function ChatPanel() {
   }
 
   return (
+    <FileViewerContext.Provider value={fileViewerCtx}>
     <div data-testid="chat-panel" className="flex flex-col flex-1 min-w-0 h-full bg-background">
       {/* Breadcrumb path */}
       <StatusBar />
@@ -133,7 +149,13 @@ export function ChatPanel() {
                 No messages yet
               </div>
             )}
-            {messages.map((msg) => {
+            {messages.map((msg, idx) => {
+              const prev = idx > 0 ? messages[idx - 1] : null;
+              const grouped = !!prev
+                && prev.role === msg.role
+                && prev.engine === msg.engine
+                && prev.persona === msg.persona
+                && msg.status !== "streaming";
               const msgBranches = !activeBranchId
                 ? branches.filter((b) => b.checkpointId === msg.id)
                 : [];
@@ -141,6 +163,7 @@ export function ChatPanel() {
                 <MessageItem
                   key={msg.id}
                   message={msg}
+                  grouped={grouped}
                   onBranch={!activeBranchId ? (id) => createBranch(selectedConversationId, id) : undefined}
                   onBranchRT={!activeBranchId ? (id) => setRtDialogCheckpoint(id) : undefined}
                   onMemo={!activeBranchId ? (id) => createMemo(id, msg.content) : undefined}
@@ -175,6 +198,15 @@ export function ChatPanel() {
         onClose={() => setRtDialogCheckpoint(null)}
         checkpointId={rtDialogCheckpoint}
       />
+      {viewerFile && projectPath && (
+        <FileViewer
+          filePath={viewerFile.path}
+          projectPath={projectPath}
+          lineNumber={viewerFile.line}
+          onClose={() => setViewerFile(null)}
+        />
+      )}
     </div>
+    </FileViewerContext.Provider>
   );
 }

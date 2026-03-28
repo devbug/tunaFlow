@@ -62,7 +62,11 @@ fn fallback_models(engine: &str) -> Vec<(&'static str, &'static str, bool)> {
         "gemini" => vec![
             ("gemini-2.5-pro", "Gemini 2.5 Pro", true),
             ("gemini-2.5-flash", "Gemini 2.5 Flash", false),
-            ("gemini-2.0-flash", "Gemini 2.0 Flash", false),
+            ("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", false),
+            ("gemini-3-pro-preview", "Gemini 3 Pro Preview", false),
+            ("gemini-3-flash-preview", "Gemini 3 Flash Preview", false),
+            ("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview", false),
+            ("gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite Preview", false),
         ],
         "opencode" => vec![
             ("anthropic:claude-sonnet-4-6", "Claude Sonnet 4.6", true),
@@ -96,25 +100,68 @@ fn discover_codex() -> Option<Vec<String>> {
 
 /// Gemini: read constants from installed npm package via node
 fn discover_gemini() -> Option<Vec<String>> {
-    let script = r#"
-try {
-    const path = require('path');
-    const appdata = process.env.APPDATA || path.join(require('os').homedir(), '.npm-global');
-    const corePath = path.join(appdata, 'npm/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core');
-    const core = require(corePath);
-    const models = [];
-    const keys = Object.keys(core).filter(k => k.includes('GEMINI') && k.includes('MODEL') && !k.includes('ALIAS') && !k.includes('EMBEDDING') && !k.includes('AUTO'));
-    keys.forEach(k => {
-        const v = core[k];
-        if (typeof v === 'string' && v.startsWith('gemini-') && !v.includes('lite') && !v.includes('customtools')) models.push(v);
-    });
-    console.log(JSON.stringify(models));
-} catch(e) {
-    console.log('[]');
-}
-"#;
+    // Step 1: find the global node_modules root via `npm root -g`
+    let npm_root = std::process::Command::new("npm")
+        .args(["root", "-g"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+            } else {
+                None
+            }
+        });
+
+    // Build candidate paths: npm root -g result, then legacy fallback
+    let mut candidates = Vec::new();
+    if let Some(root) = &npm_root {
+        candidates.push(format!(
+            "{root}/@google/gemini-cli/node_modules/@google/gemini-cli-core"
+        ));
+    }
+    // Legacy fallback paths
+    if let Some(home) = dirs::home_dir() {
+        let home = home.display();
+        candidates.push(format!(
+            "{home}/.npm-global/npm/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core"
+        ));
+        #[cfg(target_os = "windows")]
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            candidates.push(format!(
+                "{appdata}/npm/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core"
+            ));
+        }
+    }
+
+    let paths_json = serde_json::to_string(&candidates).unwrap_or_else(|_| "[]".to_string());
+
+    let script = format!(r#"
+const paths = {paths_json};
+for (const p of paths) {{
+    try {{
+        const core = require(p);
+        const models = [];
+        const keys = Object.keys(core).filter(k =>
+            k.includes('GEMINI') && k.includes('MODEL') &&
+            !k.includes('ALIAS') && !k.includes('EMBEDDING') && !k.includes('AUTO')
+        );
+        keys.forEach(k => {{
+            const v = core[k];
+            if (typeof v === 'string' && v.startsWith('gemini-') && !v.includes('customtools'))
+                models.push(v);
+        }});
+        if (models.length > 0) {{
+            console.log(JSON.stringify([...new Set(models)]));
+            process.exit(0);
+        }}
+    }} catch(_) {{}}
+}}
+console.log('[]');
+"#);
+
     let output = std::process::Command::new("node")
-        .args(["-e", script])
+        .args(["-e", &script])
         .output()
         .ok()?;
     if !output.status.success() {

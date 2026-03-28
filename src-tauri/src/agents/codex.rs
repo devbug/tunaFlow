@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -220,6 +220,136 @@ pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
             "codex returned no agent_message events".to_string(),
         ));
     }
+
+    Ok(RunOutput {
+        content,
+        cost_usd: total_cost,
+        input_tokens,
+        output_tokens,
+        session_id: None,
+    })
+}
+
+/// Streaming variant of `run()` — reads JSONL events line-by-line and emits
+/// partial content via callbacks as each `item.completed` event arrives.
+///
+/// `on_progress` — called for non-content events (thread.started, turn.started)
+/// `on_chunk` — called with accumulated content so far when a new agent_message arrives
+pub fn stream_run<F1, F2>(
+    input: RunInput,
+    mut on_progress: F1,
+    mut on_chunk: F2,
+) -> Result<RunOutput, AppError>
+where
+    F1: FnMut(&str),
+    F2: FnMut(&str),
+{
+    let (codex_cmd, codex_script) = resolve_codex();
+
+    let mut cmd = Command::new(&codex_cmd);
+    if let Some(ref script) = codex_script {
+        cmd.arg(script);
+    }
+
+    cmd.arg("exec")
+        .arg("--json")
+        .arg("--skip-git-repo-check")
+        .arg("--color=never");
+
+    if let Some(model) = &input.model {
+        cmd.arg("--model").arg(model);
+    }
+
+    cmd.arg("-");
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .current_dir(resolve_cwd(input.project_path.as_deref()));
+
+    let mut child = cmd.spawn().map_err(|e| {
+        AppError::Agent(format!("Failed to spawn codex ({}): {}", codex_cmd, e))
+    })?;
+
+    // Write prompt to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        let prompt_bytes = input.prompt.as_bytes().to_vec();
+        thread::spawn(move || { let _ = stdin.write_all(&prompt_bytes); });
+    }
+
+    // Drain stderr in background
+    let mut stderr_pipe = child.stderr.take()
+        .ok_or_else(|| AppError::Agent("Failed to capture codex stderr".into()))?;
+    let stderr_handle = thread::spawn(move || {
+        let mut buf = String::new();
+        let _ = stderr_pipe.read_to_string(&mut buf);
+        buf
+    });
+
+    // Read stdout line-by-line for streaming
+    let stdout_pipe = child.stdout.take()
+        .ok_or_else(|| AppError::Agent("Failed to capture codex stdout".into()))?;
+    let reader = BufReader::new(stdout_pipe);
+
+    let mut agent_texts: Vec<String> = Vec::new();
+    let mut input_tokens: i64 = 0;
+    let mut output_tokens: i64 = 0;
+    let mut total_cost: f64 = 0.0;
+
+    for line_result in reader.lines() {
+        let Ok(line) = line_result else { break; };
+        let line = line.trim().to_string();
+        if line.is_empty() { continue; }
+
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) else {
+            agent_texts.push(line);
+            let accumulated = agent_texts.join("\n\n");
+            on_chunk(&accumulated);
+            continue;
+        };
+
+        let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+        match event_type {
+            "item.completed" => {
+                if let Some(item) = event.get("item") {
+                    let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                    if item_type == "agent_message" {
+                        if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                            if !text.is_empty() {
+                                agent_texts.push(text.to_string());
+                                let accumulated = agent_texts.join("\n\n");
+                                on_chunk(&accumulated);
+                            }
+                        }
+                    }
+                }
+            }
+            "turn.completed" => {
+                if let Some(usage) = event.get("usage") {
+                    if let Some(v) = usage.get("input_tokens").and_then(|v| v.as_i64()) { input_tokens += v; }
+                    if let Some(v) = usage.get("output_tokens").and_then(|v| v.as_i64()) { output_tokens += v; }
+                    if let Some(v) = usage.get("total_cost").and_then(|v| v.as_f64()) { total_cost += v; }
+                }
+            }
+            _ => {
+                on_progress(event_type);
+            }
+        }
+    }
+
+    let exit_status = child.wait()?;
+    let stderr_content = stderr_handle.join().unwrap_or_default();
+
+    if !exit_status.success() {
+        let detail = if !stderr_content.trim().is_empty() {
+            stderr_content.trim().to_string()
+        } else {
+            format!("exit code {:?}", exit_status.code())
+        };
+        return Err(AppError::Agent(format!("codex failed: {}", detail)));
+    }
+
+    let content = agent_texts.join("\n\n").trim().to_string();
 
     Ok(RunOutput {
         content,

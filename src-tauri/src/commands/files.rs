@@ -48,3 +48,75 @@ pub fn list_directory(path: String) -> Result<Vec<DirEntry>, AppError> {
 
     Ok(entries)
 }
+
+/// Read a text file's content, resolved relative to a project root.
+///
+/// Security: only allows reading files under `project_path`.
+/// Returns file content as string, or error if outside scope or not readable.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileContent {
+    pub path: String,
+    pub content: String,
+    pub language: String,
+    pub line_count: usize,
+}
+
+#[tauri::command]
+pub fn read_text_file(file_path: String, project_path: String) -> Result<FileContent, AppError> {
+    let project = Path::new(&project_path).canonicalize()
+        .map_err(|e| AppError::NotFound(format!("Invalid project path: {}", e)))?;
+
+    // Resolve: absolute or relative to project
+    let resolved = if Path::new(&file_path).is_absolute() {
+        Path::new(&file_path).to_path_buf()
+    } else {
+        project.join(&file_path)
+    };
+    let canonical = resolved.canonicalize()
+        .map_err(|e| AppError::NotFound(format!("File not found: {}", e)))?;
+
+    // Security: must be under project root
+    if !canonical.starts_with(&project) {
+        return Err(AppError::Agent(format!(
+            "Access denied: {} is outside project scope", file_path
+        )));
+    }
+
+    if !canonical.is_file() {
+        return Err(AppError::NotFound(format!("Not a file: {}", file_path)));
+    }
+
+    // Size guard: max 512KB
+    let metadata = fs::metadata(&canonical)
+        .map_err(|e| AppError::NotFound(format!("Cannot read metadata: {}", e)))?;
+    if metadata.len() > 512 * 1024 {
+        return Err(AppError::Agent(format!(
+            "File too large: {} bytes (max 512KB)", metadata.len()
+        )));
+    }
+
+    let content = fs::read_to_string(&canonical)
+        .map_err(|e| AppError::Agent(format!("Cannot read file: {}", e)))?;
+
+    let line_count = content.lines().count();
+    let ext = canonical.extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let language = match ext.as_str() {
+        "rs" => "rust", "ts" | "tsx" => "typescript", "js" | "jsx" => "javascript",
+        "py" => "python", "go" => "go", "java" => "java", "rb" => "ruby",
+        "md" => "markdown", "json" => "json", "toml" => "toml", "yaml" | "yml" => "yaml",
+        "html" => "html", "css" => "css", "sql" => "sql", "sh" | "bash" => "bash",
+        "xml" => "xml", "c" | "h" => "c", "cpp" | "cc" | "hpp" => "cpp",
+        _ => "text",
+    }.to_string();
+
+    Ok(FileContent {
+        path: canonical.to_string_lossy().to_string(),
+        content,
+        language,
+        line_count,
+    })
+}

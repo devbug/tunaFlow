@@ -10,6 +10,7 @@
     "notification:allow-notify",
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",
-    "store:default"
+    "store:default",
+    "window-state:default"
   ]
 }

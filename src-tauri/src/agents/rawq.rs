@@ -4,7 +4,6 @@
 /// rawq binary and maps its JSON output to tunaFlow's `SearchResult` type.
 ///
 /// rawq is the source of truth for search behavior, options, and output format.
-/// See: D:\privateProject\_research\_util\rawq (local clone)
 ///
 /// If rawq is not available, this module returns explicit errors — no silent fallback.
 use std::path::PathBuf;
@@ -44,8 +43,9 @@ impl std::fmt::Display for RawqError {
 ///
 /// Priority:
 /// 1. `RAWQ_BIN` environment variable (explicit override)
-/// 2. Known local build path (development)
-/// 3. `rawq` on PATH (installed)
+/// 2. Bundled/development sidecar path
+/// 3. Known local build path (development)
+/// 4. `rawq` on PATH (development fallback)
 fn resolve_rawq_bin() -> Result<PathBuf, RawqError> {
     // 1. Env override
     if let Ok(p) = std::env::var("RAWQ_BIN") {
@@ -56,19 +56,21 @@ fn resolve_rawq_bin() -> Result<PathBuf, RawqError> {
         return Err(RawqError::NotFound(format!("RAWQ_BIN={} does not exist", p)));
     }
 
-    // 2. Known local build (development convenience)
-    let local_paths = [
-        r"D:\privateProject\_research\_util\rawq\target\release\rawq.exe",
-        r"D:\privateProject\_research\_util\rawq\target\debug\rawq.exe",
-    ];
-    for p in &local_paths {
-        let path = PathBuf::from(p);
+    // 2. Sidecar/dev bundle lookup
+    for path in sidecar_candidates() {
         if path.is_file() {
             return Ok(path);
         }
     }
 
-    // 3. PATH lookup
+    // 3. Known local build path
+    for path in known_local_builds() {
+        if path.is_file() {
+            return Ok(path);
+        }
+    }
+
+    // 4. PATH lookup
     let status = Command::new("rawq")
         .arg("--version")
         .stdout(std::process::Stdio::null())
@@ -81,8 +83,84 @@ fn resolve_rawq_bin() -> Result<PathBuf, RawqError> {
     }
 
     Err(RawqError::NotFound(
-        "rawq not on PATH and no local build found".into(),
+        format!(
+            "rawq not found; checked RAWQ_BIN, sidecar bundle, local build paths, and PATH ({})",
+            host_triple()
+        ),
     ))
+}
+
+fn host_triple() -> &'static str {
+    if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
+        "aarch64-apple-darwin"
+    } else if cfg!(target_os = "macos") && cfg!(target_arch = "x86_64") {
+        "x86_64-apple-darwin"
+    } else if cfg!(target_os = "windows") && cfg!(target_arch = "x86_64") {
+        "x86_64-pc-windows-msvc"
+    } else if cfg!(target_os = "windows") && cfg!(target_arch = "aarch64") {
+        "aarch64-pc-windows-msvc"
+    } else if cfg!(target_os = "linux") && cfg!(target_arch = "x86_64") {
+        "x86_64-unknown-linux-gnu"
+    } else if cfg!(target_os = "linux") && cfg!(target_arch = "aarch64") {
+        "aarch64-unknown-linux-gnu"
+    } else {
+        "unknown-target"
+    }
+}
+
+fn sidecar_file_name() -> String {
+    let ext = if cfg!(target_os = "windows") { ".exe" } else { "" };
+    format!("rawq-{}{}", host_triple(), ext)
+}
+
+fn sidecar_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    let sidecar = sidecar_file_name();
+
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join("src-tauri").join("binaries").join(&sidecar));
+        candidates.push(cwd.join("binaries").join(&sidecar));
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            candidates.push(exe_dir.join(&sidecar));
+            candidates.push(exe_dir.join("binaries").join(&sidecar));
+            candidates.push(exe_dir.join("../Resources").join(&sidecar));
+            candidates.push(exe_dir.join("../Resources/binaries").join(&sidecar));
+        }
+    }
+
+    candidates
+}
+
+fn known_local_builds() -> Vec<PathBuf> {
+    let ext = if cfg!(target_os = "windows") { ".exe" } else { "" };
+    let mut candidates = Vec::new();
+
+    if let Ok(home) = std::env::var("HOME") {
+        candidates.push(PathBuf::from(&home).join(format!(
+            "privateProject/_research/_util/rawq/target/release/rawq{}",
+            ext
+        )));
+        candidates.push(PathBuf::from(&home).join(format!(
+            "privateProject/tunaDish/vendor/rawq/target/release/rawq{}",
+            ext
+        )));
+    }
+
+    if let Ok(user_profile) = std::env::var("USERPROFILE") {
+        candidates.push(PathBuf::from(&user_profile).join(format!(
+            "privateProject\\_research\\_util\\rawq\\target\\release\\rawq{}",
+            ext
+        )));
+        candidates.push(PathBuf::from(&user_profile).join(format!(
+            "privateProject\\tunaDish\\vendor\\rawq\\target\\release\\rawq{}",
+            ext
+        )));
+    }
+
+    candidates
 }
 
 /// Check if rawq binary is available (any resolution path).

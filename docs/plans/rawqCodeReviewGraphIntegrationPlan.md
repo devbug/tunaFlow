@@ -2,6 +2,8 @@
 
 - 작성자: OpenAI Codex
 - 작성 시각: 2026-03-26 19:43 KST
+- **상태: 보류** — rawq 필수 sidecar 전환(`rawqRequiredSidecarPlan.md`) 완료 후 재검토.
+  이번 단계에서 code-review-graph는 통합 대상이 아니다.
 
 ## 목적
 

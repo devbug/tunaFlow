@@ -184,7 +184,17 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
         return { messages: [...withoutPlaceholder, { id: e.payload.messageId, conversationId: selectedConversationId, role: "assistant" as const, content: "", progressContent: e.payload.text, timestamp: Date.now(), status: "streaming" as const, engine: "codex", model }] };
       });
     });
-    const cleanup = () => { ulP(); ulD(); ulE(); };
+    const ulC = await listen<{ messageId: string; text: string }>("codex:chunk", (e) => {
+      set((state) => {
+        const existing = state.messages.find((m) => m.id === e.payload.messageId);
+        if (existing) {
+          return { messages: state.messages.map((m) => m.id === e.payload.messageId ? { ...m, content: e.payload.text } : m) };
+        }
+        const withoutPlaceholder = state.messages.filter((m) => !m.id.startsWith("temp-thinking-"));
+        return { messages: [...withoutPlaceholder, { id: e.payload.messageId, conversationId: selectedConversationId, role: "assistant" as const, content: e.payload.text, timestamp: Date.now(), status: "streaming" as const, engine: "codex", model }] };
+      });
+    });
+    const cleanup = () => { ulP(); ulC(); ulD(); ulE(); };
     const ulD = await listen<{ conversationId: string }>("agent:completed", async (e) => {
       if (e.payload.conversationId !== selectedConversationId) return;
       cleanup();
@@ -199,7 +209,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     });
 
     try {
-      await invoke<{ messageId: string }>("start_codex_run", { input: { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model } });
+      await invoke<{ messageId: string }>("start_codex_run", { input: { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model, activeSkills: get().activeSkills, crossSessionIds: get().crossSessionIds } });
     } catch (e) {
       cleanup();
       set((state) => ({ error: String(e), messages: state.messages.filter((m) => !m.id.startsWith("temp-thinking-")) }));
@@ -256,7 +266,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     });
 
     try {
-      const input: SendWithClaudeInput = { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model };
+      const input: SendWithClaudeInput = { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model, activeSkills: get().activeSkills, crossSessionIds: get().crossSessionIds };
       await invoke<{ messageId: string }>("start_gemini_stream", { input });
     } catch (e) {
       cleanup();
@@ -308,7 +318,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     });
 
     try {
-      await invoke<{ messageId: string }>("start_opencode_run", { input: { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model } });
+      await invoke<{ messageId: string }>("start_opencode_run", { input: { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model, activeSkills: get().activeSkills, crossSessionIds: get().crossSessionIds } });
     } catch (e) {
       cleanup();
       set((state) => ({ error: String(e), messages: state.messages.filter((m) => !m.id.startsWith("temp-thinking-")) }));

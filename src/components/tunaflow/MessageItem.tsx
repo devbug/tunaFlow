@@ -30,9 +30,11 @@ interface MessageItemProps {
   onOpenThread?: (branchId: string) => void;
   showActions?: boolean;
   variant?: "default" | "compact";
+  /** True when previous message has the same sender — hides avatar/name */
+  grouped?: boolean;
 }
 
-export const MessageItem = memo(function MessageItem({ message, onBranch, onBranchRT, onMemo, onFollowup, onDeletePair, threadBranches, onOpenThread, showActions = true, variant = "default" }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({ message, onBranch, onBranchRT, onMemo, onFollowup, onDeletePair, threadBranches, onOpenThread, showActions = true, variant = "default", grouped = false }: MessageItemProps) {
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isCompact = variant === "compact";
@@ -40,25 +42,28 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
   return (
     <div
       className={cn(
-        "group relative flex gap-2.5 px-4 py-2.5 transition-colors",
-        isCompact && "px-3 py-1.5",
+        "group relative flex gap-2.5 px-4 transition-colors",
+        grouped ? "py-0.5" : "py-1.5",
+        isCompact && "px-3 py-1",
         "hover:bg-accent/20",
       )}
     >
-      {/* Avatar — vertically centered with header row */}
-      <div className="shrink-0 self-start pt-0.5">
-        <AgentAvatar engine={message.engine} isUser={isUser} size="md" />
+      {/* Avatar — hidden for grouped messages, placeholder for alignment */}
+      <div className="shrink-0 self-start pt-0.5 w-7">
+        {!grouped && <AgentAvatar engine={message.engine} isUser={isUser} size="sm" />}
       </div>
 
       {/* Content */}
       <div className={cn("flex-1 min-w-0", isCompact && "space-y-0.5")}>
-        {/* Header */}
-        <MessageMeta
-          message={message}
-          isCompact={isCompact}
-          threadBranches={threadBranches}
-          onOpenThread={onOpenThread}
-        />
+        {/* Header — hidden for grouped consecutive messages */}
+        {!grouped && (
+          <MessageMeta
+            message={message}
+            isCompact={isCompact}
+            threadBranches={threadBranches}
+            onOpenThread={onOpenThread}
+          />
+        )}
 
         {/* Body */}
         <div className={cn("text-foreground/90 leading-relaxed", isCompact ? "text-xs" : "text-[13px]")}>
@@ -100,5 +105,6 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
   if (prev.threadBranches !== next.threadBranches) return false;
   if (prev.showActions !== next.showActions) return false;
   if (prev.variant !== next.variant) return false;
+  if (prev.grouped !== next.grouped) return false;
   return true; // Skip re-render for callback prop changes
 });

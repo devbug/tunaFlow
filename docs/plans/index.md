@@ -38,9 +38,27 @@
 | [projectOnboardingLifecyclePlan](./projectOnboardingLifecyclePlan.md) | folder picker + validation + auto main conv + rawq indexing | workspace scan, template, guided setup |
 | [threadModelRoundtableRedesign](./threadModelRoundtableRedesign.md) | branch.mode + RT branch + shadow conversation 구현 | thread-first 모델 통합, reviewer thread |
 | [projectScopedConcurrencyPlan](./projectScopedConcurrencyPlan.md) | thread-local queue 구현 (선행 조건 충족) | 프로젝트 간 병렬 UI 표시, cross-project queue |
+| [rawqRequiredSidecarPlan](./rawqRequiredSidecarPlan.md) | rawq를 optional fallback이 아니라 필수 sidecar로 다루는 전환 계획 | vendor/sidecar 정착, 배포 경로 정리 |
 | [skillRegistryPlan](./skillRegistryPlan.md) | chops 참고 메모 기반 상위 계획 | UI registry, collections, applied skill visibility |
+| [2026-03-28_skills_runtime_snapshot_plan](./2026-03-28_skills_runtime_snapshot_plan.md) | _research/_skills → ~/.tunaflow/skills snapshot 발행. Phase 1 완료 | Phase 2 manifest 고도화, Phase 3 앱 번들 |
+| [skillsUiVisibilityPlan](./skillsUiVisibilityPlan.md) | Skills UI 가시화 — vendor 그룹핑, 활성 카운트, snapshot 메타 표시 | Phase 1 최소 가시화부터 |
+| [engineFeatureParityClassificationPlan](./engineFeatureParityClassificationPlan.md) | 4개 엔진 parity 기준을 P0/P1/P2로 분류하는 기준 문서 | 기능별 개별 parity 실행 필요 |
+| [skillsEngineParityPlan](./skillsEngineParityPlan.md) | skill 적용을 4개 엔진 공통으로 맞추는 계획 | 구현 미착수 |
+| [contextPackEngineParityPlan](./contextPackEngineParityPlan.md) | full/lite 분리를 줄이고 normalized ContextPack으로 맞추는 계획 | 구현 미착수 |
+| [collaborationContextEngineParityPlan](./collaborationContextEngineParityPlan.md) | plan/findings/artifact/thread inheritance parity 계획 | 구현 미착수 |
+| [rawqEngineParityPlan](./rawqEngineParityPlan.md) | rawq section과 diagnostics를 4개 엔진 공통으로 맞추는 계획 | 구현 미착수 |
+| [streamingEngineParityPlan](./streamingEngineParityPlan.md) | streaming UX/state parity 계획 | 구현 미착수 |
+| [tokenCostTrackingEngineParityPlan](./tokenCostTrackingEngineParityPlan.md) | usage/cost 모델 parity 계획 | 구현 미착수 |
+| [resumeContinuationEngineParityPlan](./resumeContinuationEngineParityPlan.md) | native/synthetic continuation parity 계획 | 구현 미착수 |
+| [chatUiParityWithTunaChatPlan](./chatUiParityWithTunaChatPlan.md) | tunaChat 수준의 채팅 UI/UX로 단계적으로 끌어올리는 상위 계획 | Markdown/file viewer/message density/virtualization 진행 필요 |
+| [chatMarkdownCodeblockUpgradePlan_2026-03-29](./chatMarkdownCodeblockUpgradePlan_2026-03-29.md) | 코드블록 헤더 통합, collapse/expand, copy 피드백 | Phase 1 완료 |
+| [chatFileViewerIntegrationPlan_2026-03-29](./chatFileViewerIntegrationPlan_2026-03-29.md) | 파일 경로 클릭 + FileViewer 모달 | Phase 1 완료 |
 
 ### 보류
+
+| 문서 | 이유 |
+|------|------|
+| [chatVirtualizationPlan](./chatVirtualizationPlan.md) | 긴 대화 성능 문제 체감 시 착수. 현재 메시지 수 기준 불필요 |
 
 | 문서 | 이유 |
 |------|------|
@@ -86,9 +104,21 @@
 - [rawqAutomationPlan](./rawqAutomationPlan.md)
 - [rawqCodeReviewGraphIntegrationPlan](./rawqCodeReviewGraphIntegrationPlan.md)
 - [rawqIntegrationPlan](./rawqIntegrationPlan.md)
+- [rawqRequiredSidecarPlan](./rawqRequiredSidecarPlan.md)
 - [roundtableCreationConfigPlan](./roundtableCreationConfigPlan.md)
 - [scalabilityRefactorPlan](./scalabilityRefactorPlan.md)
 - [skillRegistryPlan](./skillRegistryPlan.md)
+- [engineFeatureParityClassificationPlan](./engineFeatureParityClassificationPlan.md)
+- [skillsEngineParityPlan](./skillsEngineParityPlan.md)
+- [contextPackEngineParityPlan](./contextPackEngineParityPlan.md)
+- [collaborationContextEngineParityPlan](./collaborationContextEngineParityPlan.md)
+- [rawqEngineParityPlan](./rawqEngineParityPlan.md)
+- [streamingEngineParityPlan](./streamingEngineParityPlan.md)
+- [tokenCostTrackingEngineParityPlan](./tokenCostTrackingEngineParityPlan.md)
+- [resumeContinuationEngineParityPlan](./resumeContinuationEngineParityPlan.md)
+- [chatUiParityWithTunaChatPlan](./chatUiParityWithTunaChatPlan.md)
+- [chatMarkdownCodeblockUpgradePlan_2026-03-29](./chatMarkdownCodeblockUpgradePlan_2026-03-29.md)
+- [chatFileViewerIntegrationPlan_2026-03-29](./chatFileViewerIntegrationPlan_2026-03-29.md)
 - [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md)
 - [sidebarThreeSectionPlan](./sidebarThreeSectionPlan.md)
 - [sidecarMigrationPlan](./sidecarMigrationPlan.md)
@@ -97,4 +127,3 @@
 - [threadLocalRunQueuePlan](./threadLocalRunQueuePlan.md)
 - [threadModelRoundtableRedesign](./threadModelRoundtableRedesign.md)
 - [workspacePanelRedesignPlan](./workspacePanelRedesignPlan.md)
-

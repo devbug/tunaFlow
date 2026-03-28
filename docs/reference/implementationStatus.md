@@ -150,6 +150,9 @@ SSOT: `docs/reference/dataModelRevised.md`
 | Jobs 가시화 | done | TracePanel Active Jobs 섹션 |
 | TracePanel selector 전환 | done | broad useChatStore() → 개별 selector |
 | RT/Jobs smoke tests | done | smoke-rt-rounds (4), smoke-jobs (5) |
+| rawq sidecar bundle | done (macOS) | externalBin + build scripts + binary resolution 4단계. Windows는 미검증 |
+| Gemini model discovery 수정 | done | `npm root -g` 기반 동적 탐색 + fallback 목록 갱신 (3.x 시리즈 추가) |
+| Skills runtime snapshot | done | `scripts/publish-skills.sh` — 6 vendor 246 skills → `~/.tunaflow/skills` 발행 |
 
 ### 미구현
 
@@ -161,7 +164,6 @@ SSOT: `docs/reference/dataModelRevised.md`
 | Soft delete | P3 | 현재 hard delete |
 | Evaluation UI | P2 | backend 완료, frontend 미연결 |
 | Capability UI | P3 | backend 완료, frontend 미연결 |
-| Sidecar 계층 | 보류 | direct-call로 충분, 필요 시 재검토 |
 | Agent daemon roadmap | P2 | Phase 1 background worker 완료. Phase 2 durable job registry → Phase 3 daemon extraction 진행 예정 |
 | 자연어 handoff 고도화 | P3 | 완전 자유 자연어 intent parser |
 | Skill registry UI / collections | P3 | backend skill loading 있음. chops 참고 구조는 미도입 |
@@ -175,10 +177,14 @@ SSOT: `docs/reference/dataModelRevised.md`
 
 | 기능 | Claude | Codex | Gemini | OpenCode |
 |---|---|---|---|---|
-| ContextPack (full) | O | X | X | X |
-| Lite context prefix | - | O | O | O |
-| Resume token | O | X | X | X |
-| Streaming | O | X | O | X |
+| Normalized ContextPack | O (system prompt) | O (inline) | O (inline) | O (inline) |
+| Skills injection | O | O | O | O |
+| Plan/Findings/Artifacts | O | O | O | O |
+| rawq code context | O | O | O | O |
+| Cross-session context | O | O | O | O |
+| Thread inheritance | O | O | O | O |
+| Resume token | O (native) | X | X | X |
+| Streaming | O (native) | O (JSONL synthetic) | O (native) | partial (progress only) |
 | Background execution | O | O | O | O |
 | Token/cost tracking | O | O | partial | X |
 | OTel span recording | O | O | O | O |

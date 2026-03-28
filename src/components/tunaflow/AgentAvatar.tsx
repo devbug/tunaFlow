@@ -32,9 +32,13 @@ export function AgentAvatar({ engine, isUser, size = "md", className }: AgentAva
   const iconSrc = normalized ? ENGINE_ICONS[normalized] : null;
 
   if (iconSrc) {
+    const needsBg = normalized === "codex";
     return (
-      <img src={iconSrc} alt={normalized ?? "agent"}
-        className={cn(dim, "rounded-full object-cover shrink-0", className)} />
+      <div className={cn(dim, "rounded-full shrink-0 flex items-center justify-center overflow-hidden",
+        needsBg ? "bg-white" : "", className)}>
+        <img src={iconSrc} alt={normalized ?? "agent"}
+          className={cn(needsBg ? "w-[70%] h-[70%]" : "w-full h-full", "object-contain")} />
+      </div>
     );
   }
 

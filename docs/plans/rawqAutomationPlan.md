@@ -40,23 +40,27 @@ agent 호출 시 rawq가 있으면 자동으로 사용한다.
 ### 권장 동작
 
 - `ContextPack` 조립 시 자동 rawq search
-- rawq 바이너리 탐색 순서:
-  1. `RAWQ_BIN`
-  2. 프로젝트 내 고정 경로/vendor/sidecar
-  3. PATH
+- rawq 바이너리 탐색 순서 (현재 구현 기준):
+  1. `RAWQ_BIN` 환경변수
+  2. bundled sidecar (`src-tauri/binaries/rawq-<target-triple>`)
+  3. 개발용 로컬 빌드 경로
+  4. PATH의 `rawq` (개발 보조 경로)
 
 ### 운영 모드
 
-- 기본 모드:
-  - rawq 실패 시 상태 표시 + 섹션 제외
-- strict/dev 모드:
-  - rawq 실패 시 요청 자체 실패
-  - 실제 도입 검증용
+현재 구현 (2026-03-28):
+
+- rawq 실패 시 `build_rawq_section()`이 `None`을 반환하고 해당 섹션만 빠짐
+- 요청 자체가 실패하지는 않음 (에러는 stderr에 기록)
+- strict mode는 미구현
+
+향후 옵션:
+
+- strict mode: rawq 실패 시 요청 자체 실패 (도입 검증용). 현재는 계획만 존재.
 
 ### 완료 기준
 
-- 사용자는 별도 명령 없이 rawq 검색 결과를 자동으로 받는다.
-- strict 모드에서는 rawq 미동작이 즉시 드러난다.
+- 사용자는 별도 명령 없이 rawq 검색 결과를 자동으로 받는다. — **완료**
 
 ## 2. 자동 인덱싱
 
@@ -144,9 +148,9 @@ rawq 업데이트 시 바뀔 수 있는 것:
 
 ### Phase A. 자동 실행 안정화
 
-- rawq binary resolution
-- search 자동 실행
-- strict mode
+- rawq binary resolution — **완료** (4단계 탐색)
+- search 자동 실행 — **완료** (ContextPack 조립 시 자동)
+- strict mode — 미구현 (향후 옵션)
 
 ### Phase B. 자동 인덱싱
 

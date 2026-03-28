@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getSetting, setSetting } from "@/lib/appStore";
 import type {
   SetState,
   GetState,
@@ -54,7 +55,11 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
   loadSkills: async () => {
     try {
       const skills = await invoke<SkillDef[]>("list_skills");
-      set({ skills });
+      const saved = await getSetting<string[]>("lastActiveSkills", []);
+      // Restore only skills that still exist in the snapshot
+      const validNames = new Set(skills.map((s) => s.name));
+      const restored = saved.filter((n) => validNames.has(n));
+      set({ skills, activeSkills: restored });
     } catch (e) {
       set({ error: String(e) });
     }
@@ -65,6 +70,7 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
       const active = state.activeSkills.includes(name)
         ? state.activeSkills.filter((s) => s !== name)
         : [...state.activeSkills, name];
+      setSetting("lastActiveSkills", active);
       return { activeSkills: active };
     });
   },

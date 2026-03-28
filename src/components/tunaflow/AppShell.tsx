@@ -13,7 +13,7 @@ const SIDEBAR_MIN = 220;
 const SIDEBAR_MAX = 360;
 const SIDEBAR_DEFAULT = 224;
 
-const CONTEXT_MIN = 280;
+const CONTEXT_MIN = 260;
 const CONTEXT_MAX = 520;
 const CONTEXT_DEFAULT = 280;
 

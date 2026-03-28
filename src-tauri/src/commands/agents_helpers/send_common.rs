@@ -37,6 +37,8 @@ pub fn load_project_path(conn: &Connection, project_key: &str) -> Option<String>
 }
 
 /// Build an enriched prompt with lite context prefix for non-Claude engines.
+/// Retained for roundtable participant paths that don't carry full SendWithClaudeInput.
+#[allow(dead_code)]
 pub fn build_lite_enriched_prompt(
     conn: &Connection,
     conversation_id: &str,
@@ -53,6 +55,151 @@ pub fn build_lite_enriched_prompt(
         prefix,
         build_lite_context_prompt(conn, conversation_id, prompt)
     )
+}
+
+/// Build a normalized enriched prompt for non-Claude engines.
+///
+/// Includes the same context sections as Claude's full ContextPack, but assembled
+/// into a single prompt string (non-Claude engines don't support system_prompt separation).
+///
+/// Sections included (same as Claude path):
+/// - Project path
+/// - Recent conversation context + parent context (branch)
+/// - Plan / Findings / Artifacts (Standard+)
+/// - Skills / rawq / cross-session (Full)
+/// - Thread inheritance (branch)
+pub fn build_normalized_prompt(
+    conn: &Connection,
+    conversation_id: &str,
+    prompt: &str,
+    project_path: Option<&str>,
+    active_skills: &[String],
+    cross_session_ids: &[String],
+) -> String {
+    use super::context_pack::*;
+    use crate::guardrail;
+    use super::compression::maybe_compress_section;
+
+    let is_branch = conversation_id.starts_with("branch:");
+
+    // Determine context mode — same logic as Claude path
+    let ctx_mode = if is_branch {
+        ContextMode::Standard
+    } else if !active_skills.is_empty() {
+        ContextMode::Full
+    } else {
+        ContextMode::Lite
+    };
+    eprintln!("[context_pack] mode={:?} for normalized_prompt", ctx_mode);
+
+    let mut sections: Vec<String> = Vec::new();
+
+    // Project
+    if let Some(p) = project_path {
+        sections.push(format!("Project: {}", p));
+    }
+
+    // Recent conversation context
+    {
+        use crate::commands::context_queries::load_recent_messages;
+        let current = load_recent_messages(conn, conversation_id, 6);
+        let parent: Vec<(String, String)> = if is_branch {
+            let parent_id: Option<String> = conn
+                .query_row(
+                    "SELECT parent_id FROM conversations WHERE id = ?1",
+                    [conversation_id],
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten();
+            parent_id
+                .map(|pid| load_recent_messages(conn, &pid, 4))
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        if let Some(ctx) = maybe_compress_section(
+            build_context_summary(&current, &parent, is_branch),
+            guardrail::MAX_CONTEXT_SECTION,
+        ) {
+            sections.push(ctx);
+        }
+    }
+
+    // Standard+ sections: plan, findings, artifacts
+    if ctx_mode >= ContextMode::Standard {
+        let plan_conv_id = resolve_plan_conversation_id(conn, conversation_id);
+        if let Some(s) = guardrail::truncate_section(
+            build_plan_section(conn, &plan_conv_id),
+            guardrail::MAX_PLAN_SECTION,
+        ) {
+            sections.push(s);
+        }
+        if let Some(s) = guardrail::truncate_section(
+            build_findings_section(conn, &plan_conv_id),
+            guardrail::MAX_FINDINGS_SECTION,
+        ) {
+            sections.push(s);
+        }
+        if let Some(s) = guardrail::truncate_section(
+            build_artifact_handoff_section(conn, &plan_conv_id),
+            guardrail::MAX_ARTIFACTS_SECTION,
+        ) {
+            sections.push(s);
+        }
+    }
+
+    // Full sections: skills, rawq, cross-session
+    if ctx_mode >= ContextMode::Full || !active_skills.is_empty() {
+        if let Some(s) = guardrail::truncate_section(
+            build_skills_section(active_skills),
+            guardrail::MAX_SKILLS_SECTION,
+        ) {
+            sections.push(s);
+        }
+    }
+    // rawq: mode-independent — prompt_needs_rawq() internally decides
+    if let Some(s) = guardrail::truncate_section(
+        build_rawq_section(project_path, prompt),
+        guardrail::MAX_RAWQ_SECTION,
+    ) {
+        sections.push(s);
+    }
+    if !cross_session_ids.is_empty() {
+        use crate::commands::context_queries::{load_recent_messages, conversation_label};
+        let cross_data: Vec<(String, Vec<(String, String)>)> = cross_session_ids
+            .iter()
+            .filter(|id| id.as_str() != conversation_id)
+            .filter_map(|id| {
+                let label = conversation_label(conn, id)?;
+                let rows = load_recent_messages(conn, id, 3);
+                if rows.is_empty() { None } else { Some((label, rows)) }
+            })
+            .collect();
+        if let Some(s) = maybe_compress_section(
+            build_cross_session_section(&cross_data),
+            guardrail::MAX_CROSS_SESSION_SECTION,
+        ) {
+            sections.push(s);
+        }
+    }
+
+    // Thread inheritance (branch)
+    if is_branch {
+        if let Some(s) = build_thread_inheritance_section(conn, conversation_id) {
+            sections.push(s);
+        }
+    }
+
+    // Assemble final prompt
+    if sections.is_empty() {
+        return prompt.to_string();
+    }
+    let context = sections.join("\n\n");
+    // Enforce total limit
+    let limited = guardrail::enforce_total_limit(Some(context), guardrail::MAX_TOTAL_PROMPT)
+        .unwrap_or_default();
+    format!("{}\n\n---\n\n{}", limited, prompt)
 }
 
 /// Result from an agent run, before DB persistence.

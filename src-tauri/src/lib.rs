@@ -111,6 +111,7 @@ pub fn run() {
             // Skill
             commands::skills::list_skills,
             commands::skills::get_skill,
+            commands::skills::get_skills_snapshot,
             // Memo
             commands::memos::list_memos,
             commands::memos::list_memos_by_conversation,
@@ -138,6 +139,7 @@ pub fn run() {
             commands::evaluation::delete_eval_run,
             // Files
             commands::files::list_directory,
+            commands::files::read_text_file,
             // Tracing
             commands::tracing::list_traces,
             commands::tracing::export_traces_otel,
@@ -152,6 +154,13 @@ pub fn run() {
             commands::plans::replace_plan_subtasks,
             commands::plans::delete_plan,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                use tauri::Manager;
+                use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+                let _ = window.app_handle().save_window_state(StateFlags::all());
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tunaFlow")
 }

@@ -87,6 +87,14 @@ export interface SkillDef {
   name: string;
   description: string;
   content: string;
+  vendor?: string | null;
+  sourcePath?: string | null;
+}
+
+export interface SkillsSnapshotInfo {
+  publishedAt?: string | null;
+  totalSkills: number;
+  source?: string | null;
 }
 
 /** Engine model catalog entry */

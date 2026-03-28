@@ -23,6 +23,8 @@ Thumbs.db
 # Tauri
 src-tauri/WixTools/
 src-tauri/tunaflow.db
+src-tauri/binaries/
+src-tauri/gen/schemas/macOS-schema.json
 
 # Logs
 *.log

@@ -1,0 +1,101 @@
+# rawq 설치 / sidecar 준비 가이드
+
+tunaFlow는 코드 검색(ContextPack Full 모드)에 rawq를 사용한다.
+현재 rawq는 선택 기능이 아니라, tunaFlow가 함께 관리해야 하는 **필수 런타임 의존성**으로 본다.
+
+즉 권장 운영 방식은:
+
+- 배포: rawq sidecar 번들
+- 개발: rawq를 명시적으로 build해서 `src-tauri/binaries/`에 배치
+- 런타임: 준비된 rawq를 자동 탐색
+
+rawq가 없으면 조용히 degraded mode로 가지 않는 것이 원칙이다.
+
+## 바이너리 탐색 순서
+
+`src-tauri/src/agents/rawq.rs`의 `resolve_rawq_bin()` 참조:
+
+1. `RAWQ_BIN` 환경변수 (명시 지정)
+2. `src-tauri/binaries/rawq-<target-triple>` sidecar
+3. 개발용 로컬 빌드 경로
+4. PATH의 `rawq` 명령어 (개발 보조 경로)
+
+현재 호스트 target triple은 다음 명령으로 확인할 수 있다.
+
+```bash
+rustc --print host-tuple
+```
+
+## 권장 준비 방법
+
+### 방법 1: bootstrap script 사용 (권장)
+
+macOS/Linux:
+
+```bash
+./scripts/build-rawq.sh
+```
+
+Windows PowerShell:
+
+```powershell
+./scripts/build-rawq.ps1
+```
+
+이 스크립트는 rawq 소스 위치를 탐색한 뒤 release build를 수행하고,
+산출물을 `src-tauri/binaries/rawq-<target-triple>`로 복사한다.
+
+우선 탐색하는 경로:
+
+1. `RAWQ_SRC`
+2. `./vendor/rawq`
+3. `../tunaDish/vendor/rawq`
+4. `../_research/_util/rawq`
+
+### 방법 2: 직접 빌드 후 sidecar 위치로 복사
+
+```bash
+cd ~/privateProject/_research/_util/rawq
+cargo build --release
+cp target/release/rawq \
+  /Users/d9ng/privateProject/tunaFlow/src-tauri/binaries/rawq-$(rustc --print host-tuple)
+```
+
+### 방법 3: `RAWQ_BIN` 환경변수 지정
+
+빌드 산출물을 sidecar 위치에 복사하지 않고 직접 경로를 지정할 수도 있다.
+
+```bash
+export RAWQ_BIN=~/privateProject/_research/_util/rawq/target/release/rawq
+```
+
+## 확인 방법
+
+### 1. 바이너리 존재 확인
+
+```bash
+ls src-tauri/binaries/rawq-$(rustc --print host-tuple)
+```
+
+### 2. rawq 자체 확인
+
+```bash
+src-tauri/binaries/rawq-$(rustc --print host-tuple) --version
+```
+
+### 3. 앱 상태 확인
+
+프로젝트를 열면 tunaFlow가:
+
+- rawq binary availability
+- index status
+- 필요 시 index build
+
+를 확인한다.
+
+## 비권장 방향
+
+- 앱 시작 시 매번 rawq를 즉석 빌드하는 것
+- rawq 실패 시 예전 최소 검색 fallback으로 조용히 내려가는 것
+
+이 둘은 운영 관점에서 원인 추적과 품질 보장을 어렵게 만든다.

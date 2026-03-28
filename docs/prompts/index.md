@@ -10,6 +10,7 @@ Opus/Claude에 전달하는 실행 지시문, hand-off 문서, 초기 구현 프
 - [messageSearchAdoptionPrompt](./messageSearchAdoptionPrompt.md): tunaDish의 FTS 검색 UX를 참고해 tunaFlow의 Rust DB 레이어에 메시지 검색을 붙이는 실행 프롬프트
 - [panelDrawerUxPrompt](./panelDrawerUxPrompt.md): 패널 리사이즈, overlay thread/RT drawer, 우측 workspace panel 재설계를 위한 실행 프롬프트
 - [rawqIntegrationPrompt](./rawqIntegrationPrompt.md): tunaFlow에 실제 rawq CLI를 도입하기 위한 Phase 1 실행 프롬프트
+- [rawqRequiredSidecarPrompt](./rawqRequiredSidecarPrompt.md): rawq를 optional fallback이 아니라 필수 sidecar로 전환하기 위한 실행 프롬프트
 - [roundtableCreationConfigPrompt](./roundtableCreationConfigPrompt.md): RT 생성 dialog에서 고른 participant/mode/model을 첫 실행에 실제 연결하는 프롬프트
 - [scalabilityRefactorPrompt](./scalabilityRefactorPrompt.md): 확장 대비 리팩토링을 `chatStore`부터 단계적으로 진행하는 실행 프롬프트
 - [sidebarThreeSectionPrompt](./sidebarThreeSectionPrompt.md): 좌측 Sidebar를 Chats / Branches & RT / Files 3섹션 구조로 재구성하는 Phase 1 실행 프롬프트
@@ -18,3 +19,16 @@ Opus/Claude에 전달하는 실행 지시문, hand-off 문서, 초기 구현 프
 
 - [backgroundAgentExecutionPrompt](./backgroundAgentExecutionPrompt.md): 장기 agent 실행을 background worker + event + DB 기반으로 전환하는 실행 프롬프트
 - [contextBudgetScalingPrompt](./contextBudgetScalingPrompt.md): ContextPack budget을 베타에서 단계적으로 상향 실험하기 위한 준비 프롬프트
+- [2026-03-28/skills_runtime_snapshot_all_vendors_prompt](./2026-03-28/skills_runtime_snapshot_all_vendors_prompt.md): _research/_skills 전체 vendor를 ~/.tunaflow/skills로 runtime snapshot 발행하는 실행 프롬프트
+- [2026-03-28/skills_snapshot_runtime_policy_prompt](./2026-03-28/skills_snapshot_runtime_policy_prompt.md): ~/.tunaflow/skills 운영 규칙 문서화 지시 프롬프트
+- [2026-03-28/claude_skill_activation_for_tunaflow_prompt](./2026-03-28/claude_skill_activation_for_tunaflow_prompt.md): 작업 유형별 skill 활성화 실행 프롬프트
+- [2026-03-28/claude_default_skill_loading_rule_prompt](./2026-03-28/claude_default_skill_loading_rule_prompt.md): Claude 기본 작업 규칙 — skill 먼저 읽고 진행하는 절차 프롬프트
+- [2026-03-28/claude_work_prompt_template_with_skill_rule](./2026-03-28/claude_work_prompt_template_with_skill_rule.md): Claude 작업용 기본 템플릿 — skill 먼저 읽는 규칙 내장
+- [2026-03-28/skills_ui_visibility_plan_prompt](./2026-03-28/skills_ui_visibility_plan_prompt.md): skills UI 가시화 계획 문서 작성을 위한 프롬프트
+- [2026-03-29/engine_feature_parity_master_prompt](./2026-03-29/engine_feature_parity_master_prompt.md): 4개 엔진 parity 작업을 순차 수행하고 단계별 상세 결과를 보고하게 하는 마스터 프롬프트
+- [2026-03-29/engine_feature_parity_wave1_correction_prompt](./2026-03-29/engine_feature_parity_wave1_correction_prompt.md): Wave 1 parity 결과의 남은 구멍을 보정하는 프롬프트
+- [2026-03-29/streaming_engine_parity_prompt](./2026-03-29/streaming_engine_parity_prompt.md): 4개 엔진 streaming UX/state parity를 별도 세션에서 진행하는 프롬프트
+- [2026-03-29/chat_markdown_codeblock_upgrade_prompt](./2026-03-29/chat_markdown_codeblock_upgrade_prompt.md): 채팅 Markdown/codeblock UX를 개선하기 위한 실행 프롬프트
+- [2026-03-29/chat_fileviewer_integration_prompt](./2026-03-29/chat_fileviewer_integration_prompt.md): 채팅 파일 경로 클릭 및 FileViewer 도입 프롬프트
+- [2026-03-29/chat_ui_parity_with_tunachat_master_prompt](./2026-03-29/chat_ui_parity_with_tunachat_master_prompt.md): Claude가 의견을 먼저 제시하고 단계적으로 채팅 UI parity 작업을 수행하게 하는 마스터 프롬프트
+- [2026-03-29/chat_virtualization_prompt](./2026-03-29/chat_virtualization_prompt.md): 긴 대화 virtualization 구현 프롬프트 (보류 — 성능 문제 체감 시 착수)

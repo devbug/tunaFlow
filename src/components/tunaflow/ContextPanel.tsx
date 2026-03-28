@@ -26,6 +26,7 @@ export function ContextPanel() {
   const [mode, setMode] = useState<WorkspaceMode>("plan");
   const [memosOpen, setMemosOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const activeSkills = useChatStore((s) => s.activeSkills);
   const artifacts = useChatStore((s) => s.artifacts);
   const memos = useChatStore((s) => s.memos);
   const selectedConversationId = useChatStore((s) => s.selectedConversationId);
@@ -39,14 +40,14 @@ export function ContextPanel() {
     <aside data-testid="workspace-panel" className="flex flex-col w-full h-full bg-sidebar overflow-hidden">
 
       {/* Mode bar — scrollable to fit all tabs */}
-      <div className="flex items-center gap-px px-1 h-9 border-b border-border/40 shrink-0 overflow-x-auto">
+      <div className="flex items-center gap-px px-1 h-9 border-b border-border/40 shrink-0 overflow-hidden">
         {MODE_TABS.map((tab) => (
           <button
             key={tab.id}
             data-testid={`mode-tab-${tab.id}`}
             onClick={() => setMode(tab.id)}
             className={cn(
-              "flex items-center gap-1 px-1.5 py-1 rounded text-[9px] font-medium transition-colors shrink-0",
+              "flex items-center gap-1 px-1.5 py-1 rounded text-[9px] font-medium transition-colors min-w-0 truncate",
               mode === tab.id
                 ? "bg-accent text-foreground"
                 : "text-muted-foreground/70 hover:text-foreground hover:bg-accent/50"
@@ -136,6 +137,11 @@ export function ContextPanel() {
                 <span className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest flex-1">
                   Skills
                 </span>
+                {activeSkills.length > 0 && (
+                  <span className="text-[8px] bg-primary/10 text-primary/70 px-1 rounded">
+                    {activeSkills.length} active
+                  </span>
+                )}
                 <span className="text-[10px] text-muted-foreground">{skillsOpen ? "▾" : "▸"}</span>
               </button>
               {skillsOpen && <SkillsPanel />}
