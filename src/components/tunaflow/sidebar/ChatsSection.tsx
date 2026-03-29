@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { MessageSquare, Plus, Trash2, GitBranch, Users, ChevronRight, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TreeRow, SectionHeader } from "./TreeRow";
@@ -16,7 +16,6 @@ interface ChatsSectionProps {
   renameConversation: (id: string, label: string) => Promise<void>;
   handleCreateChat: (e: React.MouseEvent) => void;
   handleDelete: (id: string, label: string, e: React.MouseEvent) => void;
-  /** All branches grouped by parent conversation ID */
   branchesByConv: Map<string, Branch[]>;
   childMap: Map<string, Branch[]>;
   openThread: (branchId: string) => void;
@@ -31,7 +30,6 @@ export function ChatsSection({
   selectConversation, renameConversation, handleCreateChat, handleDelete,
   branchesByConv, childMap, openThread, handleRenameBranch, onDeleteBranch, onCreateRT,
 }: ChatsSectionProps) {
-  // Track which chats have their children expanded
   const [expandedChats, setExpandedChats] = useState<Set<string>>(() => new Set());
 
   const toggleChatExpand = (convId: string, e: React.MouseEvent) => {
@@ -43,16 +41,43 @@ export function ChatsSection({
     });
   };
 
+  // Build set of branch IDs that should be expanded (ancestors of active thread)
+  const expandedBranchIds = useMemo(() => {
+    const set = new Set<string>();
+    if (!threadBranchId) return set;
+    // Walk up parent chain from active thread branch
+    const allBranches = [...(childMap.entries())].flatMap(([, children]) => children);
+    // Collect all branches from branchesByConv too
+    for (const [, branches] of branchesByConv) {
+      allBranches.push(...branches);
+    }
+    let currentId: string | undefined = threadBranchId;
+    while (currentId) {
+      set.add(currentId);
+      const branch = allBranches.find((b) => b.id === currentId);
+      currentId = branch?.parentBranchId ?? undefined;
+    }
+    return set;
+  }, [threadBranchId, childMap, branchesByConv]);
+
   const renderBranch = (b: Branch, depth: number) => {
     const isActive = b.id === activeBranchId || b.id === threadBranchId;
     const isRT = b.mode === "roundtable";
     const children = childMap.get(b.id) ?? [];
+    const hasChildren = children.length > 0;
+    // Expand if this branch is in the ancestor chain of active thread, or is active itself
+    const isExpanded = expandedBranchIds.has(b.id);
+
     return (
       <div key={b.id}>
-        <TreeRow depth={depth} active={isActive} isParent={children.length > 0}
+        <TreeRow depth={depth} active={isActive} isParent={hasChildren}
           icon={isRT
             ? <Users className="w-3.5 h-3.5 text-agent-gemini/40" />
-            : <GitBranch className="w-3.5 h-3.5" />}
+            : hasChildren
+              ? (isExpanded
+                ? <ChevronDown className="w-3.5 h-3.5" />
+                : <ChevronRight className="w-3.5 h-3.5" />)
+              : <GitBranch className="w-3.5 h-3.5" />}
           label={
             <span className="flex items-center gap-1">
               <InlineRename value={b.customLabel ?? b.label} onSave={(v) => handleRenameBranch(b.id, v)} inputClassName="text-[10px] w-full" />
@@ -71,7 +96,8 @@ export function ChatsSection({
             </button>
           ) : undefined}
           onClick={() => openThread(b.id)} />
-        {children.map((child) => renderBranch(child, depth + 1))}
+        {/* Only show children if this branch is expanded */}
+        {isExpanded && children.map((child) => renderBranch(child, depth + 1))}
       </div>
     );
   };
@@ -126,7 +152,6 @@ export function ChatsSection({
                     <button onClick={(e) => handleDelete(conv.id, conv.customLabel ?? conv.label, e)} className="p-0.5 rounded text-sidebar-foreground/20 hover:text-destructive transition-colors"><Trash2 className="w-3 h-3" /></button>
                   ) : undefined}
                   onClick={() => selectConversation(conv.id)} />
-                {/* Child branches (RT + regular) */}
                 {isExpanded && convBranches.map((b) => renderBranch(b, 2))}
               </div>
             );

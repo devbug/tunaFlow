@@ -3,9 +3,9 @@ import { ChevronRight, ChevronDown } from "lucide-react";
 
 // ─── Tree primitives (Linear-inspired spacing) ──────────────────────────────
 
-export const INDENT_PX = 18;
+export const INDENT_PX = 10;
 export const BASE_PAD = 12;
-export const GUIDE_START = 20;
+export const GUIDE_START = 18;
 
 export function TreeRow({
   depth, active, isParent, icon, label, suffix, actions, onClick, className,
