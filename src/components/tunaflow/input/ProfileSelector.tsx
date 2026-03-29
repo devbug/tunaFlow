@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Wrench } from "lucide-react";
 import { AgentAvatar } from "../AgentAvatar";
+import { DEFAULT_PERSONAS } from "@/lib/defaultPersonas";
 import type { AgentProfile } from "@/types";
 
 interface ProfileSelectorProps {
@@ -49,7 +50,7 @@ export function ProfileSelector({ profiles, selectedProfileId, onSelectProfile }
               {[
                 selected?.engine,
                 selected?.model,
-                selected?.personaKey,
+                selected?.personaId ? DEFAULT_PERSONAS.find((p) => p.id === selected.personaId)?.name : null,
                 selected?.defaultSkills.length ? `${selected.defaultSkills.length} skills` : null,
               ].filter(Boolean).join(" · ")}
             </span>
@@ -73,7 +74,7 @@ export function ProfileSelector({ profiles, selectedProfileId, onSelectProfile }
                 <AgentAvatar engine={p.engine} size="xs" />
                 <span className="flex-1 truncate font-medium">{p.label}</span>
                 <span className="text-[9px] text-muted-foreground/40">
-                  {[p.engine, p.personaKey, p.defaultSkills.length ? `${p.defaultSkills.length}s` : null].filter(Boolean).join(" · ")}
+                  {[p.engine, p.personaId ? DEFAULT_PERSONAS.find((d) => d.id === p.personaId)?.name : null, p.defaultSkills.length ? `${p.defaultSkills.length}s` : null].filter(Boolean).join(" · ")}
                 </span>
               </button>
             ))}

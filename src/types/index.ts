@@ -239,8 +239,22 @@ export interface AgentProfile {
   label: string;
   engine: string;
   model?: string;
-  personaKey?: string;
+  personaId?: string;
   defaultSkills: string[];
+}
+
+export interface Persona {
+  id: string;
+  name: string;
+  role: string;
+  summary: string;
+  builtIn: boolean;
+  priorities: string[];
+  behaviors: string[];
+  constraints: string[];
+  tone: string;
+  outputStyle: string;
+  promptFragment: string;
 }
 
 // ─── Plan types ────────────────────────────────────────────────────────────
