@@ -146,7 +146,13 @@ export function useSendActions({
   const effectiveConvId = threadMode ? threadBranchConvId : selectedConversationId;
   const effectiveMessages = threadMode ? threadMessages : messages;
   const currentConv = conversations.find((c) => c.id === effectiveConvId);
-  const isRoundtable = currentConv?.mode === "roundtable";
+  // Also check branch mode directly (more reliable than shadow conv lookup)
+  const threadBranchId = useChatStore((s) => s.threadBranchId);
+  const branches = useChatStore((s) => s.branches);
+  const threadBranch = threadMode && threadBranchId ? branches.find((b) => b.id === threadBranchId) : null;
+  const isRoundtable = threadMode
+    ? (threadBranch?.mode === "roundtable")
+    : (currentConv?.mode === "roundtable");
   const hasRtMessages = isRoundtable && effectiveMessages.some((m) => m.persona);
 
   const handleSend = async () => {

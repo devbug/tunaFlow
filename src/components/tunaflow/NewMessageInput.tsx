@@ -39,10 +39,13 @@ export function NewMessageInput({ threadMode = false }: NewMessageInputProps) {
   // Load RT config when entering an RT conversation or branch
   const threadBranchConvId = useChatStore((s) => s.threadBranchConvId);
   const threadBranchId = useChatStore((s) => s.threadBranchId);
-  // In thread mode, check the shadow conversation for RT detection
+  // In thread mode, check branch mode directly (shadow conv may not be in conversations yet)
   const effectiveConvId = threadMode ? threadBranchConvId : selectedConversationId;
-  const effectiveConv = conversations.find((c) => c.id === effectiveConvId);
-  const isRtConv = effectiveConv?.mode === "roundtable";
+  const branches = useChatStore((s) => s.branches);
+  const threadBranch = threadMode && threadBranchId ? branches.find((b) => b.id === threadBranchId) : null;
+  const isRtConv = threadMode
+    ? (threadBranch?.mode === "roundtable")
+    : (conversations.find((c) => c.id === effectiveConvId)?.mode === "roundtable");
   // RT config key: for thread branches use shadow ID, for branches use shadow ID, for conversations use conversation ID
   const rtConfigKey = threadMode ? threadBranchConvId : activeBranchId ? `branch:${activeBranchId}` : selectedConversationId;
   const [rtParticipants, setRtParticipants] = useState<RoundtableParticipant[]>(ROUNDTABLE_PARTICIPANTS);
