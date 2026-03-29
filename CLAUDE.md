@@ -1,6 +1,6 @@
 # tunaFlow — Claude Code Handoff Document
 
-> 최종 갱신: 2026-03-29
+> 최종 갱신: 2026-03-30
 > SSOT: `docs/reference/dataModelRevised.md` (도메인 모델), `docs/reference/implementationStatus.md` (구현 현황)
 
 ---
@@ -314,29 +314,40 @@ tunaFlow/
 - App icons: tunaDish tuna.png (전 플랫폼)
 
 ### UI/UX 대규모 리팩토링 (Linear-inspired)
-- ContextPanel 제거 → CenterPanel 4-tab 구조
-- 사이드바: 프로젝트 드롭다운, Artifacts/Memos/Skills 섹션
+- ContextPanel 제거 → CenterPanel 5-tab 구조 (Chat/Plan/Artifacts/Review/Test)
+- 사이드바: 프로젝트 드롭다운, Chat 트리 루트 (섹션 헤더 제거), Skills/Files
+- Memo: toolbar 아이콘 + 팝오버 (메시지 스크롤 + 하이라이트)
 - RuntimeStatusBar: 하단 전체 폭 (trace modal + rawq)
-- Linear lch 색상 시스템 + 간격 스펙 적용
-- 프로젝트 soft-delete (hidden), 메인 채팅 삭제 방지
-- 검색창 placeholder (CenterPanel toolbar 우측)
+- Linear lch 색상 시스템 + 간격 스펙 + 폰트 통일 (13px/500)
+- 프로젝트 soft-delete (hidden), 메인 채팅 삭제 방지, 검색 placeholder
+
+### Agent Profile / Persona 시스템
+- Settings: Agents (profile CRUD), Personas (7종 built-in), Skills, Runtime (실제 UI)
+- Agent Profile: engine + model + personaId + defaultSkills → chat input binding
+- ProfileSelector: 드롭다운 (profile list + Custom fallback)
+- Persona: promptFragment → runtime prompt persona section 삽입 (4-engine parity)
+- Applied config visibility: message.persona에 profile label 저장 → MessageMeta 표시
+
+### Branch/RT 고도화
+- Branch depth 탐색: 드로어 네비게이터 (중앙 배치, «» 오버플로), breadcrumb 전체 경로
+- VS Code 스타일 트리: 선택한 branch만 펼침, 들여쓰기 10px
+- Git 스타일 삭제: adopted/archived는 메시지 보존, active는 전체 삭제
+- History 섹션: adopted/archived branch 분리 표시
+- RT: 드로어 내 RT 분기, RT 테이블 뷰 전체 액션 (branch/RT/memo/forward/copy)
 
 ---
 
 ## 11. 다음 우선순위
 
-### P0: Branch depth 탐색 UX
-1. 드로어에서 하위 branch 생성 시 드로어 교체 (메인 패널로 올리지 않음)
-2. 드로어 헤더 breadcrumb 네비게이션 (부모 chain 표시, 클릭으로 전환)
-3. Adopt 시 드로어가 부모 branch로 자동 전환 (닫지 않음)
-4. Adopt 시 하위 branch 자동 archived 처리
-5. Branch 상태 모델: active → adopted / archived / (delete)
+### P0: 제품 완성도
+- 채팅 검색 구현 (FTS5 트리거 + 검색 커맨드 + UI)
+- Persona runtime prompt 실제 동작 검증 (General → Reviewer → Tester 순)
+- Knowledge Sources 설정 셸 (context-hub 연동 준비)
 
 ### P1: 코드 정합성
 - dead code 삭제: ContextPanel, RoundtablesSection, BranchesSection, StatusBar, ChatObjectTabs, ProjectsSection
 - smoke test 복구 (store mock 업데이트)
-- token/cost: DB 레벨 `usage_status` 컬럼 추가 (unavailable 구분)
-- 채팅 검색 구현 (FTS5 트리거 + 검색 커맨드 + UI)
+- token/cost: DB 레벨 `usage_status` 컬럼 추가
 
 ### P2: 후순위
 - Evaluation UI 연결 (backend 완료, frontend 미연결)
