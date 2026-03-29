@@ -25,13 +25,14 @@ interface ChatsSectionProps {
   openThread: (branchId: string) => void;
   handleRenameBranch: (branchId: string, newLabel: string) => Promise<void>;
   onDeleteBranch: (branchId: string, label: string) => void;
+  onCreateRT?: () => void;
 }
 
 export function ChatsSection({
   filteredChats, selectedConversationId,
   activeBranchId, threadBranchId,
   selectConversation, renameConversation, handleDelete,
-  branchesByConv, childMap, openThread, handleRenameBranch, onDeleteBranch,
+  branchesByConv, childMap, openThread, handleRenameBranch, onDeleteBranch, onCreateRT,
 }: ChatsSectionProps) {
   // Build set of branch IDs that should be expanded (ancestors of active thread)
   const expandedBranchIds = useMemo(() => {
@@ -114,9 +115,19 @@ export function ChatsSection({
                 />
               }
               suffix={isActive ? <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 mr-1" /> : undefined}
-              actions={filteredChats.length > 1 ? (
-                <button onClick={(e) => handleDelete(conv.id, conv.customLabel ?? conv.label, e)} className="p-0.5 rounded text-sidebar-foreground/20 hover:text-destructive transition-colors"><Trash2 className="w-3 h-3" /></button>
-              ) : undefined}
+              actions={
+                <span className="flex items-center gap-0.5">
+                  {onCreateRT && (
+                    <button onClick={(e) => { e.stopPropagation(); onCreateRT(); }}
+                      className="p-0.5 rounded text-sidebar-foreground/20 hover:text-agent-gemini hover:bg-agent-gemini/10 transition-colors" title="New roundtable">
+                      <Users className="w-3 h-3" />
+                    </button>
+                  )}
+                  {filteredChats.length > 1 && (
+                    <button onClick={(e) => handleDelete(conv.id, conv.customLabel ?? conv.label, e)} className="p-0.5 rounded text-sidebar-foreground/20 hover:text-destructive transition-colors"><Trash2 className="w-3 h-3" /></button>
+                  )}
+                </span>
+              }
               onClick={() => selectConversation(conv.id)} />
             {isExpanded && convBranches.map((b) => renderBranch(b, 1))}
           </div>

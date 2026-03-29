@@ -5,6 +5,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import type { Branch } from "@/types";
 
 import { ChatsSection } from "./sidebar/ChatsSection";
+import { CreateRoundtableDialog } from "./CreateRoundtableDialog";
 import { FilesSection } from "./sidebar/FilesSection";
 import { AddProjectForm } from "./sidebar/AddProjectForm";
 import { useProjectBranches } from "./sidebar/useProjectBranches";
@@ -35,6 +36,7 @@ export function Sidebar() {
   const [renameCounter, setRenameCounter] = useState(0);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  const [showCreateRT, setShowCreateRT] = useState(false);
 
   // Project dropdown state
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
@@ -199,6 +201,7 @@ export function Sidebar() {
               openThread={openThread}
               handleRenameBranch={handleRenameBranch}
               onDeleteBranch={handleDeleteBranch}
+              onCreateRT={() => setShowCreateRT(true)}
             />
 
             <SectionHeader title="Skills" expanded={skillsOpen} onToggle={() => setSkillsOpen(!skillsOpen)}
@@ -220,6 +223,7 @@ export function Sidebar() {
         )}
       </nav>
 
+      <CreateRoundtableDialog open={showCreateRT} onClose={() => setShowCreateRT(false)} />
     </aside>
   );
 }
