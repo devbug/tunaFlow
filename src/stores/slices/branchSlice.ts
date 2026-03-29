@@ -301,6 +301,7 @@ export const createBranchSlice = (set: SetState, get: GetState): BranchSlice => 
       activeSkills,
       crossSessionIds,
       personaFragment: get().personaFragment ?? undefined,
+      personaLabel: get().personaLabel ?? undefined,
     };
 
     // Event listeners for streaming updates

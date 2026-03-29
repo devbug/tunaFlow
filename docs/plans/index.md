@@ -64,6 +64,7 @@
 | [agentProfileUsagePolishPlan_2026-03-29](./agentProfileUsagePolishPlan_2026-03-29.md) | Agent Profile을 실제 1급 선택 단위로 느끼게 만드는 UX 보강 계획 | profile summary, custom 규칙 가시화, RT 표시 polish |
 | [personaBaselineReviewPlan_2026-03-29](./personaBaselineReviewPlan_2026-03-29.md) | persona baseline 문서를 현재 Agent Profile 중심 구조와 비교 검토하는 계획 | 유지/수정/후순위 판단 필요 |
 | [personaRuntimeBindingPlan_2026-03-29](./personaRuntimeBindingPlan_2026-03-29.md) | 선택된 persona를 실제 runtime prompt 조립과 applied persona 가시성에 연결하는 계획 | persona section 주입, 4-engine parity, applied persona 표시 |
+| [appliedAgentConfigVisibilityPlan_2026-03-29](./appliedAgentConfigVisibilityPlan_2026-03-29.md) | assistant message surface에서 applied profile/persona/skills를 다시 보여주는 계획 | message meta visibility, runtime snapshot 경로 필요 |
 | [chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29](./chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29.md) | chops/context-hub/tunaFlow를 관리층/공급층/적용층으로 나누는 통합 IA 초안 | Settings/Knowledge Sources 구조 정리 필요 |
 | [contextHubSidecarIntegrationPlan_2026-03-29](./contextHubSidecarIntegrationPlan_2026-03-29.md) | context-hub를 CLI/MCP/sidecar로 도입하는 단계별 계획 | Phase 1 CLI health/search/get 미구현 |
 | [settingsSkillsKnowledgeSourcesPlan_2026-03-29](./settingsSkillsKnowledgeSourcesPlan_2026-03-29.md) | Settings에서 Skills와 Knowledge Sources를 분리하는 초안 | Knowledge Sources shell 필요 |
@@ -142,6 +143,7 @@
 - [agentProfileUsagePolishPlan_2026-03-29](./agentProfileUsagePolishPlan_2026-03-29.md)
 - [personaBaselineReviewPlan_2026-03-29](./personaBaselineReviewPlan_2026-03-29.md)
 - [personaRuntimeBindingPlan_2026-03-29](./personaRuntimeBindingPlan_2026-03-29.md)
+- [appliedAgentConfigVisibilityPlan_2026-03-29](./appliedAgentConfigVisibilityPlan_2026-03-29.md)
 - [chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29](./chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29.md)
 - [contextHubSidecarIntegrationPlan_2026-03-29](./contextHubSidecarIntegrationPlan_2026-03-29.md)
 - [settingsSkillsKnowledgeSourcesPlan_2026-03-29](./settingsSkillsKnowledgeSourcesPlan_2026-03-29.md)

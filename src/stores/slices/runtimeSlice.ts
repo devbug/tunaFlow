@@ -142,6 +142,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
         activeSkills: get().activeSkills,
         crossSessionIds: get().crossSessionIds,
         personaFragment: get().personaFragment ?? undefined,
+        personaLabel: get().personaLabel ?? undefined,
       };
       await invoke<{ messageId: string }>("start_claude_stream", { input });
       // Command returns immediately — events drive the rest
@@ -210,7 +211,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     });
 
     try {
-      await invoke<{ messageId: string }>("start_codex_run", { input: { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model, activeSkills: get().activeSkills, crossSessionIds: get().crossSessionIds, personaFragment: get().personaFragment ?? undefined } });
+      await invoke<{ messageId: string }>("start_codex_run", { input: { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model, activeSkills: get().activeSkills, crossSessionIds: get().crossSessionIds, personaFragment: get().personaFragment ?? undefined, personaLabel: get().personaLabel ?? undefined } });
     } catch (e) {
       cleanup();
       set((state) => ({ error: String(e), messages: state.messages.filter((m) => !m.id.startsWith("temp-thinking-")) }));
@@ -267,7 +268,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     });
 
     try {
-      const input: SendWithClaudeInput = { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model, activeSkills: get().activeSkills, crossSessionIds: get().crossSessionIds, personaFragment: get().personaFragment ?? undefined };
+      const input: SendWithClaudeInput = { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model, activeSkills: get().activeSkills, crossSessionIds: get().crossSessionIds, personaFragment: get().personaFragment ?? undefined, personaLabel: get().personaLabel ?? undefined };
       await invoke<{ messageId: string }>("start_gemini_stream", { input });
     } catch (e) {
       cleanup();
@@ -319,7 +320,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     });
 
     try {
-      await invoke<{ messageId: string }>("start_opencode_run", { input: { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model, activeSkills: get().activeSkills, crossSessionIds: get().crossSessionIds, personaFragment: get().personaFragment ?? undefined } });
+      await invoke<{ messageId: string }>("start_opencode_run", { input: { projectKey: selectedProjectKey, conversationId: selectedConversationId, prompt, model, activeSkills: get().activeSkills, crossSessionIds: get().crossSessionIds, personaFragment: get().personaFragment ?? undefined, personaLabel: get().personaLabel ?? undefined } });
     } catch (e) {
       cleanup();
       set((state) => ({ error: String(e), messages: state.messages.filter((m) => !m.id.startsWith("temp-thinking-")) }));

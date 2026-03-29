@@ -95,6 +95,8 @@ export interface ChatState {
   scrollToMessageId: string | null;
   /** Current persona prompt fragment — set by profile/persona selection, included in agent requests */
   personaFragment: string | null;
+  /** Current profile/persona label for message meta visibility */
+  personaLabel: string | null;
 
   setHandoffSource: (source: { type: string; content: string } | null) => void;
   _startRun: (threadId: string) => void;

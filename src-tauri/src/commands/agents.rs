@@ -44,6 +44,8 @@ pub struct SendWithClaudeInput {
     pub cross_session_ids: Vec<String>,
     #[serde(default)]
     pub persona_fragment: Option<String>,
+    #[serde(default)]
+    pub persona_label: Option<String>,
 }
 
 const CONTEXT_MESSAGES_LIMIT: i64 = 6;
@@ -854,7 +856,7 @@ pub fn start_claude_stream(
             .ok().and_then(|(t,e)|if e.as_deref()==Some("claude-code"){t}else{None});
         let pp: Option<String> = conn.query_row("SELECT path FROM projects WHERE key=?1",[&input.project_key],|r|r.get(0)).ok().flatten();
         let mid=Uuid::new_v4().to_string();let now=now_epoch_ms();
-        conn.execute("INSERT INTO messages(id,conversation_id,role,content,timestamp,status,engine,model)VALUES(?1,?2,'assistant','',?3,'streaming','claude-code',?4)",params![mid,input.conversation_id,now,input.model])?;
+        conn.execute("INSERT INTO messages(id,conversation_id,role,content,timestamp,status,engine,model,persona)VALUES(?1,?2,'assistant','',?3,'streaming','claude-code',?4,?5)",params![mid,input.conversation_id,now,input.model,input.persona_label])?;
         let cm = if is_branch||input.agent_name.is_some()||input.system_prompt.is_some(){ContextMode::Standard}else{ContextMode::Lite};
         let pc = pp.as_deref().map(|p|format!("## Project\n\nYou are working on a project located at: `{}`\nAll file paths and code references are relative to this directory.",p));
         let bp = assemble_system_prompt(input.agent_name.as_deref(),pp.as_deref(),input.system_prompt.as_deref());
@@ -923,7 +925,7 @@ pub fn start_gemini_stream(input:SendWithClaudeInput,app:AppHandle,state:State<D
         persist_user_message(&conn,&input.conversation_id,&input.prompt,&input.user_message_id)?;
         let pp=load_project_path(&conn,&input.project_key);let ep=build_normalized_prompt(&conn,&input.conversation_id,&input.prompt,pp.as_deref(),&input.active_skills,&input.cross_session_ids,input.persona_fragment.as_deref());
         let mid=format!("msg-{}",Uuid::new_v4());let now=now_epoch_ms();
-        conn.execute("INSERT INTO messages(id,conversation_id,role,content,timestamp,status,engine,model)VALUES(?1,?2,'assistant','',?3,'streaming','gemini',?4)",params![mid,input.conversation_id,now,input.model])?;
+        conn.execute("INSERT INTO messages(id,conversation_id,role,content,timestamp,status,engine,model,persona)VALUES(?1,?2,'assistant','',?3,'streaming','gemini',?4,?5)",params![mid,input.conversation_id,now,input.model,input.persona_label])?;
         (ep,pp,mid)};
     let jid=format!("job-{}",Uuid::new_v4());
     {let conn=state.write.lock().map_err(|_|AppError::Lock)?;let _=jobs::create_job(&conn,&jid,&input.conversation_id,Some(&mid),"gemini","agent");}
@@ -960,7 +962,7 @@ pub fn start_codex_run(input:SendWithClaudeInput,app:AppHandle,state:State<DbSta
         persist_user_message(&conn,&input.conversation_id,&input.prompt,&input.user_message_id)?;
         let pp=load_project_path(&conn,&input.project_key);let ep=build_normalized_prompt(&conn,&input.conversation_id,&input.prompt,pp.as_deref(),&input.active_skills,&input.cross_session_ids,input.persona_fragment.as_deref());
         let mid=format!("msg-{}",Uuid::new_v4());let now=now_epoch_ms();
-        conn.execute("INSERT INTO messages(id,conversation_id,role,content,timestamp,status,engine,model)VALUES(?1,?2,'assistant','',?3,'streaming','codex',?4)",params![mid,input.conversation_id,now,input.model])?;
+        conn.execute("INSERT INTO messages(id,conversation_id,role,content,timestamp,status,engine,model,persona)VALUES(?1,?2,'assistant','',?3,'streaming','codex',?4,?5)",params![mid,input.conversation_id,now,input.model,input.persona_label])?;
         (ep,pp,mid)};
     let jid=format!("job-{}",Uuid::new_v4());
     {let conn=state.write.lock().map_err(|_|AppError::Lock)?;let _=jobs::create_job(&conn,&jid,&input.conversation_id,Some(&mid),"codex","agent");}
@@ -997,7 +999,7 @@ pub fn start_opencode_run(input:SendWithClaudeInput,app:AppHandle,state:State<Db
         persist_user_message(&conn,&input.conversation_id,&input.prompt,&input.user_message_id)?;
         let pp=load_project_path(&conn,&input.project_key);let ep=build_normalized_prompt(&conn,&input.conversation_id,&input.prompt,pp.as_deref(),&input.active_skills,&input.cross_session_ids,input.persona_fragment.as_deref());
         let mid=format!("msg-{}",Uuid::new_v4());let now=now_epoch_ms();
-        conn.execute("INSERT INTO messages(id,conversation_id,role,content,timestamp,status,engine,model)VALUES(?1,?2,'assistant','',?3,'streaming','opencode',?4)",params![mid,input.conversation_id,now,input.model])?;
+        conn.execute("INSERT INTO messages(id,conversation_id,role,content,timestamp,status,engine,model,persona)VALUES(?1,?2,'assistant','',?3,'streaming','opencode',?4,?5)",params![mid,input.conversation_id,now,input.model,input.persona_label])?;
         (ep,pp,mid)};
     let jid=format!("job-{}",Uuid::new_v4());
     {let conn=state.write.lock().map_err(|_|AppError::Lock)?;let _=jobs::create_job(&conn,&jid,&input.conversation_id,Some(&mid),"opencode","agent");}

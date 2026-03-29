@@ -68,9 +68,12 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
     for (const skill of profile.defaultSkills) {
       if (!currentSkills.has(skill)) toggleSkill(skill);
     }
-    // Set persona fragment in store for runtime injection
+    // Set persona fragment + label in store for runtime injection + visibility
     const persona = profile.personaId ? DEFAULT_PERSONAS.find((p) => p.id === profile.personaId) : null;
-    useChatStore.setState({ personaFragment: persona?.promptFragment ?? null });
+    useChatStore.setState({
+      personaFragment: persona?.promptFragment ?? null,
+      personaLabel: persona ? `${profile.label} · ${persona.name}` : profile.label,
+    });
   };
 
   const handleProfileSelect = (profileId: string | null) => {
@@ -81,7 +84,7 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
       if (profile) applyProfile(profile);
     } else {
       // Custom mode — clear persona
-      useChatStore.setState({ personaFragment: null });
+      useChatStore.setState({ personaFragment: null, personaLabel: null });
     }
   };
   const [activeParticipants, setActiveParticipants] = useState<Set<string>>(

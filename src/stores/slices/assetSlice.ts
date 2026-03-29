@@ -20,6 +20,7 @@ export interface AssetSlice {
   handoffSource: { type: string; content: string } | null;
   scrollToMessageId: string | null;
   personaFragment: string | null;
+  personaLabel: string | null;
   setHandoffSource: (source: { type: string; content: string } | null) => void;
   loadMemos: () => Promise<void>;
   createMemo: (messageId: string, content: string) => Promise<void>;
@@ -42,6 +43,7 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
   handoffSource: null,
   scrollToMessageId: null,
   personaFragment: null,
+  personaLabel: null,
 
   setHandoffSource: (source) => set({ handoffSource: source }),
 

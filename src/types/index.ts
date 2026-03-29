@@ -172,6 +172,8 @@ export interface SendWithClaudeInput {
   crossSessionIds?: string[];
   /** Persona prompt fragment — injected as persona section in normalized prompt */
   personaFragment?: string;
+  /** Profile/persona label — stored in message.persona for visibility */
+  personaLabel?: string;
 }
 
 export interface RoundtableParticipant {
