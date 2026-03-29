@@ -64,6 +64,9 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     if current < 13 {
         apply_v13(conn)?;
     }
+    if current < 14 {
+        apply_v14(conn)?;
+    }
     Ok(())
 }
 
@@ -207,6 +210,47 @@ fn apply_v10(conn: &Connection) -> Result<(), AppError> {
 fn apply_v13(conn: &Connection) -> Result<(), AppError> {
     add_column_if_missing(conn, "projects", "hidden", "INTEGER NOT NULL DEFAULT 0")?;
     conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (13, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+/// Fix branches with shadow conversation IDs (branch:xxx) as conversation_id.
+/// These should point to the root conversation instead.
+fn apply_v14(conn: &Connection) -> Result<(), AppError> {
+    // Find all branches whose conversation_id starts with 'branch:'
+    // and update them to use the root conversation (via conversations.parent_id chain)
+    conn.execute_batch("
+        UPDATE branches SET conversation_id = (
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_id FROM conversations WHERE id = branches.conversation_id
+                UNION ALL
+                SELECT c.id, c.parent_id FROM conversations c JOIN chain ch ON c.id = ch.parent_id
+                WHERE ch.parent_id IS NOT NULL
+            )
+            SELECT id FROM chain WHERE parent_id IS NULL OR parent_id NOT LIKE 'branch:%'
+            ORDER BY rowid DESC LIMIT 1
+        )
+        WHERE conversation_id LIKE 'branch:%';
+    ")?;
+
+    // Also set parent_branch_id for branches that were created from shadow convs
+    // but missing the parent reference: extract branch ID from the original conversation_id
+    // This is best-effort — only fixes cases where we can match
+    conn.execute_batch("
+        UPDATE branches SET parent_branch_id = (
+            SELECT b2.id FROM branches b2
+            WHERE 'branch:' || b2.id = (
+                SELECT c.id FROM conversations c WHERE c.id LIKE 'branch:%'
+                AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.id = branches.checkpoint_id)
+            )
+        )
+        WHERE parent_branch_id IS NULL
+        AND checkpoint_id IS NOT NULL
+        AND id IN (
+            SELECT id FROM branches WHERE conversation_id NOT LIKE 'branch:%'
+        );
+    ")?;
+
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (14, ?1)", [now_epoch()])?;
     Ok(())
 }
 

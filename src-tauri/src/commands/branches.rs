@@ -72,13 +72,38 @@ pub fn create_branch(
     let id = Uuid::new_v4().to_string();
     let now = now_epoch();
 
+    // Resolve root conversation ID — if conversation_id is a shadow conv (branch:xxx),
+    // walk up to find the real root conversation
+    let root_conv_id = if input.conversation_id.starts_with("branch:") {
+        // Shadow conv → look up parent_id chain until we find a non-branch conversation
+        let mut current = input.conversation_id.clone();
+        loop {
+            let parent: Option<String> = conn
+                .query_row(
+                    "SELECT parent_id FROM conversations WHERE id = ?1",
+                    [&current],
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten();
+            match parent {
+                Some(p) if p.starts_with("branch:") => current = p,
+                Some(p) => { current = p; break; }
+                None => break, // fallback: use current
+            }
+        }
+        current
+    } else {
+        input.conversation_id.clone()
+    };
+
     // Auto-generate label: b1, b1.1, b2, etc.
     let label = match input.label {
         Some(l) => l,
         None => {
             let count: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM branches WHERE conversation_id = ?1",
-                [&input.conversation_id],
+                [&root_conv_id],
                 |row| row.get(0),
             )?;
             match &input.parent_branch_id {
@@ -110,7 +135,7 @@ pub fn create_branch(
          VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?6, ?7, ?8)",
         params![
             id,
-            input.conversation_id,
+            root_conv_id,
             label,
             input.checkpoint_id,
             input.parent_branch_id,
@@ -122,7 +147,7 @@ pub fn create_branch(
 
     Ok(Branch {
         id,
-        conversation_id: input.conversation_id,
+        conversation_id: root_conv_id,
         label,
         custom_label: None,
         status: "active".into(),
