@@ -232,6 +232,17 @@ export interface UpdateArtifactStatusInput {
   status: "draft" | "approved" | "rejected";
 }
 
+// ─── Agent Profile types ──────────────────────────────────────────────────
+
+export interface AgentProfile {
+  id: string;
+  label: string;
+  engine: string;
+  model?: string;
+  personaKey?: string;
+  defaultSkills: string[];
+}
+
 // ─── Plan types ────────────────────────────────────────────────────────────
 
 export type PlanStatus = "draft" | "active" | "done" | "abandoned";

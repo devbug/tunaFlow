@@ -39,5 +39,6 @@ Opus/Claude에 전달하는 실행 지시문, hand-off 문서, 초기 구현 프
 - [2026-03-29/new_session_handoff_with_codex_reference_prompt](./2026-03-29/new_session_handoff_with_codex_reference_prompt.md): 새 Claude 세션이 CLAUDE.md와 Codex 참고 문서를 함께 읽고 시작하게 하는 프롬프트
 - [2026-03-29/sidebar_workspace_hierarchy_prompt](./2026-03-29/sidebar_workspace_hierarchy_prompt.md): Sidebar에서 프로젝트 선택과 채팅 트리 위계를 분리하는 1차 프롬프트
 - [2026-03-29/artifacts_main_tab_memo_assist_prompt](./2026-03-29/artifacts_main_tab_memo_assist_prompt.md): Artifacts를 메인 탭으로 올리고 Memo를 보조 UX로 재배치하는 프롬프트
+- [2026-03-29/agent_profiles_settings_mvp_prompt](./2026-03-29/agent_profiles_settings_mvp_prompt.md): Settings > Agents를 실제 agent profile 관리 UI로 만드는 MVP 프롬프트
 - [2026-03-29/window_state_restore_fix_prompt](./2026-03-29/window_state_restore_fix_prompt.md): 창 위치/크기 복원 확인 및 수정 프롬프트
 - [2026-03-29/window_state_restore_review_checklist](./2026-03-29/window_state_restore_review_checklist.md): 창 상태 복원 검증 체크리스트

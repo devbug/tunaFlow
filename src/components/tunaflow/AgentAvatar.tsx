@@ -12,13 +12,13 @@ const ENGINE_ICONS: Record<string, string> = {
 interface AgentAvatarProps {
   engine?: string | null;
   isUser?: boolean;
-  size?: "sm" | "md";
+  size?: "xs" | "sm" | "md";
   className?: string;
 }
 
 export function AgentAvatar({ engine, isUser, size = "md", className }: AgentAvatarProps) {
-  const dim = size === "sm" ? "w-6 h-6" : "w-8 h-8";
-  const iconDim = size === "sm" ? "w-3 h-3" : "w-4 h-4";
+  const dim = size === "xs" ? "w-4 h-4" : size === "sm" ? "w-6 h-6" : "w-8 h-8";
+  const iconDim = size === "xs" ? "w-2.5 h-2.5" : size === "sm" ? "w-3 h-3" : "w-4 h-4";
 
   if (isUser) {
     return (
