@@ -202,7 +202,19 @@ export function BranchThreadPanel() {
           )}
           {!isReadOnly && (
             <button onClick={async () => {
-              const yes = await ask(`"${threadBranchLabel}" 브랜치를 삭제하시겠습니까?`, { title: "브랜치 삭제", kind: "warning" });
+              // Check for adopted/archived descendants
+              const descendants: string[] = [];
+              const queue = [threadBranchId];
+              while (queue.length) {
+                const id = queue.shift()!;
+                const children = branches.filter((b) => b.parentBranchId === id);
+                for (const c of children) { descendants.push(c.id); queue.push(c.id); }
+              }
+              const hasAdopted = branches.some((b) => descendants.includes(b.id) && (b.status === "adopted" || b.status === "archived"));
+              const message = hasAdopted
+                ? `"${threadBranchLabel}" 브랜치에 채택된 결과가 포함되어 있습니다.\n하위 브랜치와 이력이 모두 삭제됩니다. 계속하시겠습니까?`
+                : `"${threadBranchLabel}" 브랜치를 삭제하시겠습니까?`;
+              const yes = await ask(message, { title: "브랜치 삭제", kind: "warning" });
               if (yes) {
                 closeThread();
                 deleteBranch(threadBranchId);

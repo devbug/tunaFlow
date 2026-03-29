@@ -82,7 +82,22 @@ export function Sidebar() {
   };
 
   const handleDeleteBranch = async (branchId: string, label: string) => {
-    const yes = await ask(`"${label}" 브랜치를 삭제하시겠습니까?`, { title: "브랜치 삭제", kind: "warning" });
+    // Check if any descendant branches are adopted/archived
+    const allBr = useChatStore.getState().branches;
+    const descendants: string[] = [];
+    const queue = [branchId];
+    while (queue.length) {
+      const id = queue.shift()!;
+      const children = allBr.filter((b) => b.parentBranchId === id);
+      for (const c of children) { descendants.push(c.id); queue.push(c.id); }
+    }
+    const hasAdopted = allBr.some((b) => descendants.includes(b.id) && (b.status === "adopted" || b.status === "archived"));
+
+    const message = hasAdopted
+      ? `"${label}" 브랜치에 채택된 결과가 포함되어 있습니다.\n하위 브랜치와 이력이 모두 삭제됩니다. 계속하시겠습니까?`
+      : `"${label}" 브랜치를 삭제하시겠습니까?`;
+
+    const yes = await ask(message, { title: "브랜치 삭제", kind: "warning" });
     if (yes) {
       await deleteBranch(branchId);
       setRenameCounter((c) => c + 1);
