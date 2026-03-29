@@ -55,6 +55,7 @@
 | [chatFileViewerIntegrationPlan_2026-03-29](./chatFileViewerIntegrationPlan_2026-03-29.md) | 파일 경로 클릭 + FileViewer 모달 | Phase 1 완료 |
 | [tracePanelRuntimeFirstPlan_2026-03-29](./tracePanelRuntimeFirstPlan_2026-03-29.md) | TracePanel을 runtime 대시보드로 전환 | Phase 1 완료 |
 | [agentSkillPersonaIaPlan_2026-03-29](./agentSkillPersonaIaPlan_2026-03-29.md) | skills를 workspace에서 분리하고 agent/persona/settings 중심으로 재구성하는 IA 초안 | Settings/agent profile 구조 설계 필요 |
+| [sidebarWorkspaceHierarchyPlan_2026-03-29](./sidebarWorkspaceHierarchyPlan_2026-03-29.md) | 프로젝트 선택과 선택된 프로젝트 하위 채팅 트리의 위계를 분리하는 1차 계획 | Sidebar IA 1차 구현 필요 |
 
 ### 보류
 
@@ -123,6 +124,7 @@
 - [chatFileViewerIntegrationPlan_2026-03-29](./chatFileViewerIntegrationPlan_2026-03-29.md)
 - [tracePanelRuntimeFirstPlan_2026-03-29](./tracePanelRuntimeFirstPlan_2026-03-29.md)
 - [agentSkillPersonaIaPlan_2026-03-29](./agentSkillPersonaIaPlan_2026-03-29.md)
+- [sidebarWorkspaceHierarchyPlan_2026-03-29](./sidebarWorkspaceHierarchyPlan_2026-03-29.md)
 - [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md)
 - [sidebarThreeSectionPlan](./sidebarThreeSectionPlan.md)
 - [sidecarMigrationPlan](./sidecarMigrationPlan.md)

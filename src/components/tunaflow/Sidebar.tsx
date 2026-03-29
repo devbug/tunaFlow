@@ -1,21 +1,24 @@
-import { useState } from "react";
-import { cn } from "@/lib/utils";
+import { useState, useRef, useEffect } from "react";
 import { useChatStore } from "@/stores/chatStore";
-import { Waves, Search } from "lucide-react";
+import { Waves, ChevronDown, FolderOpen, Folder, Trash2, Loader2 } from "lucide-react";
 import type { Branch } from "@/types";
 
-import { ProjectsSection } from "./sidebar/ProjectsSection";
 import { ChatsSection } from "./sidebar/ChatsSection";
 import { CreateRoundtableDialog } from "./CreateRoundtableDialog";
 import { FilesSection } from "./sidebar/FilesSection";
 import { AddProjectForm } from "./sidebar/AddProjectForm";
 import { useProjectBranches } from "./sidebar/useProjectBranches";
+import { ArtifactsSidebarPanel } from "./sidebar/ArtifactsSidebarPanel";
+import { MemosPanel } from "./context-panel/MemosPanel";
+import { SkillsPanel } from "./context-panel/SkillsPanel";
+import { SectionHeader } from "./sidebar/TreeRow";
 
 export function Sidebar() {
   const projects = useChatStore((s) => s.projects);
   const selectedProjectKey = useChatStore((s) => s.selectedProjectKey);
   const selectProject = useChatStore((s) => s.selectProject);
   const createProject = useChatStore((s) => s.createProject);
+  const hideProject = useChatStore((s) => s.hideProject);
   const conversations = useChatStore((s) => s.conversations);
   const selectedConversationId = useChatStore((s) => s.selectedConversationId);
   const selectConversation = useChatStore((s) => s.selectConversation);
@@ -28,38 +31,57 @@ export function Sidebar() {
   const activeBranchId = useChatStore((s) => s.activeBranchId);
   const threadBranchId = useChatStore((s) => s.threadBranchId);
   const openThread = useChatStore((s) => s.openThread);
-  const rawqStatus = useChatStore((s) => s.rawqStatus);
   const runningThreadIds = useChatStore((s) => s.runningThreadIds);
   const messageQueue = useChatStore((s) => s.messageQueue);
+  const artifacts = useChatStore((s) => s.artifacts);
+  const memos = useChatStore((s) => s.memos);
+  const activeSkills = useChatStore((s) => s.activeSkills);
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showAddProject, setShowAddProject] = useState(false);
   const [renameCounter, setRenameCounter] = useState(0);
-
   const [chatsOpen, setChatsOpen] = useState(true);
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
+  const [memosOpen, setMemosOpen] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [showCreateRT, setShowCreateRT] = useState(false);
+
+  // Project dropdown state
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
+  const [showAddProject, setShowAddProject] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!projectDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setProjectDropdownOpen(false);
+        setShowAddProject(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [projectDropdownOpen]);
 
   const currentProject = projects.find((p) => p.key === selectedProjectKey);
 
   // Current project data
   const chatConvs = conversations.filter((c) => !c.id.startsWith("branch:") && c.mode !== "roundtable");
-  const filteredChats = searchQuery.trim()
-    ? chatConvs.filter((c) => (c.customLabel ?? c.label).toLowerCase().includes(searchQuery.toLowerCase()))
-    : chatConvs;
 
   const allBranches = useProjectBranches(conversations, storeBranches, renameCounter);
-  // Branch-to-branch child map (for nested branches)
   const childMap = new Map<string, Branch[]>();
   for (const b of allBranches) { if (b.parentBranchId) { const a = childMap.get(b.parentBranchId) ?? []; a.push(b); childMap.set(b.parentBranchId, a); } }
-  // Top-level branches grouped by parent conversation
   const branchesByConv = new Map<string, Branch[]>();
   for (const b of allBranches) {
-    if (b.parentBranchId) continue; // nested branches handled by childMap
+    if (b.parentBranchId) continue;
     const a = branchesByConv.get(b.conversationId) ?? [];
     a.push(b);
     branchesByConv.set(b.conversationId, a);
   }
+
+  // Concurrency status
+  const currentConvIds = new Set(conversations.map((c) => c.id));
+  const currentRunning = runningThreadIds.filter((id) => currentConvIds.has(id)).length;
 
   const handleRenameBranch = async (branchId: string, newLabel: string) => {
     await renameBranch(branchId, newLabel);
@@ -69,7 +91,7 @@ export function Sidebar() {
   const handleDeleteBranch = async (branchId: string, label: string) => {
     if (window.confirm(`"${label}" 브랜치를 삭제하시겠습니까?`)) {
       await deleteBranch(branchId);
-      setRenameCounter((c) => c + 1); // trigger sidebar branch re-fetch
+      setRenameCounter((c) => c + 1);
     }
   };
 
@@ -91,7 +113,7 @@ export function Sidebar() {
   return (
     <aside data-testid="sidebar" className="flex flex-col w-full bg-sidebar h-full overflow-hidden text-sidebar-foreground">
       {/* Logo */}
-      <div className="flex items-center gap-2 px-3 h-9 border-b border-white/[0.06] shrink-0">
+      <div className="flex items-center gap-2 px-3 h-9 shrink-0">
         <div className="w-5 h-5 rounded bg-primary/15 flex items-center justify-center">
           <Waves className="w-3 h-3 text-primary" />
         </div>
@@ -99,48 +121,90 @@ export function Sidebar() {
         <span className="ml-auto text-[8px] text-sidebar-foreground/35 bg-white/[0.04] px-1 py-0.5 rounded font-mono">beta</span>
       </div>
 
-      {/* Search + Add project */}
-      <div className="px-2 py-1.5 border-b border-white/[0.06] shrink-0 space-y-1">
-        <div className="flex items-center gap-1.5 bg-white/[0.04] rounded px-2 py-[3px]">
-          <Search className="w-3 h-3 text-sidebar-foreground/25" />
-          <input className="flex-1 text-[11px] bg-transparent outline-none placeholder:text-sidebar-foreground/25"
-            placeholder="Search…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-        </div>
-        <AddProjectForm
-          showAddProject={showAddProject}
-          setShowAddProject={setShowAddProject}
-          createProject={createProject}
-          selectProject={selectProject}
-        />
+      {/* Project selector dropdown */}
+      <div className="px-2 py-1 shrink-0 relative" ref={dropdownRef}>
+        <button
+          onClick={() => setProjectDropdownOpen((v) => !v)}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md bg-sidebar-accent/50 hover:bg-sidebar-accent transition-colors"
+        >
+          <FolderOpen className="w-3.5 h-3.5 text-primary shrink-0" />
+          <span className="flex-1 text-[11px] font-medium text-sidebar-foreground truncate text-left">
+            {currentProject?.name ?? "Select project"}
+          </span>
+          {currentRunning > 0 && (
+            <Loader2 className="w-3 h-3 animate-spin text-primary/70 shrink-0" />
+          )}
+          <ChevronDown className="w-3 h-3 text-sidebar-foreground/40 shrink-0" />
+        </button>
+
+        {/* Dropdown menu */}
+        {projectDropdownOpen && (
+          <div className="absolute left-2 right-2 top-full mt-0.5 z-50 bg-popover border border-border/40 rounded-lg shadow-xl overflow-hidden">
+            {/* Project list */}
+            <div className="max-h-[200px] overflow-y-auto py-1">
+              {projects.map((p) => {
+                const isSelected = p.key === selectedProjectKey;
+                return (
+                  <div key={p.key} className="group flex items-center">
+                    <button
+                      onClick={() => { selectProject(p.key); setProjectDropdownOpen(false); }}
+                      className={`flex-1 flex items-center gap-2 px-3 py-1.5 text-[11px] text-left transition-colors ${
+                        isSelected ? "bg-accent text-foreground" : "text-foreground/70 hover:bg-accent/50"
+                      }`}
+                    >
+                      {isSelected
+                        ? <FolderOpen className="w-3.5 h-3.5 text-primary shrink-0" />
+                        : <Folder className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />}
+                      <span className="truncate">{p.name}</span>
+                      {p.path && (
+                        <span className="ml-auto text-[8px] text-muted-foreground/30 truncate max-w-[60px]">
+                          {p.path.split(/[\\/]/).pop()}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`"${p.name}" 프로젝트를 삭제하시겠습니까?\n(프로젝트 데이터는 보존되며, 같은 경로로 다시 추가할 수 있습니다)`)) {
+                          hideProject(p.key);
+                          if (projects.length <= 1) setProjectDropdownOpen(false);
+                        }
+                      }}
+                      className="shrink-0 p-1.5 text-muted-foreground/20 hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
+                      title="Delete project"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Add project */}
+            <div className="border-t border-border/30 px-2 py-1.5">
+              <AddProjectForm
+                showAddProject={showAddProject}
+                setShowAddProject={setShowAddProject}
+                createProject={async (input) => {
+                  await createProject(input);
+                  setProjectDropdownOpen(false);
+                  setShowAddProject(false);
+                }}
+                selectProject={selectProject}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-1">
-        {/* PROJECTS */}
-        {(() => {
-          // Derive project-scoped concurrency status
-          const currentConvIds = new Set(conversations.map((c) => c.id));
-          const currentRunning = runningThreadIds.filter((id) => currentConvIds.has(id)).length;
-          const currentQueued = messageQueue.filter((q) => currentConvIds.has(q.threadId)).length;
-          const otherRunning = runningThreadIds.some((id) => !currentConvIds.has(id));
-          return (
-            <ProjectsSection
-              projects={projects}
-              selectedProjectKey={selectedProjectKey}
-              selectProject={selectProject}
-              runningCount={currentRunning}
-              queuedCount={currentQueued}
-              hasOtherRunning={otherRunning}
-            />
-          );
-        })()}
-
-        {/* Below sections show data for the selected project only */}
+      {/* Workspace tree */}
+      <nav className="flex-1 overflow-y-auto py-1 px-3">
         {selectedProjectKey && (
           <>
             <ChatsSection
               chatsOpen={chatsOpen}
               setChatsOpen={setChatsOpen}
-              filteredChats={filteredChats}
+              filteredChats={chatConvs}
               selectedConversationId={selectedConversationId}
               activeBranchId={activeBranchId}
               threadBranchId={threadBranchId}
@@ -156,6 +220,32 @@ export function Sidebar() {
               onCreateRT={() => setShowCreateRT(true)}
             />
 
+            <SectionHeader title="Artifacts" expanded={artifactsOpen} onToggle={() => setArtifactsOpen(!artifactsOpen)}
+              actions={artifacts.length > 0 ? (
+                <span className="text-[8px] text-sidebar-foreground/30 font-mono">{artifacts.length}</span>
+              ) : undefined} />
+            {artifactsOpen && <ArtifactsSidebarPanel />}
+
+            <SectionHeader title="Memos" expanded={memosOpen} onToggle={() => setMemosOpen(!memosOpen)}
+              actions={memos.length > 0 ? (
+                <span className="text-[8px] text-sidebar-foreground/30 font-mono">{memos.length}</span>
+              ) : undefined} />
+            {memosOpen && (
+              <div className="px-2 pb-1">
+                <MemosPanel />
+              </div>
+            )}
+
+            <SectionHeader title="Skills" expanded={skillsOpen} onToggle={() => setSkillsOpen(!skillsOpen)}
+              actions={activeSkills.length > 0 ? (
+                <span className="text-[8px] bg-primary/10 text-primary/60 px-1 rounded">{activeSkills.length}</span>
+              ) : undefined} />
+            {skillsOpen && (
+              <div className="px-1 pb-1 max-h-[300px] overflow-y-auto">
+                <SkillsPanel />
+              </div>
+            )}
+
             <FilesSection
               filesOpen={filesOpen}
               setFilesOpen={setFilesOpen}
@@ -165,17 +255,6 @@ export function Sidebar() {
         )}
       </nav>
 
-      {/* rawq status */}
-      {rawqStatus && (
-        <div className="flex items-center justify-center gap-1.5 px-3 h-[24px] border-t border-white/[0.06] shrink-0 text-[10px] text-sidebar-foreground/50">
-          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0",
-            rawqStatus.status === "ready" || rawqStatus.status === "built" ? "bg-status-approved"
-            : rawqStatus.status === "indexing" ? "bg-primary animate-pulse"
-            : rawqStatus.status === "unavailable" ? "bg-sidebar-foreground/15" : "bg-status-rejected"
-          )} />
-          <span className="truncate">{rawqStatus.message}</span>
-        </div>
-      )}
       <CreateRoundtableDialog open={showCreateRT} onClose={() => setShowCreateRT(false)} />
     </aside>
   );

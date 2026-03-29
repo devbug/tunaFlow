@@ -84,7 +84,7 @@ export function ReviewPanel() {
       {decisions.length > 0 && (
         <div>
           <h4 className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-2">Decisions</h4>
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {decisions.map((a) => (
               <ReviewCard key={a.id} artifact={a} icon={<Gavel className="w-3.5 h-3.5 text-status-approved/60" />} typeLabel="Decision" />
             ))}
@@ -96,7 +96,7 @@ export function ReviewPanel() {
       {reviewFindings.length > 0 && (
         <div>
           <h4 className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-2">Findings</h4>
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {reviewFindings.map((a) => (
               <ReviewCard key={a.id} artifact={a} icon={<FileSearch className="w-3.5 h-3.5 text-status-draft/60" />} typeLabel="Review" />
             ))}

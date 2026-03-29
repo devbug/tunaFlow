@@ -57,6 +57,7 @@ pub fn run() {
                 read: std::sync::Arc::new(std::sync::Mutex::new(read_conn)),
             });
             app.manage(CancelRegistry(std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()))));
+            app.manage(commands::projects::RawqIndexing(std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()))));
 
             // Start rawq daemon in background — pre-loads embedding model for fast indexing/search
             std::thread::spawn(|| {
@@ -70,6 +71,7 @@ pub fn run() {
             commands::projects::list_projects,
             commands::projects::create_project,
             commands::projects::get_project,
+            commands::projects::hide_project,
             commands::projects::validate_project_path,
             commands::projects::ensure_rawq_index,
             commands::projects::start_rawq_index,

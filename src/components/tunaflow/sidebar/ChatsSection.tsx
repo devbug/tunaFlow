@@ -122,7 +122,9 @@ export function ChatsSection({
                       {isActive && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 mr-1" />}
                     </span>
                   }
-                  actions={<button onClick={(e) => handleDelete(conv.id, conv.customLabel ?? conv.label, e)} className="p-0.5 rounded text-sidebar-foreground/20 hover:text-destructive transition-colors"><Trash2 className="w-3 h-3" /></button>}
+                  actions={filteredChats.length > 1 ? (
+                    <button onClick={(e) => handleDelete(conv.id, conv.customLabel ?? conv.label, e)} className="p-0.5 rounded text-sidebar-foreground/20 hover:text-destructive transition-colors"><Trash2 className="w-3 h-3" /></button>
+                  ) : undefined}
                   onClick={() => selectConversation(conv.id)} />
                 {/* Child branches (RT + regular) */}
                 {isExpanded && convBranches.map((b) => renderBranch(b, 2))}

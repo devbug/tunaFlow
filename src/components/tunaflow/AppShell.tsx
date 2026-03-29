@@ -3,10 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "@/stores/chatStore";
 import { getSetting, setSetting } from "@/lib/appStore";
 import { Sidebar } from "./Sidebar";
-import { ChatPanel } from "./ChatPanel";
-import { ContextPanel } from "./ContextPanel";
+import { CenterPanel } from "./CenterPanel";
 import { BranchThreadPanel } from "./BranchThreadPanel";
-import { ResizeHandle } from "./ResizeHandle";
+import { RuntimeStatusBar } from "./RuntimeStatusBar";
+// ResizeHandle removed — main area border serves as drag handle
 import { FileViewer } from "./chat/FileViewer";
 import { FileViewerContext } from "./chat/fileViewerContext";
 
@@ -14,10 +14,6 @@ import { FileViewerContext } from "./chat/fileViewerContext";
 const SIDEBAR_MIN = 220;
 const SIDEBAR_MAX = 360;
 const SIDEBAR_DEFAULT = 224;
-
-const CONTEXT_MIN = 260;
-const CONTEXT_MAX = 520;
-const CONTEXT_DEFAULT = 280;
 
 const DRAWER_MIN = 360;
 const DRAWER_DEFAULT = 480;
@@ -29,19 +25,16 @@ export function AppShell() {
   const { loadProjects, createProject, loadEngineModels, threadBranchId } = useChatStore();
 
   const [sidebarW, setSidebarW] = useState(SIDEBAR_DEFAULT);
-  const [contextW, setContextW] = useState(CONTEXT_DEFAULT);
   const [drawerW, setDrawerW] = useState(DRAWER_DEFAULT);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const init = async () => {
-      const [sw, cw, dw] = await Promise.all([
+      const [sw, dw] = await Promise.all([
         getSetting<number>("sidebarWidth", SIDEBAR_DEFAULT),
-        getSetting<number>("contextPanelWidth", CONTEXT_DEFAULT),
         getSetting<number>("drawerWidth", DRAWER_DEFAULT),
       ]);
       setSidebarW(clamp(sw, SIDEBAR_MIN, SIDEBAR_MAX));
-      setContextW(clamp(cw, CONTEXT_MIN, CONTEXT_MAX));
       setDrawerW(Math.max(dw, DRAWER_MIN));
       setLoaded(true);
 
@@ -76,15 +69,10 @@ export function AppShell() {
 
   // Persist on resize end
   const persistSidebar = useCallback(() => { setSetting("sidebarWidth", sidebarW); }, [sidebarW]);
-  const persistContext = useCallback(() => { setSetting("contextPanelWidth", contextW); }, [contextW]);
   const persistDrawer = useCallback(() => { setSetting("drawerWidth", drawerW); }, [drawerW]);
 
   const handleSidebarResize = useCallback((delta: number) => {
     setSidebarW((w) => clamp(w + delta, SIDEBAR_MIN, SIDEBAR_MAX));
-  }, []);
-
-  const handleContextResize = useCallback((delta: number) => {
-    setContextW((w) => clamp(w + delta, CONTEXT_MIN, CONTEXT_MAX));
   }, []);
 
   // Drawer max = 90% of work area (everything right of sidebar)
@@ -115,79 +103,98 @@ export function AppShell() {
 
   return (
     <FileViewerContext.Provider value={fileViewerCtx}>
-    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground font-sans">
-      {/* ── Sidebar ── */}
-      <div style={{ width: sidebarW }} className="shrink-0 h-full">
-        <Sidebar />
-      </div>
-      <ResizeHandle side="left" onResize={handleSidebarResize} onResizeEnd={persistSidebar} />
-
-      {/* ── Work area: center + workspace panel ── */}
-      {/* This is `relative` so the drawer overlay covers both center AND workspace panel */}
-      <div className="flex-1 flex min-w-0 h-full relative">
-        {/* Center — chat */}
-        <div className="flex-1 min-w-0 h-full">
-          <ChatPanel />
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-sidebar text-foreground font-sans">
+      {/* ── Body: sidebar + main ── */}
+      <div className="flex flex-1 min-h-0">
+        {/* Sidebar — flat, darkest layer */}
+        <div style={{ width: sidebarW }} className="shrink-0 h-full">
+          <Sidebar />
         </div>
 
-        <ResizeHandle side="right" onResize={handleContextResize} onResizeEnd={persistContext} />
+        {/* Resize handle — between sidebar and main area */}
+        <div
+          className="shrink-0 w-1.5 cursor-col-resize hover:bg-primary/10 transition-colors"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            let lastX = e.clientX;
+            const onMove = (ev: MouseEvent) => {
+              const delta = ev.clientX - lastX;
+              lastX = ev.clientX;
+              handleSidebarResize(delta);
+            };
+            const onUp = () => {
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+              document.body.style.cursor = "";
+              document.body.style.userSelect = "";
+              persistSidebar();
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+            document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+          }}
+        />
 
-        {/* Workspace panel */}
-        <div style={{ width: contextW }} className="shrink-0 h-full">
-          <ContextPanel />
-        </div>
+        {/* Main area */}
+        <div className="flex-1 min-w-0 h-full relative">
+          <CenterPanel />
 
-        {/* ── Thread/RT Drawer overlay ── */}
-        {/* Covers the entire work area (center + workspace panel) */}
-        {drawerOpen && (
-          <>
-            {/* Backdrop — dims center + workspace panel, click to close */}
-            <div
-              className="absolute inset-0 z-40 bg-black/15 backdrop-blur-[1px]"
-              onClick={() => useChatStore.getState().closeThread()}
-            />
+          {/* ── Thread/RT Drawer overlay ── */}
+          {drawerOpen && (
+            <>
+              {/* Backdrop */}
+              <div
+                className="absolute inset-0 z-40 bg-black/15 backdrop-blur-[1px] rounded-lg"
+                onClick={() => useChatStore.getState().closeThread()}
+              />
 
-            {/* Drawer — anchored to right edge, overlays workspace panel */}
-            <div
-              style={{ width: drawerW }}
-              className="absolute top-0 right-0 bottom-0 z-50 flex"
-            >
-              {/* Left-edge resize handle */}
-              <div className="shrink-0 w-2 cursor-col-resize relative group"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  const startX = e.clientX;
-                  const startW = drawerW;
-                  const max = drawerMax();
-
-                  const onMove = (ev: MouseEvent) => {
-                    const delta = startX - ev.clientX;
-                    setDrawerW(clamp(startW + delta, DRAWER_MIN, max));
-                  };
-                  const onUp = () => {
-                    document.removeEventListener("mousemove", onMove);
-                    document.removeEventListener("mouseup", onUp);
-                    document.body.style.cursor = "";
-                    document.body.style.userSelect = "";
-                    persistDrawer();
-                  };
-                  document.addEventListener("mousemove", onMove);
-                  document.addEventListener("mouseup", onUp);
-                  document.body.style.cursor = "col-resize";
-                  document.body.style.userSelect = "none";
-                }}
+              {/* Drawer — anchored to right edge */}
+              <div
+                style={{ width: drawerW }}
+                className="absolute top-1.5 right-1.5 bottom-1.5 z-50 flex"
               >
-                <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-border/40 group-hover:w-0.5 group-hover:bg-primary/30 transition-all duration-150" />
-              </div>
+                {/* Left-edge resize handle */}
+                <div className="shrink-0 w-2 cursor-col-resize relative group"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    const startX = e.clientX;
+                    const startW = drawerW;
+                    const max = drawerMax();
 
-              {/* Drawer content */}
-              <div className="flex-1 min-w-0 bg-background shadow-[-4px_0_16px_-2px_rgba(0,0,0,0.2)] rounded-l-md overflow-hidden border-l border-border/30">
-                <BranchThreadPanel />
+                    const onMove = (ev: MouseEvent) => {
+                      const delta = startX - ev.clientX;
+                      setDrawerW(clamp(startW + delta, DRAWER_MIN, max));
+                    };
+                    const onUp = () => {
+                      document.removeEventListener("mousemove", onMove);
+                      document.removeEventListener("mouseup", onUp);
+                      document.body.style.cursor = "";
+                      document.body.style.userSelect = "";
+                      persistDrawer();
+                    };
+                    document.addEventListener("mousemove", onMove);
+                    document.addEventListener("mouseup", onUp);
+                    document.body.style.cursor = "col-resize";
+                    document.body.style.userSelect = "none";
+                  }}
+                >
+                  <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-border/40 group-hover:w-0.5 group-hover:bg-primary/30 transition-all duration-150" />
+                </div>
+
+                {/* Drawer content */}
+                <div className="flex-1 min-w-0 bg-background shadow-[-4px_0_16px_-2px_rgba(0,0,0,0.2)] rounded-l-md overflow-hidden border-l border-border/30">
+                  <BranchThreadPanel />
+                </div>
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
+
+      {/* ── Status bar — full width, app bottom ── */}
+      <RuntimeStatusBar />
+
       {viewerFile && projectPath && (
         <FileViewer
           filePath={viewerFile.path}

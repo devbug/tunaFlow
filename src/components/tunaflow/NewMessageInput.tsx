@@ -151,7 +151,7 @@ export function NewMessageInput({ threadMode = false }: NewMessageInputProps) {
 
       <div className="rounded-lg border border-border/40 bg-card/60 focus-within:border-ring/40 transition-colors">
         {/* Mode bar */}
-        <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1.5 border-b border-border/30 flex-wrap">
+        <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1.5 flex-wrap">
           {isRoundtable ? (
             <RoundtableControls
               rtMode={rtMode}

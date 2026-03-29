@@ -1,9 +1,14 @@
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use rusqlite::params;
 use serde::Deserialize;
 use tauri::State;
 
 use crate::db::{migrations::now_epoch, models::Project, DbState};
 use crate::errors::AppError;
+
+/// Tracks project paths currently being indexed by rawq (prevents duplicate builds).
+pub struct RawqIndexing(pub Arc<Mutex<HashSet<String>>>);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,7 +28,7 @@ pub fn list_projects(state: State<DbState>) -> Result<Vec<Project>, AppError> {
     let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let mut stmt = conn.prepare(
         "SELECT key, name, path, type, default_engine, workspace_root, source, updated_at
-         FROM projects ORDER BY updated_at DESC",
+         FROM projects WHERE COALESCE(hidden, 0) = 0 ORDER BY updated_at DESC",
     )?;
     let rows = stmt
         .query_map([], |row| {
@@ -54,27 +59,44 @@ pub fn create_project(
         std::fs::canonicalize(p).ok().map(|c| c.to_string_lossy().to_string())
     });
 
-    // Duplicate path check — prevent same directory registered under different keys
+    // Duplicate path check — restore hidden project or reject active duplicate
     if let Some(ref np) = normalized_path {
-        let existing: Option<String> = conn
+        let existing: Option<(String, i64)> = conn
             .query_row(
-                "SELECT key FROM projects WHERE path = ?1",
+                "SELECT key, COALESCE(hidden, 0) FROM projects WHERE path = ?1",
                 [np],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .ok();
         // Also check non-canonicalized path as fallback
         let existing = existing.or_else(|| {
             input.path.as_ref().and_then(|p| {
                 conn.query_row(
-                    "SELECT key FROM projects WHERE path = ?1",
+                    "SELECT key, COALESCE(hidden, 0) FROM projects WHERE path = ?1",
                     [p],
-                    |row| row.get(0),
+                    |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .ok()
             })
         });
-        if let Some(existing_key) = existing {
+        if let Some((existing_key, hidden)) = existing {
+            if hidden == 1 {
+                // Restore hidden project — unhide and update metadata
+                conn.execute(
+                    "UPDATE projects SET hidden = 0, name = ?1, updated_at = ?2 WHERE key = ?3",
+                    params![input.name, now_epoch(), existing_key],
+                )?;
+                return conn.query_row(
+                    "SELECT key, name, path, type, default_engine, workspace_root, source, updated_at
+                     FROM projects WHERE key = ?1",
+                    [&existing_key],
+                    |row| Ok(Project {
+                        key: row.get(0)?, name: row.get(1)?, path: row.get(2)?,
+                        project_type: row.get(3)?, default_engine: row.get(4)?,
+                        workspace_root: row.get(5)?, source: row.get(6)?, updated_at: row.get(7)?,
+                    }),
+                ).map_err(|_| AppError::NotFound("restored project not found".into()));
+            }
             return Err(AppError::Agent(format!(
                 "이 경로는 이미 프로젝트 '{}'로 등록되어 있습니다",
                 existing_key
@@ -120,6 +142,17 @@ pub fn create_project(
         source: input.source,
         updated_at: now,
     })
+}
+
+/// Hide a project from the list without deleting any data.
+#[tauri::command]
+pub fn hide_project(key: String, state: State<DbState>) -> Result<(), AppError> {
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    conn.execute(
+        "UPDATE projects SET hidden = 1, updated_at = ?1 WHERE key = ?2",
+        params![now_epoch(), key],
+    )?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -284,9 +317,24 @@ pub fn ensure_rawq_index(project_path: String) -> Result<RawqStatus, AppError> {
 /// - `rawq:indexed`  — RawqStatus (success)
 /// - `rawq:error`    — RawqStatus (failure)
 #[tauri::command]
-pub fn start_rawq_index(project_path: String, app: tauri::AppHandle) -> Result<(), AppError> {
+pub fn start_rawq_index(
+    project_path: String,
+    app: tauri::AppHandle,
+    indexing: State<RawqIndexing>,
+) -> Result<(), AppError> {
     use crate::agents::rawq;
     use tauri::Emitter;
+
+    // Duplicate guard — skip if already indexing this path
+    {
+        let mut set = indexing.0.lock().map_err(|_| AppError::Lock)?;
+        if set.contains(&project_path) {
+            eprintln!("[rawq] already indexing {}, skipping", project_path);
+            return Ok(());
+        }
+        set.insert(project_path.clone());
+    }
+    let guard = indexing.0.clone();
 
     let _ = app.emit("rawq:indexing", serde_json::json!({
         "projectPath": &project_path,
@@ -326,6 +374,11 @@ pub fn start_rawq_index(project_path: String, app: tauri::AppHandle) -> Result<(
 
         let event = if result.indexed { "rawq:indexed" } else { "rawq:error" };
         let _ = app.emit(event, &result);
+
+        // Release guard
+        if let Ok(mut set) = guard.lock() {
+            set.remove(&project_path);
+        }
     });
 
     Ok(())

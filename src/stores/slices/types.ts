@@ -99,6 +99,7 @@ export interface ChatState {
   loadProjects: () => Promise<void>;
   loadEngineModels: (refresh?: boolean) => Promise<void>;
   createProject: (input: CreateProjectInput) => Promise<void>;
+  hideProject: (key: string) => Promise<void>;
   selectProject: (key: string) => Promise<void>;
   createConversation: (input: CreateConversationInput) => Promise<Conversation>;
   deleteConversation: (id: string) => Promise<void>;

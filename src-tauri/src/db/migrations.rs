@@ -61,6 +61,9 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     if current < 12 {
         apply_v12(conn)?;
     }
+    if current < 13 {
+        apply_v13(conn)?;
+    }
     Ok(())
 }
 
@@ -198,6 +201,12 @@ fn apply_v10(conn: &Connection) -> Result<(), AppError> {
         "INSERT INTO schema_version (version, applied_at) VALUES (10, ?1)",
         [now_epoch()],
     )?;
+    Ok(())
+}
+
+fn apply_v13(conn: &Connection) -> Result<(), AppError> {
+    add_column_if_missing(conn, "projects", "hidden", "INTEGER NOT NULL DEFAULT 0")?;
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (13, ?1)", [now_epoch()])?;
     Ok(())
 }
 

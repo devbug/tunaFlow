@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { FolderOpen, Folder, Loader2 } from "lucide-react";
+import { FolderOpen, Folder, Loader2, Trash2 } from "lucide-react";
 import { TreeRow } from "./TreeRow";
 import type { Project } from "@/types";
 
@@ -7,6 +7,7 @@ interface ProjectsSectionProps {
   projects: Project[];
   selectedProjectKey: string | null;
   selectProject: (key: string) => void;
+  hideProject?: (key: string) => void;
   /** Number of running threads for current project */
   runningCount?: number;
   /** Number of queued actions for current project */
@@ -16,7 +17,7 @@ interface ProjectsSectionProps {
 }
 
 export function ProjectsSection({
-  projects, selectedProjectKey, selectProject,
+  projects, selectedProjectKey, selectProject, hideProject,
   runningCount = 0, queuedCount = 0, hasOtherRunning = false,
 }: ProjectsSectionProps) {
   const currentProject = projects.find((p) => p.key === selectedProjectKey);
@@ -63,6 +64,15 @@ export function ProjectsSection({
                   )}
                 </span>
               }
+              actions={hideProject ? (
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (window.confirm(`"${project.name}" 프로젝트를 삭제하시겠습니까?\n(프로젝트 데이터는 보존되며, 같은 경로로 다시 추가할 수 있습니다)`)) hideProject(project.key); }}
+                  className="p-0.5 rounded text-sidebar-foreground/20 hover:text-destructive transition-colors"
+                  title="Delete project"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              ) : undefined}
               onClick={() => selectProject(project.key)} />
           );
         })}

@@ -302,33 +302,19 @@ pub fn ensure_index(project_path: &str) -> Result<u64, RawqError> {
     let bin = resolve_rawq_bin()?;
     // Note: rawq's WalkBuilder respects .gitignore automatically.
     // Explicit -x patterns are not needed for standard ignores.
-    let mut child = Command::new(&bin)
+    let child = Command::new(&bin)
         .args(["index", "build", project_path, "--json"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
 
-    // Timeout: 180 seconds max for index build (embedding model loading + vectorization)
-    let timeout = std::time::Duration::from_secs(180);
+    // Wait for completion — no timeout. Runs in background thread,
+    // and daemon handles the actual work so killing the CLI is ineffective anyway.
     let t0 = std::time::Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {
-                if t0.elapsed() > timeout {
-                    let _ = child.kill();
-                    eprintln!("[rawq] index build timed out after {}s", t0.elapsed().as_secs());
-                    return Err(RawqError::ExecFailed("index build timed out (60s)".into()));
-                }
-                std::thread::sleep(std::time::Duration::from_millis(200));
-            }
-            Err(e) => return Err(RawqError::ExecFailed(e.to_string())),
-        }
-    }
-
     let output = child.wait_with_output()
         .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
+    eprintln!("[rawq] index build took {}s", t0.elapsed().as_secs());
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !stderr.is_empty() {
