@@ -229,10 +229,10 @@ export function Sidebar() {
       <div className="shrink-0 px-3 py-2">
         <button
           onClick={() => setSettingsOpen(true)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/50 transition-colors w-full"
+          className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-foreground hover:bg-sidebar-accent/50 transition-colors"
+          title="Settings"
         >
           <Settings className="w-4 h-4" />
-          Settings
         </button>
       </div>
 
