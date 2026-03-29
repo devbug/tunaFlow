@@ -8,8 +8,6 @@ import { CreateRoundtableDialog } from "./CreateRoundtableDialog";
 import { FilesSection } from "./sidebar/FilesSection";
 import { AddProjectForm } from "./sidebar/AddProjectForm";
 import { useProjectBranches } from "./sidebar/useProjectBranches";
-import { ArtifactsSidebarPanel } from "./sidebar/ArtifactsSidebarPanel";
-import { MemosPanel } from "./context-panel/MemosPanel";
 import { SkillsPanel } from "./context-panel/SkillsPanel";
 import { SectionHeader } from "./sidebar/TreeRow";
 
@@ -33,14 +31,10 @@ export function Sidebar() {
   const openThread = useChatStore((s) => s.openThread);
   const runningThreadIds = useChatStore((s) => s.runningThreadIds);
   const messageQueue = useChatStore((s) => s.messageQueue);
-  const artifacts = useChatStore((s) => s.artifacts);
-  const memos = useChatStore((s) => s.memos);
   const activeSkills = useChatStore((s) => s.activeSkills);
 
   const [renameCounter, setRenameCounter] = useState(0);
   const [chatsOpen, setChatsOpen] = useState(true);
-  const [artifactsOpen, setArtifactsOpen] = useState(false);
-  const [memosOpen, setMemosOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [showCreateRT, setShowCreateRT] = useState(false);
@@ -219,22 +213,6 @@ export function Sidebar() {
               onDeleteBranch={handleDeleteBranch}
               onCreateRT={() => setShowCreateRT(true)}
             />
-
-            <SectionHeader title="Artifacts" expanded={artifactsOpen} onToggle={() => setArtifactsOpen(!artifactsOpen)}
-              actions={artifacts.length > 0 ? (
-                <span className="text-[8px] text-sidebar-foreground/30 font-mono">{artifacts.length}</span>
-              ) : undefined} />
-            {artifactsOpen && <ArtifactsSidebarPanel />}
-
-            <SectionHeader title="Memos" expanded={memosOpen} onToggle={() => setMemosOpen(!memosOpen)}
-              actions={memos.length > 0 ? (
-                <span className="text-[8px] text-sidebar-foreground/30 font-mono">{memos.length}</span>
-              ) : undefined} />
-            {memosOpen && (
-              <div className="px-2 pb-1">
-                <MemosPanel />
-              </div>
-            )}
 
             <SectionHeader title="Skills" expanded={skillsOpen} onToggle={() => setSkillsOpen(!skillsOpen)}
               actions={activeSkills.length > 0 ? (
