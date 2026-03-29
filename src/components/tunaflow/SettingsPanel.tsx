@@ -78,13 +78,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 </div>
               )}
 
-              {activeSection === "runtime" && (
-                <PlaceholderSection
-                  title="Runtime"
-                  description="런타임 환경을 설정합니다."
-                  items={["rawq — 코드 검색 엔진 상태 및 인덱싱 관리", "Context Budget — 컨텍스트 윈도우 크기 제한", "Model Catalog — 엔진별 모델 목록", "Daemon — 백그라운드 서비스"]}
-                />
-              )}
+              {activeSection === "runtime" && <RuntimeSection />}
             </div>
           </div>
         </div>
@@ -414,6 +408,145 @@ function PersonasSection() {
             Select a persona
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Runtime Section ─────────────────────────────────────────────────────────
+
+function RuntimeSection() {
+  const rawqStatus = useChatStore((s) => s.rawqStatus);
+  const engineModels = useChatStore((s) => s.engineModels);
+  const loadEngineModels = useChatStore((s) => s.loadEngineModels);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefreshModels = async () => {
+    setRefreshing(true);
+    await loadEngineModels(true);
+    setRefreshing(false);
+  };
+
+  // Group models by engine
+  const engineGroups = engineModels.reduce<Record<string, number>>((acc, m) => {
+    acc[m.engine] = (acc[m.engine] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-[14px] font-[550] text-foreground mb-1">Runtime</h2>
+        <p className="text-[12px] text-muted-foreground mb-4">런타임 환경 상태를 확인하고 관리합니다.</p>
+      </div>
+
+      {/* rawq */}
+      <div className="rounded-lg border border-border/30 bg-background/50 p-4 space-y-2">
+        <div className="flex items-center gap-2">
+          <h3 className="text-[13px] font-medium text-foreground flex-1">rawq — Code Search Engine</h3>
+          {rawqStatus && (
+            <span className={cn("text-[11px] px-2 py-0.5 rounded-md font-medium",
+              rawqStatus.status === "ready" || rawqStatus.status === "built"
+                ? "text-status-approved bg-status-approved/10"
+                : rawqStatus.status === "indexing"
+                ? "text-primary bg-primary/10"
+                : "text-muted-foreground bg-muted"
+            )}>
+              {rawqStatus.status}
+            </span>
+          )}
+        </div>
+        {rawqStatus ? (
+          <div className="space-y-1 text-[12px]">
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground w-[80px]">Status</span>
+              <span className="text-foreground/80">{rawqStatus.message}</span>
+            </div>
+            {rawqStatus.files != null && (
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground w-[80px]">Files</span>
+                <span className="text-foreground/80">{rawqStatus.files.toLocaleString()}</span>
+              </div>
+            )}
+            {rawqStatus.chunks != null && (
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground w-[80px]">Chunks</span>
+                <span className="text-foreground/80">{rawqStatus.chunks.toLocaleString()}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground w-[80px]">Available</span>
+              <span className="text-foreground/80">{rawqStatus.available ? "Yes" : "No"}</span>
+            </div>
+          </div>
+        ) : (
+          <p className="text-[12px] text-muted-foreground/50">No project selected</p>
+        )}
+      </div>
+
+      {/* Model Catalog */}
+      <div className="rounded-lg border border-border/30 bg-background/50 p-4 space-y-2">
+        <div className="flex items-center gap-2">
+          <h3 className="text-[13px] font-medium text-foreground flex-1">Model Catalog</h3>
+          <button
+            onClick={handleRefreshModels}
+            disabled={refreshing}
+            className="text-[11px] px-2.5 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 font-medium"
+          >
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+        <div className="space-y-1 text-[12px]">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-[80px]">Total</span>
+            <span className="text-foreground/80">{engineModels.length} models</span>
+          </div>
+          {Object.entries(engineGroups).map(([engine, count]) => (
+            <div key={engine} className="flex items-center gap-2">
+              <span className="text-muted-foreground w-[80px]">{engine}</span>
+              <span className="text-foreground/80">{count} models</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Context Budget */}
+      <div className="rounded-lg border border-border/30 bg-background/50 p-4 space-y-2">
+        <h3 className="text-[13px] font-medium text-foreground">Context Budget</h3>
+        <div className="space-y-1 text-[12px]">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-[80px]">Max total</span>
+            <span className="text-foreground/80">60,000 chars</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-[80px]">Mode</span>
+            <span className="text-foreground/80">Lite → Standard → Full (auto)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-[80px]">Sections</span>
+            <span className="text-foreground/80">Project, Context, Plan, Findings, Artifacts, Skills, rawq, Persona, Cross-session</span>
+          </div>
+        </div>
+        <p className="text-[10px] text-muted-foreground/40 mt-1">Context budget 조정은 향후 지원 예정입니다.</p>
+      </div>
+
+      {/* Background / Daemon */}
+      <div className="rounded-lg border border-border/30 bg-background/50 p-4 space-y-2">
+        <h3 className="text-[13px] font-medium text-foreground">Background Execution</h3>
+        <div className="space-y-1 text-[12px]">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-[80px]">Pattern</span>
+            <span className="text-foreground/80">start_* command + event listener (fire-and-forget)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-[80px]">rawq daemon</span>
+            <span className="text-foreground/80">Auto-start, 30min idle timeout</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-[80px]">DB SSOT</span>
+            <span className="text-foreground/80">Event 유실 시 list_messages()로 복구</span>
+          </div>
+        </div>
       </div>
     </div>
   );

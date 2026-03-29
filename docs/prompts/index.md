@@ -46,5 +46,8 @@ Opus/Claude에 전달하는 실행 지시문, hand-off 문서, 초기 구현 프
 - [2026-03-29/persona_runtime_binding_prompt](./2026-03-29/persona_runtime_binding_prompt.md): 선택된 persona를 실제 runtime prompt 조립과 applied persona 표시에 연결하는 프롬프트
 - [2026-03-29/applied_agent_config_visibility_prompt](./2026-03-29/applied_agent_config_visibility_prompt.md): assistant message에서 applied profile/persona/skills를 다시 보여주는 프롬프트
 - [2026-03-29/chops_context_hub_integration_review_prompt](./2026-03-29/chops_context_hub_integration_review_prompt.md): chops/context-hub/tunaFlow 역할 분리와 flow agent 선행 조건을 검토하는 프롬프트
+- [2026-03-30/knowledge_sources_settings_shell_prompt](./2026-03-30/knowledge_sources_settings_shell_prompt.md): Settings에 Knowledge Sources 섹션을 product shell로 먼저 추가하는 프롬프트
+- [2026-03-30/documentation_ia_governance_prompt](./2026-03-30/documentation_ia_governance_prompt.md): docs 탐색 규칙과 index 구조를 먼저 정리하는 프롬프트
+- [2026-03-30/runtime_settings_implementation_prompt](./2026-03-30/runtime_settings_implementation_prompt.md): Settings > Runtime을 실제 진단/설정 섹션으로 먼저 채우는 프롬프트
 - [2026-03-29/window_state_restore_fix_prompt](./2026-03-29/window_state_restore_fix_prompt.md): 창 위치/크기 복원 확인 및 수정 프롬프트
 - [2026-03-29/window_state_restore_review_checklist](./2026-03-29/window_state_restore_review_checklist.md): 창 상태 복원 검증 체크리스트

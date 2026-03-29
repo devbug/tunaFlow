@@ -68,6 +68,10 @@
 | [chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29](./chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29.md) | chops/context-hub/tunaFlow를 관리층/공급층/적용층으로 나누는 통합 IA 초안 | Settings/Knowledge Sources 구조 정리 필요 |
 | [contextHubSidecarIntegrationPlan_2026-03-29](./contextHubSidecarIntegrationPlan_2026-03-29.md) | context-hub를 CLI/MCP/sidecar로 도입하는 단계별 계획 | Phase 1 CLI health/search/get 미구현 |
 | [settingsSkillsKnowledgeSourcesPlan_2026-03-29](./settingsSkillsKnowledgeSourcesPlan_2026-03-29.md) | Settings에서 Skills와 Knowledge Sources를 분리하는 초안 | Knowledge Sources shell 필요 |
+| [knowledgeSourcesSettingsShellPlan_2026-03-30](./knowledgeSourcesSettingsShellPlan_2026-03-30.md) | Settings에 Knowledge Sources를 제품 셸로 먼저 추가하는 계획 | nav 추가, shell UI, Skills와의 경계 설명 필요 |
+| [documentationIaGovernancePlan_2026-03-30](./documentationIaGovernancePlan_2026-03-30.md) | 문서 탐색성과 신뢰성을 높이기 위한 IA/거버넌스 계획 | index 개선, 상태 라벨, reading pack 정리 필요 |
+| [documentMetadataAdoptionPlan_2026-03-30](./documentMetadataAdoptionPlan_2026-03-30.md) | 문서 메타를 핵심 문서군부터 단계적으로 도입하는 계획 | 최소 메타 적용 순서와 대상 정리 필요 |
+| [runtimeSettingsImplementationPlan_2026-03-30](./runtimeSettingsImplementationPlan_2026-03-30.md) | Settings > Runtime을 placeholder에서 실제 진단/설정 화면으로 바꾸는 계획 | rawq/model catalog/context budget/daemon 구체화 필요 |
 
 ### 보류
 
@@ -147,6 +151,10 @@
 - [chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29](./chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29.md)
 - [contextHubSidecarIntegrationPlan_2026-03-29](./contextHubSidecarIntegrationPlan_2026-03-29.md)
 - [settingsSkillsKnowledgeSourcesPlan_2026-03-29](./settingsSkillsKnowledgeSourcesPlan_2026-03-29.md)
+- [knowledgeSourcesSettingsShellPlan_2026-03-30](./knowledgeSourcesSettingsShellPlan_2026-03-30.md)
+- [documentationIaGovernancePlan_2026-03-30](./documentationIaGovernancePlan_2026-03-30.md)
+- [documentMetadataAdoptionPlan_2026-03-30](./documentMetadataAdoptionPlan_2026-03-30.md)
+- [runtimeSettingsImplementationPlan_2026-03-30](./runtimeSettingsImplementationPlan_2026-03-30.md)
 - [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md)
 - [sidebarThreeSectionPlan](./sidebarThreeSectionPlan.md)
 - [sidecarMigrationPlan](./sidecarMigrationPlan.md)
