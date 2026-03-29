@@ -28,7 +28,7 @@ export function TreeRow({
           style={{ left: GUIDE_START + i * INDENT_PX, backgroundColor: "rgba(255,255,255,0.06)" }} />
       ))}
       <span className="shrink-0 w-4 flex items-center justify-center">{icon}</span>
-      <span className="flex-1 min-w-0 text-[13px] truncate">{label}</span>
+      <span className="flex-1 min-w-0 text-[13px] font-medium truncate">{label}</span>
       {suffix}
       {actions && (
         <span className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">

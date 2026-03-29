@@ -113,11 +113,11 @@ export function Sidebar() {
   return (
     <aside data-testid="sidebar" className="flex flex-col w-full bg-sidebar h-full overflow-hidden text-sidebar-foreground">
       {/* Logo */}
-      <div className="flex items-center gap-2 px-3 h-9 shrink-0">
+      <div className="flex items-center gap-2 px-3 h-[52px] shrink-0">
         <div className="w-5 h-5 rounded bg-primary/15 flex items-center justify-center">
           <Waves className="w-3 h-3 text-primary" />
         </div>
-        <span className="font-medium text-[12px] tracking-tight">tunaFlow</span>
+        <span className="font-medium text-[14px] tracking-[-0.1px] text-sidebar-accent-foreground">tunaFlow</span>
         <span className="ml-auto text-[8px] text-sidebar-foreground/35 bg-white/[0.04] px-1 py-0.5 rounded font-mono">beta</span>
       </div>
 
@@ -128,7 +128,7 @@ export function Sidebar() {
           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md bg-sidebar-accent/50 hover:bg-sidebar-accent transition-colors"
         >
           <FolderOpen className="w-3.5 h-3.5 text-primary shrink-0" />
-          <span className="flex-1 text-[11px] font-medium text-sidebar-foreground truncate text-left">
+          <span className="flex-1 text-[14px] font-[550] tracking-[-0.1px] text-sidebar-accent-foreground truncate text-left">
             {currentProject?.name ?? "Select project"}
           </span>
           {currentRunning > 0 && (
@@ -148,7 +148,7 @@ export function Sidebar() {
                   <div key={p.key} className="group flex items-center">
                     <button
                       onClick={() => { selectProject(p.key); setProjectDropdownOpen(false); }}
-                      className={`flex-1 flex items-center gap-2 px-3 py-1.5 text-[11px] text-left transition-colors ${
+                      className={`flex-1 flex items-center gap-2 px-3 py-1.5 text-[13px] font-medium text-left transition-colors ${
                         isSelected ? "bg-accent text-foreground" : "text-foreground/70 hover:bg-accent/50"
                       }`}
                     >

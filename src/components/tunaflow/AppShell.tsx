@@ -13,7 +13,7 @@ import { FileViewerContext } from "./chat/fileViewerContext";
 // ─── Panel width constraints ─────────────────────────────────────────────────
 const SIDEBAR_MIN = 220;
 const SIDEBAR_MAX = 360;
-const SIDEBAR_DEFAULT = 224;
+const SIDEBAR_DEFAULT = 244;
 
 const DRAWER_MIN = 360;
 const DRAWER_DEFAULT = 480;

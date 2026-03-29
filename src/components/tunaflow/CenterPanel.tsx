@@ -46,7 +46,7 @@ export function CenterPanel() {
   return (
     <div className="flex flex-col flex-1 min-w-0 h-full">
       {/* ── Toolbar: tabs | path (center) | search ── */}
-      <div className="flex items-center px-3 pt-1.5 pb-1 shrink-0">
+      <div className="flex items-center px-3 pt-2 pb-1 shrink-0">
         {/* Left: tab pills */}
         <div className="flex items-center gap-1 shrink-0">
           {TABS.map((tab) => (
@@ -54,7 +54,7 @@ export function CenterPanel() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors",
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] font-medium transition-colors",
                 activeTab === tab.id
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground/50 hover:text-foreground/80 hover:bg-background/50"
@@ -86,7 +86,7 @@ export function CenterPanel() {
               )}>
                 {isRoundtable ? "RT" : "Chat"}
               </span>
-              <span className="text-[11px] text-foreground/70 font-medium truncate max-w-[180px]">
+              <span className="text-[13px] text-foreground/70 font-medium truncate max-w-[180px]">
                 {currentConv ? (
                   <InlineRename
                     value={currentConv.customLabel ?? currentConv.label}
@@ -123,13 +123,13 @@ export function CenterPanel() {
         <div className="shrink-0 w-[220px]">
           <div className="flex items-center gap-2 bg-background/50 hover:bg-background/70 border border-border/30 rounded-md px-2.5 py-1.5 transition-colors cursor-text">
             <Search className="w-3.5 h-3.5 text-muted-foreground/40" />
-            <span className="text-[11px] text-muted-foreground/40">Search…</span>
+            <span className="text-[13px] text-muted-foreground/40 font-medium">Search…</span>
           </div>
         </div>
       </div>
 
       {/* ── Content zone — bordered, elevated ── */}
-      <div className="flex-1 min-h-0 rounded-xl border-[0.5px] border-border bg-background overflow-hidden flex flex-col mx-1.5 mb-1.5">
+      <div className="flex-1 min-h-0 rounded-xl border-[0.5px] border-border bg-background overflow-hidden flex flex-col mx-2 mb-2">
         {activeTab === "chat" && <ChatPanel />}
 
         {activeTab === "plan" && (

@@ -50,7 +50,7 @@ export function RuntimeStatusBar() {
 
   return (
     <>
-      <div className="flex items-center h-[26px] shrink-0 text-[10px] text-muted-foreground/60 select-none">
+      <div className="flex items-center h-7 shrink-0 text-[10px] text-muted-foreground/60 select-none">
         <span className="flex-1" />
 
         {/* Trace area — clickable, opens modal */}
