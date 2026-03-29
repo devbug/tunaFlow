@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { MessageSquare, Trash2, GitBranch, Users, ChevronRight, ChevronDown } from "lucide-react";
+import { MessageSquare, Trash2, GitBranch, Users, ChevronRight, ChevronDown, Archive } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TreeRow } from "./TreeRow";
 import { InlineRename } from "../InlineRename";
@@ -51,11 +51,25 @@ export function ChatsSection({
     return set;
   }, [threadBranchId, childMap, branchesByConv]);
 
+  // Collect all adopted/archived branches across all conversations
+  const allBranchesList = useMemo(() => {
+    const list: Branch[] = [];
+    for (const [, branches] of branchesByConv) list.push(...branches);
+    for (const [, children] of childMap) list.push(...children);
+    // Deduplicate
+    const seen = new Set<string>();
+    return list.filter((b) => { if (seen.has(b.id)) return false; seen.add(b.id); return true; });
+  }, [branchesByConv, childMap]);
+
+  const completedBranches = allBranchesList.filter((b) => b.status === "adopted" || b.status === "archived");
+
   const renderBranch = (b: Branch, depth: number) => {
     const isActive = b.id === activeBranchId || b.id === threadBranchId;
     const isRT = b.mode === "roundtable";
     const children = childMap.get(b.id) ?? [];
-    const hasChildren = children.length > 0;
+    // Only show active children in the main tree
+    const activeChildren = children.filter((c) => c.status === "active");
+    const hasChildren = activeChildren.length > 0;
     const isExpanded = expandedBranchIds.has(b.id);
 
     return (
@@ -84,18 +98,18 @@ export function ChatsSection({
             </button>
           ) : undefined}
           onClick={() => openThread(b.id)} />
-        {isExpanded && children.map((child) => renderBranch(child, depth + 1))}
+        {isExpanded && activeChildren.map((child) => renderBranch(child, depth + 1))}
       </div>
     );
   };
 
   return (
     <>
+      {/* Active chat tree */}
       {filteredChats.map((conv) => {
         const isActive = conv.id === selectedConversationId;
-        const convBranches = (branchesByConv.get(conv.id) ?? []).filter((b) => !b.parentBranchId);
+        const convBranches = (branchesByConv.get(conv.id) ?? []).filter((b) => !b.parentBranchId && b.status === "active");
         const hasChildren = convBranches.length > 0;
-        // Always expanded when active or has active thread in descendants
         const isExpanded = isActive || expandedBranchIds.size > 0;
         return (
           <div key={conv.id}>
@@ -114,25 +128,81 @@ export function ChatsSection({
                   inputClassName="text-[10px] w-full"
                 />
               }
-              suffix={isActive ? <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 mr-1" /> : undefined}
-              actions={
-                <span className="flex items-center gap-0.5">
-                  {onCreateRT && (
-                    <button onClick={(e) => { e.stopPropagation(); onCreateRT(); }}
-                      className="p-0.5 rounded text-sidebar-foreground/20 hover:text-agent-gemini hover:bg-agent-gemini/10 transition-colors" title="New roundtable">
-                      <Users className="w-3 h-3" />
-                    </button>
-                  )}
-                  {filteredChats.length > 1 && (
-                    <button onClick={(e) => handleDelete(conv.id, conv.customLabel ?? conv.label, e)} className="p-0.5 rounded text-sidebar-foreground/20 hover:text-destructive transition-colors"><Trash2 className="w-3 h-3" /></button>
-                  )}
-                </span>
+              suffix={
+                onCreateRT ? (
+                  <button onClick={(e) => { e.stopPropagation(); onCreateRT(); }}
+                    className="p-0.5 rounded text-sidebar-foreground/30 hover:text-agent-gemini hover:bg-agent-gemini/10 transition-colors shrink-0 mr-0.5"
+                    title="New roundtable">
+                    <Users className="w-3 h-3" />
+                  </button>
+                ) : undefined
               }
+              actions={filteredChats.length > 1 ? (
+                <button onClick={(e) => handleDelete(conv.id, conv.customLabel ?? conv.label, e)} className="p-0.5 rounded text-sidebar-foreground/20 hover:text-destructive transition-colors"><Trash2 className="w-3 h-3" /></button>
+              ) : undefined}
               onClick={() => selectConversation(conv.id)} />
             {isExpanded && convBranches.map((b) => renderBranch(b, 1))}
           </div>
         );
       })}
+
+      {/* Completed branches (adopted/archived) — separate section */}
+      {completedBranches.length > 0 && (
+        <CompletedSection branches={completedBranches} threadBranchId={threadBranchId} openThread={openThread} />
+      )}
     </>
   );
 }
+
+// ─── Completed branches section ─────────────────────────────────────────────
+
+function CompletedSection({ branches, threadBranchId, openThread }: {
+  branches: Branch[];
+  threadBranchId: string | null;
+  openThread: (id: string) => void;
+}) {
+  const adopted = branches.filter((b) => b.status === "adopted");
+  const archived = branches.filter((b) => b.status === "archived");
+  return <CompletedList adopted={adopted} archived={archived} threadBranchId={threadBranchId} openThread={openThread} />;
+}
+
+function CompletedList({ adopted, archived, threadBranchId, openThread }: {
+  adopted: Branch[]; archived: Branch[];
+  threadBranchId: string | null; openThread: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  // Override SectionHeader's toggle
+  return (
+    <>
+      <div onClick={() => setOpen(!open)} className="group flex items-center h-7 px-3 cursor-pointer select-none hover:bg-sidebar-accent/50 transition-colors rounded-lg">
+        {open ? <ChevronDown className="w-3 h-3 text-sidebar-foreground/40 shrink-0" />
+          : <ChevronRight className="w-3 h-3 text-sidebar-foreground/40 shrink-0" />}
+        <span className="text-[12px] font-medium text-muted-foreground pl-1.5 flex-1">
+          History
+        </span>
+        <span className="text-[8px] text-sidebar-foreground/30 font-mono">{adopted.length + archived.length}</span>
+      </div>
+      {open && (
+        <div className="space-y-0.5">
+          {adopted.map((b) => (
+            <TreeRow key={b.id} depth={1} active={b.id === threadBranchId}
+              icon={b.mode === "roundtable"
+                ? <Users className="w-3.5 h-3.5 text-agent-gemini/20" />
+                : <GitBranch className="w-3.5 h-3.5 text-sidebar-foreground/20" />}
+              label={<span className="text-sidebar-foreground/40">{b.customLabel ?? b.label}</span>}
+              suffix={<span className="w-1.5 h-1.5 rounded-full bg-status-approved shrink-0 mr-1" />}
+              onClick={() => openThread(b.id)} />
+          ))}
+          {archived.map((b) => (
+            <TreeRow key={b.id} depth={1} active={b.id === threadBranchId}
+              icon={<Archive className="w-3.5 h-3.5 text-sidebar-foreground/15" />}
+              label={<span className="text-sidebar-foreground/30">{b.customLabel ?? b.label}</span>}
+              suffix={<span className="w-1.5 h-1.5 rounded-full bg-sidebar-foreground/20 shrink-0 mr-1" />}
+              onClick={() => openThread(b.id)} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
