@@ -444,3 +444,13 @@ cd src-tauri && cargo test --lib  # Rust unit tests
 - **에러 처리**: dev 단계에서 silent fallback 최소화, 명시적 경고/에러 표시
 - **테스트**: vitest + jsdom (frontend), cargo test --lib (Rust unit)
 - **4-engine parity**: 새 기능 추가 시 4개 엔진 모두에서 동작하는지 확인
+
+---
+
+## 17. 문서 버전관리 규칙
+
+- **Reference는 같은 파일 갱신** — 날짜 파일 복제 금지, `updated_at` 메타 갱신
+- **Plan/Prompt는 작업 단위별 새 문서 허용** — 반드시 index.md 업데이트
+- **브레인스토밍/비교 문서는 SSOT 아님** — `canonical: false` 명시, 구현 기준 문서와 분리
+- **아카이브는 삭제보다 상태 변경** — `status: archived` + `superseded_by` 관계 명시
+- 상세: `docs/reference/documentVersioningPolicy_2026-03-30.md`, `docs/reference/documentationNavigationModel_2026-03-30.md`
