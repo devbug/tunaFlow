@@ -238,7 +238,10 @@ pub fn rename_branch(id: String, custom_label: String, state: State<DbState>) ->
     Ok(())
 }
 
-/// Delete a branch, its descendants, and all shadow conversations + messages.
+/// Delete a branch and its descendants.
+/// - Active branches: full delete (branch + shadow conv + messages + memos + artifacts)
+/// - Adopted/archived branches: pointer-only delete (branch row removed, shadow conv + messages preserved)
+///   This mirrors git branch -d: the "commits" (messages) remain accessible via shadow conversation ID.
 #[tauri::command]
 pub fn delete_branch(
     id: String,
@@ -246,14 +249,20 @@ pub fn delete_branch(
 ) -> Result<(), AppError> {
     let conn = state.write.lock().map_err(|_| AppError::Lock)?;
 
-    // Collect all descendant branch IDs (recursive)
-    let mut to_delete = vec![id.clone()];
+    // Collect all descendant branch IDs (recursive) with their status
+    let mut to_delete: Vec<(String, String)> = vec![];
+    {
+        let status: String = conn
+            .query_row("SELECT COALESCE(status, 'active') FROM branches WHERE id = ?1", [&id], |row| row.get(0))
+            .unwrap_or_else(|_| "active".to_string());
+        to_delete.push((id.clone(), status));
+    }
     let mut i = 0;
     while i < to_delete.len() {
-        let parent_id = &to_delete[i].clone();
-        let mut stmt = conn.prepare("SELECT id FROM branches WHERE parent_branch_id = ?1")?;
-        let children: Vec<String> = stmt
-            .query_map([parent_id], |row| row.get(0))?
+        let parent_id = to_delete[i].0.clone();
+        let mut stmt = conn.prepare("SELECT id, COALESCE(status, 'active') FROM branches WHERE parent_branch_id = ?1")?;
+        let children: Vec<(String, String)> = stmt
+            .query_map([&parent_id], |row| Ok((row.get(0)?, row.get(1)?)))?
             .filter_map(|r| r.ok())
             .collect();
         to_delete.extend(children);
@@ -261,12 +270,19 @@ pub fn delete_branch(
     }
 
     // Delete from deepest to shallowest (reverse order)
-    for branch_id in to_delete.iter().rev() {
+    for (branch_id, status) in to_delete.iter().rev() {
         let branch_conv_id = format!("branch:{}", branch_id);
-        conn.execute("DELETE FROM messages WHERE conversation_id = ?1", [&branch_conv_id])?;
-        conn.execute("DELETE FROM memos WHERE conversation_id = ?1", [&branch_conv_id])?;
-        conn.execute("DELETE FROM artifacts WHERE conversation_id = ?1", [&branch_conv_id])?;
-        conn.execute("DELETE FROM conversations WHERE id = ?1", [&branch_conv_id])?;
+
+        if status == "active" {
+            // Active: full delete — remove everything
+            conn.execute("DELETE FROM messages WHERE conversation_id = ?1", [&branch_conv_id])?;
+            conn.execute("DELETE FROM memos WHERE conversation_id = ?1", [&branch_conv_id])?;
+            conn.execute("DELETE FROM artifacts WHERE conversation_id = ?1", [&branch_conv_id])?;
+            conn.execute("DELETE FROM conversations WHERE id = ?1", [&branch_conv_id])?;
+        }
+        // Adopted/archived: shadow conv + messages preserved (git-style pointer-only delete)
+
+        // Always remove the branch row itself
         conn.execute("DELETE FROM branches WHERE id = ?1", [branch_id])?;
     }
 
