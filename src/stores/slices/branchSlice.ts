@@ -226,9 +226,20 @@ export const createBranchSlice = (set: SetState, get: GetState): BranchSlice => 
         invoke<Conversation>("get_conversation", { id: branchConvId }),
       ]);
       // Find parent message using branch.checkpointId
-      const parentMsg = branch?.checkpointId
-        ? get().messages.find((m) => m.id === branch.checkpointId) ?? null
-        : null;
+      // For depth>1 branches, the checkpoint message lives in the parent branch's shadow conversation
+      let parentMsg: Message | null = null;
+      if (branch?.checkpointId) {
+        // First try main conversation messages
+        parentMsg = get().messages.find((m) => m.id === branch.checkpointId) ?? null;
+        // If not found and branch has a parent branch, load from parent's shadow conversation
+        if (!parentMsg && branch.parentBranchId) {
+          const parentShadowId = `branch:${branch.parentBranchId}`;
+          try {
+            const parentBranchMsgs = await invoke<Message[]>("list_messages", { conversationId: parentShadowId });
+            parentMsg = parentBranchMsgs.find((m) => m.id === branch.checkpointId) ?? null;
+          } catch { /* ignore */ }
+        }
+      }
       set((state) => ({
         threadBranchId: branchId,
         threadBranchConvId: branchConvId,
