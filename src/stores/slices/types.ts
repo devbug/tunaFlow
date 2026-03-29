@@ -91,6 +91,8 @@ export interface ChatState {
   engineModels: EngineModel[];
   /** Pending handoff source set by UI actions (artifact forward, plan forward, etc.) */
   handoffSource: { type: string; content: string } | null;
+  /** Message ID to scroll to and highlight (set by memo click, cleared after scroll) */
+  scrollToMessageId: string | null;
 
   setHandoffSource: (source: { type: string; content: string } | null) => void;
   _startRun: (threadId: string) => void;

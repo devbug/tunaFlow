@@ -21,10 +21,13 @@ export function ChatPanel() {
   const openThread = useChatStore((s) => s.openThread);
   const sendFollowup = useChatStore((s) => s.sendFollowup);
   const deleteMessagePair = useChatStore((s) => s.deleteMessagePair);
+  const scrollToMessageId = useChatStore((s) => s.scrollToMessageId);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<"stream" | "roundtable">("stream");
   const [rtDialogCheckpoint, setRtDialogCheckpoint] = useState<string | null>(null);
+  const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
 
   const currentConv = conversations.find((c) => c.id === selectedConversationId);
   const isRoundtable = currentConv?.mode === "roundtable";
@@ -48,8 +51,19 @@ export function ChatPanel() {
     setView(isRoundtable ? "roundtable" : "stream");
   }, [isRoundtable, selectedConversationId]);
 
+  // Scroll to specific message (memo click, etc.)
+  useEffect(() => {
+    if (!scrollToMessageId) return;
+    const el = document.getElementById(`msg-${scrollToMessageId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightedMsgId(scrollToMessageId);
+      setTimeout(() => setHighlightedMsgId(null), 2000);
+    }
+    useChatStore.setState({ scrollToMessageId: null });
+  }, [scrollToMessageId, messages]);
+
   // Auto-scroll on new messages
-  // Auto-scroll — only when last message changes or new messages arrive
   const lastMsg = messages[messages.length - 1];
   const scrollKey = `${messages.length}:${lastMsg?.id}:${lastMsg?.status}`;
   useEffect(() => {
@@ -96,8 +110,8 @@ export function ChatPanel() {
                 ? branches.filter((b) => b.checkpointId === msg.id)
                 : [];
               return (
+                <div key={msg.id} id={`msg-${msg.id}`} className={cn(highlightedMsgId === msg.id && "ring-1 ring-primary/40 rounded-md transition-all duration-500")}>
                 <MessageItem
-                  key={msg.id}
                   message={msg}
                   grouped={grouped}
                   onBranch={!activeBranchId ? (id) => handleCreateBranch(id) : undefined}
@@ -108,6 +122,7 @@ export function ChatPanel() {
                   threadBranches={msgBranches.length > 0 ? msgBranches : undefined}
                   onOpenThread={!activeBranchId ? (branchId) => openThread(branchId) : undefined}
                 />
+                </div>
               );
             })}
             {runningThreadIds.includes(selectedConversationId!) && messages[messages.length - 1]?.status !== "streaming" && (

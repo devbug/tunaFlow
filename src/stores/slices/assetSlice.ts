@@ -18,6 +18,7 @@ export interface AssetSlice {
   activeSkills: string[];
   crossSessionIds: string[];
   handoffSource: { type: string; content: string } | null;
+  scrollToMessageId: string | null;
   setHandoffSource: (source: { type: string; content: string } | null) => void;
   loadMemos: () => Promise<void>;
   createMemo: (messageId: string, content: string) => Promise<void>;
@@ -38,6 +39,7 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
   activeSkills: [],
   crossSessionIds: [],
   handoffSource: null,
+  scrollToMessageId: null,
 
   setHandoffSource: (source) => set({ handoffSource: source }),
 

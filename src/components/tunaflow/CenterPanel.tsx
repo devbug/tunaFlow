@@ -177,11 +177,16 @@ export function CenterPanel() {
                       key={m.id}
                       className="group flex items-start gap-2 px-3 py-2 hover:bg-accent/50 cursor-pointer transition-colors"
                       onClick={() => {
-                        // Navigate to the conversation containing this memo
+                        // Navigate to conversation and scroll to the message
                         if (m.conversationId && m.conversationId !== selectedConversationId) {
                           selectConversation(m.conversationId);
                         }
+                        // Set scroll target after conversation loads
+                        setTimeout(() => {
+                          useChatStore.setState({ scrollToMessageId: m.messageId });
+                        }, 100);
                         setMemoOpen(false);
+                        setActiveTab("chat");
                       }}
                     >
                       <StickyNote className="w-3 h-3 text-muted-foreground/30 shrink-0 mt-0.5" />
