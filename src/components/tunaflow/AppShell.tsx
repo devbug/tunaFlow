@@ -143,9 +143,9 @@ export function AppShell() {
           {/* ── Thread/RT Drawer overlay ── */}
           {drawerOpen && (
             <>
-              {/* Backdrop */}
+              {/* Backdrop — covers main area only, very subtle */}
               <div
-                className="absolute inset-0 z-40 bg-black/15 backdrop-blur-[1px] rounded-lg"
+                className="absolute inset-0 z-40 bg-black/8"
                 onClick={() => useChatStore.getState().closeThread()}
               />
 

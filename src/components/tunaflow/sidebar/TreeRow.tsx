@@ -5,7 +5,6 @@ import { ChevronRight, ChevronDown } from "lucide-react";
 
 export const INDENT_PX = 10;
 export const BASE_PAD = 12;
-export const GUIDE_START = 18;
 
 export function TreeRow({
   depth, active, isParent, icon, label, suffix, actions, onClick, className,
@@ -23,10 +22,6 @@ export function TreeRow({
           : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground/80",
         className,
       )}>
-      {depth > 0 && Array.from({ length: depth }).map((_, i) => (
-        <span key={i} className="absolute top-0 bottom-0 w-px"
-          style={{ left: GUIDE_START + i * INDENT_PX, backgroundColor: "rgba(255,255,255,0.06)" }} />
-      ))}
       <span className="shrink-0 w-4 flex items-center justify-center">{icon}</span>
       <span className="flex-1 min-w-0 text-[13px] font-medium truncate">{label}</span>
       {suffix}
