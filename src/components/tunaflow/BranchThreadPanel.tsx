@@ -210,6 +210,9 @@ export function BranchThreadPanel() {
               messages={threadMessages}
               conversationId={threadBranchConvId ?? undefined}
               onBranch={!isReadOnly ? (id) => handleCreateSubBranch(id) : undefined}
+              onBranchRT={!isReadOnly ? (id) => setRtDialogCheckpoint(id) : undefined}
+              onMemo={!isReadOnly ? (id) => createMemo(id, threadMessages.find((m) => m.id === id)?.content ?? "") : undefined}
+              onFollowup={!isReadOnly ? (engine, content) => sendThreadMessage(content, engine as any) : undefined}
             />
             <div ref={bottomRef} />
           </>

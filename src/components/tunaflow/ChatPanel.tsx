@@ -91,7 +91,13 @@ export function ChatPanel() {
       {/* Scrollable message area */}
       <div className="flex-1 overflow-y-auto">
         {view === "roundtable" && isRoundtable ? (
-          <RoundtableView messages={messages} onBranch={(id) => handleCreateBranch(id)} />
+          <RoundtableView
+            messages={messages}
+            onBranch={(id) => handleCreateBranch(id)}
+            onBranchRT={!activeBranchId ? (id) => setRtDialogCheckpoint(id) : undefined}
+            onMemo={!activeBranchId ? (id) => createMemo(id, messages.find((m) => m.id === id)?.content ?? "") : undefined}
+            onFollowup={(engine, content) => sendFollowup(engine, "message", content)}
+          />
         ) : (
           <div className="py-3 space-y-0.5">
             {messages.length === 0 && !runningThreadIds.includes(selectedConversationId!) && (

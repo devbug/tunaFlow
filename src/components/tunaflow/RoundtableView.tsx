@@ -1,7 +1,7 @@
 import { cn, AGENT_DOT_COLORS, formatTimestamp, normalizeEngine } from "@/lib/utils";
 import { AgentAvatar } from "./AgentAvatar";
 import type { Message } from "@/types";
-import { Copy, Users, Loader2 } from "lucide-react";
+import { Copy, Users, Loader2, GitBranch, StickyNote, Forward } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useChatStore } from "@/stores/chatStore";
@@ -18,6 +18,9 @@ interface ParticipantStatus {
 interface RoundtableViewProps {
   messages: Message[];
   onBranch?: (messageId: string) => void;
+  onBranchRT?: (messageId: string) => void;
+  onMemo?: (messageId: string) => void;
+  onFollowup?: (engine: string, content: string) => void;
   /** Override conversationId for thread/drawer context */
   conversationId?: string;
 }
@@ -128,7 +131,16 @@ function getParticipants(messages: Message[]): { name: string; engine: string }[
 
 // ─── RT Message Card ────────────────────────────────────────────────────────
 
-function RoundtableMessage({ message, isLast }: { message: Message; isLast: boolean }) {
+interface RtMessageProps {
+  message: Message;
+  isLast: boolean;
+  onBranch?: (messageId: string) => void;
+  onBranchRT?: (messageId: string) => void;
+  onMemo?: (messageId: string) => void;
+  onFollowup?: (engine: string, content: string) => void;
+}
+
+function RoundtableMessage({ message, isLast, onBranch, onBranchRT, onMemo, onFollowup }: RtMessageProps) {
   const [hovered, setHovered] = useState(false);
   const name = message.persona ?? message.engine ?? "Agent";
   const engine = message.engine ?? "";
@@ -193,15 +205,37 @@ function RoundtableMessage({ message, isLast }: { message: Message; isLast: bool
           })}
         </div>
 
-        {/* Copy */}
+        {/* Actions */}
         <div className={cn(
-          "absolute right-2 top-2 transition-opacity",
+          "absolute right-2 top-2 flex items-center gap-0.5 transition-opacity",
           hovered ? "opacity-100" : "opacity-0 pointer-events-none"
         )}>
-          <button
-            onClick={() => navigator.clipboard.writeText(message.content)}
-            className="p-1 rounded text-muted-foreground/40 hover:text-foreground hover:bg-accent transition-colors"
-          >
+          {onBranch && (
+            <button onClick={() => onBranch(message.id)} title="Branch"
+              className="p-1 rounded text-muted-foreground/40 hover:text-foreground hover:bg-accent transition-colors">
+              <GitBranch className="w-3 h-3" />
+            </button>
+          )}
+          {onBranchRT && (
+            <button onClick={() => onBranchRT(message.id)} title="Roundtable"
+              className="p-1 rounded text-muted-foreground/40 hover:text-agent-gemini hover:bg-agent-gemini/10 transition-colors">
+              <Users className="w-3 h-3" />
+            </button>
+          )}
+          {onMemo && (
+            <button onClick={() => onMemo(message.id)} title="Memo"
+              className="p-1 rounded text-muted-foreground/40 hover:text-foreground hover:bg-accent transition-colors">
+              <StickyNote className="w-3 h-3" />
+            </button>
+          )}
+          {onFollowup && (
+            <button onClick={() => onFollowup(message.engine ?? "claude", message.content)} title="Forward"
+              className="p-1 rounded text-muted-foreground/40 hover:text-foreground hover:bg-accent transition-colors">
+              <Forward className="w-3 h-3" />
+            </button>
+          )}
+          <button onClick={() => navigator.clipboard.writeText(message.content)} title="Copy"
+            className="p-1 rounded text-muted-foreground/40 hover:text-foreground hover:bg-accent transition-colors">
             <Copy className="w-3 h-3" />
           </button>
         </div>
@@ -217,7 +251,7 @@ const RT_MODE_LABELS: Record<string, string> = {
   deliberative: "Deliberative",
 };
 
-export function RoundtableView({ messages, conversationId }: RoundtableViewProps) {
+export function RoundtableView({ messages, conversationId, onBranch, onBranchRT, onMemo, onFollowup }: RoundtableViewProps) {
   const participants = getParticipants(messages);
   const rounds = groupIntoRounds(messages);
   const selectedConversationId = useChatStore((s) => s.selectedConversationId);
@@ -368,7 +402,8 @@ export function RoundtableView({ messages, conversationId }: RoundtableViewProps
             {/* Messages */}
             <div>
               {round.map((msg, i) => (
-                <RoundtableMessage key={msg.id} message={msg} isLast={i === round.length - 1} />
+                <RoundtableMessage key={msg.id} message={msg} isLast={i === round.length - 1}
+                  onBranch={onBranch} onBranchRT={onBranchRT} onMemo={onMemo} onFollowup={onFollowup} />
               ))}
             </div>
           </div>
