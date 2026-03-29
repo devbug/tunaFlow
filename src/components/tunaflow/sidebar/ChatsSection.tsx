@@ -64,12 +64,12 @@ export function ChatsSection({
             b.status === "adopted" && "text-status-approved/60 bg-status-approved/8",
             b.status === "archived" && "text-sidebar-foreground/30 bg-white/5",
           )}>{b.status}</span>}
-          actions={
+          actions={b.status === "active" ? (
             <button onClick={(e) => { e.stopPropagation(); onDeleteBranch(b.id, b.customLabel ?? b.label); }}
               className="p-0.5 rounded text-sidebar-foreground/20 hover:text-destructive transition-colors" title="Delete">
               <Trash2 className="w-3 h-3" />
             </button>
-          }
+          ) : undefined}
           onClick={() => openThread(b.id)} />
         {children.map((child) => renderBranch(child, depth + 1))}
       </div>

@@ -153,15 +153,17 @@ export function BranchThreadPanel() {
               <Check className="w-2.5 h-2.5" /> Adopt
             </button>
           )}
-          <button onClick={async () => {
-            const yes = await ask(`"${threadBranchLabel}" 브랜치를 삭제하시겠습니까?`, { title: "브랜치 삭제", kind: "warning" });
-            if (yes) {
-              closeThread();
-              deleteBranch(threadBranchId);
-            }
-          }} title="Delete" className="p-1 rounded text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors">
-            <Trash2 className="w-3 h-3" />
-          </button>
+          {!isReadOnly && (
+            <button onClick={async () => {
+              const yes = await ask(`"${threadBranchLabel}" 브랜치를 삭제하시겠습니까?`, { title: "브랜치 삭제", kind: "warning" });
+              if (yes) {
+                closeThread();
+                deleteBranch(threadBranchId);
+              }
+            }} title="Delete" className="p-1 rounded text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors">
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
           <button onClick={closeThread} title="Close" className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors">
             <X className="w-3 h-3" />
           </button>
