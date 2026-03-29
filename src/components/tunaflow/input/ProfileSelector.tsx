@@ -43,7 +43,10 @@ export function ProfileSelector({ profiles, selectedProfileId, onSelectProfile }
         ) : (
           <>
             <AgentAvatar engine={selected?.engine ?? "claude"} size="xs" />
-            <span className="truncate max-w-[120px]">{selected?.label ?? "Agent"}</span>
+            <span className="truncate max-w-[100px]">{selected?.label ?? "Agent"}</span>
+            <span className="text-[9px] text-muted-foreground/40 truncate max-w-[160px]">
+              {[selected?.engine, selected?.model, selected?.personaKey].filter(Boolean).join(" · ")}
+            </span>
           </>
         )}
         <ChevronDown className="w-3 h-3 text-muted-foreground/40" />
