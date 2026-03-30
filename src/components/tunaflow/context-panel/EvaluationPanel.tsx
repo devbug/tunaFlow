@@ -139,12 +139,18 @@ export function EvaluationPanel() {
             <div className="flex-1 min-w-0 space-y-3">
               {/* Run header */}
               <div className="rounded-lg border border-border/30 bg-background/50 p-3">
-                <h3 className="text-[13px] font-medium text-foreground">{selectedRun.title}</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-[13px] font-medium text-foreground flex-1">{selectedRun.title}</h3>
+                  {selectedRun.status !== "running" && results.length === 0 && (
+                    <ExecuteButton run={selectedRun} onDone={() => { refresh(); }} />
+                  )}
+                </div>
                 <p className="text-[11px] text-muted-foreground/60 mt-1 line-clamp-2">{selectedRun.prompt}</p>
                 <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground/40">
                   <span>{selectedRun.mode ?? "sequential"}</span>
                   <span>{selectedRun.rounds ?? 1} rounds</span>
                   <span>{new Date(selectedRun.createdAt).toLocaleString()}</span>
+                  {selectedRun.status === "running" && <span className="text-primary/60 animate-pulse">Running...</span>}
                 </div>
               </div>
 
@@ -266,6 +272,91 @@ function CreateRunForm({ conversationId, onCreated, onCancel }: {
           {creating ? "Creating…" : "Create"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── Execute Button ─────────────────────────────────────────────────────────
+
+function ExecuteButton({ run, onDone }: { run: EvalRun; onDone: () => void }) {
+  const [executing, setExecuting] = useState(false);
+  const [progress, setProgress] = useState("");
+
+  const execute = async () => {
+    setExecuting(true);
+    try {
+      await invoke("update_eval_run_status", { id: run.id, status: "running" });
+
+      const { getSetting } = await import("@/lib/appStore");
+      const { DEFAULT_PERSONAS } = await import("@/lib/defaultPersonas");
+      const profiles = await getSetting<any[]>("agentProfiles", []);
+      const agents = profiles.length >= 2 ? profiles : [
+        { label: "Claude", engine: "claude", model: undefined, personaId: undefined },
+        { label: "Codex", engine: "codex", model: undefined, personaId: undefined },
+      ];
+
+      const totalRounds = run.rounds ?? 1;
+
+      for (let round = 1; round <= totalRounds; round++) {
+        for (const agent of agents) {
+          setProgress(`Round ${round} · ${agent.label}...`);
+          const persona = agent.personaId ? DEFAULT_PERSONAS.find((p: any) => p.id === agent.personaId) : null;
+          const personaSection = persona ? `## Persona\n\n${persona.promptFragment}\n\n---\n\n` : "";
+          const fullPrompt = `${personaSection}${run.prompt}`;
+          const t0 = Date.now();
+
+          try {
+            // Use CLI-style execution — placeholder for MVP
+            // Real execution would use start_claude_stream etc.
+            const content = `[Evaluation result placeholder — ${agent.engine}/${agent.label}]\n\nPrompt: ${run.prompt.slice(0, 100)}...`;
+            const durationMs = Date.now() - t0;
+
+            await invoke("add_eval_result", {
+              input: {
+                evalRunId: run.id,
+                agentName: agent.label,
+                engine: agent.engine,
+                round,
+                content,
+                inputTokens: null,
+                outputTokens: null,
+                costUsd: null,
+                durationMs,
+              },
+            });
+          } catch (e) {
+            await invoke("add_eval_result", {
+              input: {
+                evalRunId: run.id,
+                agentName: agent.label,
+                engine: agent.engine,
+                round,
+                content: `Error: ${String(e)}`,
+                inputTokens: null, outputTokens: null, costUsd: null,
+                durationMs: Date.now() - t0,
+              },
+            }).catch(() => {});
+          }
+        }
+      }
+
+      await invoke("update_eval_run_status", { id: run.id, status: "done" });
+    } catch {
+      await invoke("update_eval_run_status", { id: run.id, status: "failed" }).catch(() => {});
+    } finally {
+      setExecuting(false);
+      setProgress("");
+      onDone();
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      {progress && <span className="text-[9px] text-primary/60 animate-pulse">{progress}</span>}
+      <button onClick={execute} disabled={executing}
+        className="flex items-center gap-1 px-3 py-1 rounded-md text-[11px] font-medium bg-primary/15 text-primary hover:bg-primary/25 transition-colors disabled:opacity-40">
+        {executing ? "Running…" : "Execute"}
+      </button>
     </div>
   );
 }

@@ -170,6 +170,7 @@
 - [evaluationUiConnectionPlan_2026-03-30](./evaluationUiConnectionPlan_2026-03-30.md)
 - [evaluationUnderTestPlan_2026-03-30](./evaluationUnderTestPlan_2026-03-30.md)
 - [evaluationRunCreationUiPlan_2026-03-30](./evaluationRunCreationUiPlan_2026-03-30.md)
+- [evaluationRunExecutionLinkagePlan_2026-03-30](./evaluationRunExecutionLinkagePlan_2026-03-30.md)
 - [gitSyncPhase1Plan_2026-03-30](./gitSyncPhase1Plan_2026-03-30.md)
 - [gitBranchLinkVisibilityPlan_2026-03-30](./gitBranchLinkVisibilityPlan_2026-03-30.md)
 - [gitBranchDefaultingPlan_2026-03-30](./gitBranchDefaultingPlan_2026-03-30.md)
