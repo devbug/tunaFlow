@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 
 export function TypingIndicator() {
@@ -34,18 +36,62 @@ export function ThinkingBlock({ content, maxLines = 5 }: { content: string; maxL
   );
 }
 
-/** Collapsed thinking summary — shows after response is complete */
-export function ThinkingSummary({ content, elapsedMs }: { content: string; elapsedMs?: number }) {
+/** Collapsed thinking summary — lazy-loads full content from DB on expand */
+export function ThinkingSummary({ messageId, hasContent }: { messageId: string; hasContent: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const [lines, setLines] = useState<string[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  if (!hasContent) return null;
+
+  const handleToggle = async () => {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    if (lines === null) {
+      setLoading(true);
+      try {
+        const content = await invoke<string | null>("get_progress_content", { messageId });
+        setLines(content ? content.split("\n").filter(Boolean) : []);
+      } catch {
+        setLines(["(failed to load thinking)"])
+      }
+      setLoading(false);
+    }
+    setExpanded(true);
+  };
+
+  return (
+    <div className="rounded-md border border-border/20 bg-accent/20 px-3 py-1.5 mb-2">
+      <button
+        onClick={handleToggle}
+        className="cursor-pointer text-[10px] text-muted-foreground/50 hover:text-muted-foreground/70 transition-colors flex items-center gap-1.5 w-full text-left"
+      >
+        <span className="font-medium">
+          {lines ? `${lines.length} step${lines.length !== 1 ? "s" : ""}` : "thinking"}
+        </span>
+        <span className="text-[9px]">{expanded ? "▼" : "▶"}</span>
+        {loading && <span className="text-[9px] text-muted-foreground/30 animate-pulse">loading...</span>}
+      </button>
+      {expanded && lines && (
+        <div className="mt-1.5 font-mono text-[10px] text-muted-foreground/50 leading-relaxed pl-2 border-l border-border/20">
+          {lines.map((line, i) => <div key={i}>{line}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Inline thinking summary for streaming messages that already have content loaded */
+export function ThinkingSummaryInline({ content }: { content: string }) {
   const lines = content.split("\n").filter(Boolean);
   if (lines.length === 0) return null;
-  const collapsedLines = lines.slice(-3);
-  const elapsed = elapsedMs != null ? formatElapsed(elapsedMs) : null;
   return (
     <details className="rounded-md border border-border/20 bg-accent/20 px-3 py-1.5 mb-2 group/thinking">
       <summary className="cursor-pointer text-[10px] text-muted-foreground/50 hover:text-muted-foreground/70 transition-colors flex items-center gap-1.5">
         <span className="font-medium">{lines.length} step{lines.length !== 1 ? "s" : ""}</span>
-        {elapsed && <span>· {elapsed}</span>}
-        <span className="text-[9px] text-muted-foreground/30 group-open/thinking:hidden">— {collapsedLines[collapsedLines.length - 1]}</span>
+        <span className="text-[9px] text-muted-foreground/30 group-open/thinking:hidden">— {lines[lines.length - 1]}</span>
       </summary>
       <div className="mt-1.5 font-mono text-[10px] text-muted-foreground/50 leading-relaxed pl-2 border-l border-border/20">
         {lines.map((line, i) => <div key={i}>{line}</div>)}
@@ -53,16 +99,3 @@ export function ThinkingSummary({ content, elapsedMs }: { content: string; elaps
     </details>
   );
 }
-
-function formatElapsed(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(1)}s`;
-  const m = Math.floor(s / 60);
-  const rem = Math.round(s % 60);
-  return `${m}m ${rem}s`;
-}
-
-// Legacy exports for backward compatibility
-export { ThinkingBlock as ProgressBlock };
-export { ThinkingSummary as ProgressSummary };

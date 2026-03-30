@@ -32,7 +32,11 @@ pub struct UpdateMessageStatusInput {
     pub content: Option<String>,
 }
 
-fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Message> {
+/// Map a row WITHOUT full progress_content (lightweight, for list_messages).
+/// Sets progress_content to a marker "1" if data exists, None otherwise.
+/// Frontend uses this to show "has thinking" indicator; actual content loaded via get_progress_content.
+fn map_row_light(row: &rusqlite::Row) -> rusqlite::Result<Message> {
+    let has_progress: bool = row.get(6)?;
     Ok(Message {
         id: row.get(0)?,
         conversation_id: row.get(1)?,
@@ -40,7 +44,7 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Message> {
         content: row.get(3)?,
         timestamp: row.get(4)?,
         status: row.get(5)?,
-        progress_content: row.get(6)?,
+        progress_content: if has_progress { Some("…".into()) } else { None },
         engine: row.get(7)?,
         model: row.get(8)?,
         persona: row.get(9)?,
@@ -55,11 +59,12 @@ pub fn list_messages(
     let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     let mut stmt = conn.prepare(
         "SELECT id, conversation_id, role, content, timestamp, status,
-                progress_content, engine, model, persona
+                (progress_content IS NOT NULL) as has_progress,
+                engine, model, persona
          FROM messages WHERE conversation_id = ?1 ORDER BY timestamp ASC",
     )?;
     let rows = stmt
-        .query_map([&conversation_id], map_row)?
+        .query_map([&conversation_id], map_row_light)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
@@ -146,6 +151,25 @@ pub fn update_message_status(
         )?;
     }
     Ok(())
+}
+
+/// Lazy-load progress_content for a single message.
+/// Called when user expands the ThinkingSummary block.
+#[tauri::command]
+pub fn get_progress_content(
+    message_id: String,
+    state: State<DbState>,
+) -> Result<Option<String>, AppError> {
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
+    let result: Option<String> = conn
+        .query_row(
+            "SELECT progress_content FROM messages WHERE id = ?1",
+            [&message_id],
+            |row| row.get(0),
+        )
+        .ok()
+        .flatten();
+    Ok(result)
 }
 
 /// Save thinking/tool-use progress content for a message.

@@ -7,7 +7,7 @@ import { AgentAvatar } from "./AgentAvatar";
 import { markdownComponents } from "./chat/MarkdownComponents";
 import { MessageMeta } from "./message/MessageMeta";
 import { MessageActions } from "./message/MessageActions";
-import { TypingIndicator, ThinkingBlock, ThinkingSummary } from "./message/ProgressSurface";
+import { TypingIndicator, ThinkingBlock, ThinkingSummary, ThinkingSummaryInline } from "./message/ProgressSurface";
 
 function MarkdownBody({ content, className }: { content: string; className?: string }) {
   return (
@@ -81,8 +81,11 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
             </>
           ) : (
             <>
-              {/* Collapsed thinking summary — separate block above response */}
-              {message.progressContent && <ThinkingSummary content={message.progressContent} />}
+              {/* Thinking: lazy-loaded from DB on expand (not part of context) */}
+              {message.progressContent && message.progressContent !== "…"
+                ? <ThinkingSummaryInline content={message.progressContent} />
+                : message.progressContent === "…" && <ThinkingSummary messageId={message.id} hasContent />
+              }
               <MarkdownBody content={message.content} className={cn(isCompact && "line-clamp-3")} />
             </>
           )}
