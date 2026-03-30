@@ -42,6 +42,41 @@ fn resolve_gemini() -> (String, Option<String>) {
 
     #[cfg(not(target_os = "windows"))]
     {
+        // fnm/nvm: check node version manager installation paths first
+        if let Ok(home) = std::env::var("HOME") {
+            // fnm: ~/.local/share/fnm/node-versions/*/installation/bin/gemini
+            let fnm_base = PathBuf::from(&home).join(".local/share/fnm/node-versions");
+            if fnm_base.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&fnm_base) {
+                    // Pick the latest version directory
+                    let mut versions: Vec<PathBuf> = entries
+                        .filter_map(|e| e.ok())
+                        .map(|e| e.path().join("installation/bin/gemini"))
+                        .filter(|p| p.exists())
+                        .collect();
+                    versions.sort();
+                    if let Some(candidate) = versions.last() {
+                        return (candidate.to_string_lossy().to_string(), None);
+                    }
+                }
+            }
+            // nvm: ~/.nvm/versions/node/*/bin/gemini
+            let nvm_base = PathBuf::from(&home).join(".nvm/versions/node");
+            if nvm_base.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&nvm_base) {
+                    let mut versions: Vec<PathBuf> = entries
+                        .filter_map(|e| e.ok())
+                        .map(|e| e.path().join("bin/gemini"))
+                        .filter(|p| p.exists())
+                        .collect();
+                    versions.sort();
+                    if let Some(candidate) = versions.last() {
+                        return (candidate.to_string_lossy().to_string(), None);
+                    }
+                }
+            }
+        }
+        // Standard paths
         for prefix in &["/usr/local/bin", "/usr/bin", "/opt/homebrew/bin"] {
             let candidate = PathBuf::from(prefix).join("gemini");
             if candidate.exists() {
