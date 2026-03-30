@@ -76,5 +76,6 @@ Opus/Claude에 전달하는 실행 지시문, hand-off 문서, 초기 구현 프
 - [2026-03-30/deferred_tech_reevaluation_prompt](./2026-03-30/deferred_tech_reevaluation_prompt.md): 보류/신규 기술 후보를 다시 분류해 다음 구현 라운드를 추천하는 프롬프트
 - [2026-03-30/context_stack_reevaluation_prompt](./2026-03-30/context_stack_reevaluation_prompt.md): ContextPack/context-hub/flow agent의 다음 구현 순서를 다시 좁히는 프롬프트
 - [2026-03-30/contextpack_p0_phase1_prompt](./2026-03-30/contextpack_p0_phase1_prompt.md): ContextPack P0의 1차로 section visibility와 compression 가시화를 먼저 진행하는 프롬프트
+- [2026-03-30/context_hub_source_policy_prompt](./2026-03-30/context_hub_source_policy_prompt.md): context-hub를 bundled/local/private source 중심으로 제한하는 정책 프롬프트
 - [2026-03-29/window_state_restore_fix_prompt](./2026-03-29/window_state_restore_fix_prompt.md): 창 위치/크기 복원 확인 및 수정 프롬프트
 - [2026-03-29/window_state_restore_review_checklist](./2026-03-29/window_state_restore_review_checklist.md): 창 상태 복원 검증 체크리스트
