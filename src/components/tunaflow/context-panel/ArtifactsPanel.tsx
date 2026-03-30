@@ -2,7 +2,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import {
-  FileText, Clock, CheckCircle2, XCircle, Plus,
+  FileText, Clock, CheckCircle2, XCircle, Plus, X,
   ClipboardCheck, FileSearch, Gavel, TestTube,
 } from "lucide-react";
 import type { Artifact } from "@/types";
@@ -34,10 +34,8 @@ const STATUS_CONFIG: Record<ArtifactStatus, { icon: React.ReactNode; class: stri
 
 // ─── ArtifactCard ────────────────────────────────────────────────────────────
 
-function ArtifactCard({ artifact }: { artifact: Artifact }) {
-  const { updateArtifactStatus, deleteArtifact, sendFollowup, setHandoffSource } = useChatStore();
+function ArtifactCard({ artifact, onOpen }: { artifact: Artifact; onOpen: (a: Artifact) => void }) {
   const status = STATUS_CONFIG[artifact.status];
-  const [expanded, setExpanded] = useState(false);
   const isHarness = HARNESS_TYPES.has(artifact.type);
   const harnessConfig = isHarness ? HARNESS_TYPE_CONFIG[artifact.type] : null;
 
@@ -47,11 +45,7 @@ function ArtifactCard({ artifact }: { artifact: Artifact }) {
         "rounded-md border p-2.5 hover:border-border/60 transition-colors cursor-pointer group",
         isHarness ? "border-border/40 bg-card/80" : "border-border/30 bg-card/50"
       )}
-      onClick={() => {
-        const next = !expanded;
-        setExpanded(next);
-        setHandoffSource(next ? { type: "artifact", content: `[${artifact.title}] ${artifact.content}` } : null);
-      }}
+      onClick={() => onOpen(artifact)}
     >
       <div className="flex items-start gap-2 mb-1">
         {harnessConfig ? (
@@ -74,64 +68,12 @@ function ArtifactCard({ artifact }: { artifact: Artifact }) {
           {status.label}
         </span>
       </div>
-      {!expanded && (
-        <>
-          <p className="text-[10px] text-muted-foreground/60 leading-snug line-clamp-2 ml-6">
-            {artifact.content.slice(0, 100)}
-          </p>
-          <p className="text-[9px] text-muted-foreground/30 ml-6 mt-0.5 font-mono">
-            {new Date(artifact.updatedAt * 1000).toLocaleDateString()}
-          </p>
-        </>
-      )}
-      {expanded && (
-        <div className="ml-6 mt-2 space-y-2">
-          <p className="text-[11px] text-foreground leading-relaxed whitespace-pre-wrap">{artifact.content}</p>
-          <div className="flex gap-2 pt-1 border-t border-border/20">
-            {artifact.status !== "approved" && (
-              <button
-                onClick={(e) => { e.stopPropagation(); updateArtifactStatus(artifact.id, "approved"); }}
-                className="text-[9px] text-status-approved/70 hover:underline"
-              >
-                Approve
-              </button>
-            )}
-            {artifact.status !== "rejected" && (
-              <button
-                onClick={(e) => { e.stopPropagation(); updateArtifactStatus(artifact.id, "rejected"); }}
-                className="text-[9px] text-status-rejected/70 hover:underline"
-              >
-                Reject
-              </button>
-            )}
-            {artifact.status !== "draft" && (
-              <button
-                onClick={(e) => { e.stopPropagation(); updateArtifactStatus(artifact.id, "draft"); }}
-                className="text-[9px] text-muted-foreground hover:underline"
-              >
-                Draft
-              </button>
-            )}
-            <span className="ml-auto flex items-center gap-2">
-              {FORWARD_ENGINES.map((eng) => (
-                <button
-                  key={eng.id}
-                  onClick={(e) => { e.stopPropagation(); sendFollowup(eng.id, "artifact", `[${artifact.title}] ${artifact.content}`); }}
-                  className="text-[9px] text-primary/60 hover:text-primary hover:underline"
-                >
-                  → {eng.label}
-                </button>
-              ))}
-              <button
-                onClick={(e) => { e.stopPropagation(); deleteArtifact(artifact.id); }}
-                className="text-[9px] text-destructive/70 hover:underline"
-              >
-                Delete
-              </button>
-            </span>
-          </div>
-        </div>
-      )}
+      <p className="text-[10px] text-muted-foreground/60 leading-snug line-clamp-2 ml-6">
+        {artifact.content.slice(0, 100)}
+      </p>
+      <p className="text-[9px] text-muted-foreground/30 ml-6 mt-0.5 font-mono">
+        {new Date(artifact.updatedAt * 1000).toLocaleDateString()}
+      </p>
     </div>
   );
 }
@@ -200,6 +142,7 @@ export function ArtifactsPanel() {
   const [artType, setArtType] = useState("note");
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("newest");
+  const [detailArtifact, setDetailArtifact] = useState<Artifact | null>(null);
 
   const handleCreate = async () => {
     if (!title.trim() || !content.trim() || !selectedConversationId) return;
@@ -248,7 +191,7 @@ export function ArtifactsPanel() {
       {/* Artifact cards */}
       {sorted.length > 0 ? (
         <div className="space-y-1.5">
-          {sorted.map((a) => <ArtifactCard key={a.id} artifact={a} />)}
+          {sorted.map((a) => <ArtifactCard key={a.id} artifact={a} onOpen={setDetailArtifact} />)}
         </div>
       ) : artifacts.length > 0 ? (
         <div className="text-center py-4 text-[12px] text-muted-foreground/40">
@@ -321,6 +264,82 @@ export function ArtifactsPanel() {
           New artifact
         </button>
       )}
+
+      {/* Detail modal */}
+      {detailArtifact && (
+        <ArtifactDetailModal artifact={detailArtifact} onClose={() => setDetailArtifact(null)} />
+      )}
+    </div>
+  );
+}
+
+// ─── Detail Modal ───────────────────────────────────────────────────────────
+
+function ArtifactDetailModal({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
+  const { updateArtifactStatus, deleteArtifact, sendFollowup } = useChatStore();
+  const status = STATUS_CONFIG[artifact.status];
+  const harnessConfig = HARNESS_TYPES.has(artifact.type) ? HARNESS_TYPE_CONFIG[artifact.type] : null;
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+
+      <div className="relative bg-card border border-border/40 rounded-xl shadow-2xl w-[600px] max-h-[80vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="flex items-start gap-3 px-5 pt-4 pb-3 shrink-0">
+          {harnessConfig ? (
+            <span className={cn("shrink-0 mt-1 p-1 rounded", harnessConfig.cls)}>{harnessConfig.icon}</span>
+          ) : (
+            <FileText className="w-4 h-4 text-muted-foreground/40 shrink-0 mt-1" />
+          )}
+          <div className="flex-1 min-w-0">
+            <h2 className="text-[15px] font-[550] text-foreground leading-snug">{artifact.title}</h2>
+            <div className="flex items-center gap-2 mt-1 text-[11px]">
+              <span className={cn("inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded", status.class)}>
+                {status.icon} {status.label}
+              </span>
+              {harnessConfig && <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-medium", harnessConfig.cls)}>{harnessConfig.label}</span>}
+              <span className="text-muted-foreground/40 font-mono">{artifact.type}</span>
+              <span className="text-muted-foreground/30 font-mono">{new Date(artifact.updatedAt * 1000).toLocaleString()}</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-5 pb-4">
+          <div className="text-[13px] text-foreground/90 leading-relaxed whitespace-pre-wrap">
+            {artifact.content}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2 px-5 py-3 border-t border-border/30 shrink-0 text-[11px]">
+          {artifact.status !== "approved" && (
+            <button onClick={() => { updateArtifactStatus(artifact.id, "approved"); onClose(); }}
+              className="text-status-approved/70 hover:underline">Approve</button>
+          )}
+          {artifact.status !== "rejected" && (
+            <button onClick={() => { updateArtifactStatus(artifact.id, "rejected"); onClose(); }}
+              className="text-status-rejected/70 hover:underline">Reject</button>
+          )}
+          {artifact.status !== "draft" && (
+            <button onClick={() => { updateArtifactStatus(artifact.id, "draft"); onClose(); }}
+              className="text-muted-foreground hover:underline">Draft</button>
+          )}
+          <span className="flex-1" />
+          <button onClick={() => navigator.clipboard.writeText(artifact.content)}
+            className="text-muted-foreground/50 hover:text-foreground hover:underline">Copy</button>
+          {FORWARD_ENGINES.map((eng) => (
+            <button key={eng.id} onClick={() => { sendFollowup(eng.id, "artifact", `[${artifact.title}] ${artifact.content}`); onClose(); }}
+              className="text-primary/60 hover:text-primary hover:underline">→ {eng.label}</button>
+          ))}
+          <button onClick={() => { deleteArtifact(artifact.id); onClose(); }}
+            className="text-destructive/70 hover:underline">Delete</button>
+        </div>
+      </div>
     </div>
   );
 }
