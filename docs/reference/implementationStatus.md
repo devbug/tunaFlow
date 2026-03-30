@@ -1,6 +1,6 @@
 # tunaFlow 구현 현황
 
-최종 갱신: 2026-03-29 (실제 코드 기준 검증)
+최종 갱신: 2026-03-30 (실제 코드 기준 검증)
 SSOT: `docs/reference/dataModelRevised.md`
 
 ---
@@ -165,11 +165,29 @@ SSOT: `docs/reference/dataModelRevised.md`
 | RT branch-only 생성 | done | CreateRoundtableDialog에서 독립 RT conversation 폐기, 항상 branch로 생성 |
 | 사이드바 Chats 하위 트리 | done | RT/Branch를 Chats 하위로 계층화, RoundtablesSection/BranchesSection 폐기 |
 
+### 2026-03-30 세션
+
+| 기능 | 상태 | 비고 |
+|---|---|---|
+| Settings Shell MVP | done | Agents/Personas/Skills/Runtime 4섹션, 사이드바 하단 ⚙️ 아이콘 |
+| Agent Profile CRUD | done | engine/model/personaId/defaultSkills, appStore persistence |
+| Agent Profile Chat Input | done | ProfileSelector 드롭다운, Custom fallback, lastProfileId persist |
+| Persona 7종 built-in | done | General/Reviewer/Tester/Architect/Implementer/Debugger/UX Critic |
+| Persona Settings UI | done | priorities/behaviors/constraints/tone/outputStyle/promptFragment 편집 |
+| Persona runtime binding | done | promptFragment → build_normalized_prompt persona section, 4-engine parity |
+| Applied config visibility | done | persona_label → message.persona DB 저장 → MessageMeta 표시 |
+| Runtime Settings 실제 UI | done | rawq 상태/model catalog(+refresh)/context budget/background execution |
+| Save as Artifact | done | MessageActions → SaveArtifactDialog, RT 카드에서도 가능 |
+| Artifacts 필터/정렬 | done | All/Notes/Code/Specs/Harness 필터, Newest/Oldest/Title 정렬 |
+| Artifact 상세 모달 | done | 전체 content 읽기, status 변경, copy/forward/delete |
+| Artifact provenance | done | source conversation/branch/RT 표시 + 클릭 이동 (jumpToSource) |
+| 문서 IA 거버넌스 | done | NavigationModel, MetadataSchema, VersioningPolicy, NamingRule |
+
 ### 미구현
 
 | 기능 | 우선순위 | 비고 |
 |---|---|---|
-| FTS 검색 (messages_fts) | P2 | 스키마만 존재 |
+| FTS 검색 (messages_fts) | P0 | 스키마만 존재, 검색 placeholder 확보됨 |
 | Workspace 자동 스캔 | P3 | 인메모리 개념 |
 | Branch-git 실제 연동 | P3 | 필드 + UI 자리만 준비, 실제 git 명령 미실행 |
 | Soft delete | P3 | 현재 hard delete |

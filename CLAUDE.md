@@ -333,16 +333,38 @@ tunaFlow/
 - VS Code 스타일 트리: 선택한 branch만 펼침, 들여쓰기 10px
 - Git 스타일 삭제: adopted/archived는 메시지 보존, active는 전체 삭제
 - History 섹션: adopted/archived branch 분리 표시
-- RT: 드로어 내 RT 분기, RT 테이블 뷰 전체 액션 (branch/RT/memo/forward/copy)
+- RT: 드로어 내 RT 분기, RT 테이블 뷰 전체 액션 (branch/RT/memo/forward/copy/save-artifact)
+- window.confirm → Tauri ask() 네이티브 다이얼로그 전환
+- 삭제 시 하위 adopted 경고 강화
+
+### Artifacts 워크플로
+- Save as Artifact: assistant 메시지/RT 카드에서 수동 승격 (SaveArtifactDialog)
+- Artifacts 탭: 필터(All/Notes/Code/Specs/Harness), 정렬(Newest/Oldest/Title), 통합 리스트
+- Artifact 상세 모달: 전체 content 읽기 + status 변경 + copy/forward/delete
+- Provenance: source conversation/branch/RT 표시 + 클릭 시 이동 (jumpToSource)
+- 카드 + 모달에서 subtask link 표시
+
+### Settings 실제 구현
+- Agents: profile CRUD + engine/model/persona/skills 편집 + appStore persistence
+- Personas: 7종 built-in + 편집 UI (priorities/behaviors/constraints/tone/outputStyle/promptFragment)
+- Skills: Settings로 이동 완료
+- Runtime: rawq 상태, model catalog (+refresh), context budget 정책, background execution 설명
+
+### 문서 IA 거버넌스
+- documentationNavigationModel: 읽기 순서 + 문서 타입별 역할
+- documentMetadataSchema: type/status/canonical/related 메타 기준
+- documentVersioningPolicy: reference=같은 파일, plan=새 파일, brainstorm≠SSOT
+- documentNamingRule: 짧은 파일명 + title/metas/index 보완
+- CLAUDE.md §17에 규칙 요약
 
 ---
 
 ## 11. 다음 우선순위
 
 ### P0: 제품 완성도
-- 채팅 검색 구현 (FTS5 트리거 + 검색 커맨드 + UI)
+- 채팅 검색 구현 (FTS5 트리거 + 검색 커맨드 + UI) — 검색 placeholder 자리 확보됨
 - Persona runtime prompt 실제 동작 검증 (General → Reviewer → Tester 순)
-- Knowledge Sources 설정 셸 (context-hub 연동 준비)
+- Knowledge Sources 설정 셸 (context-hub 연동 준비) — 계획 문서 작성됨
 
 ### P1: 코드 정합성
 - dead code 삭제: ContextPanel, RoundtablesSection, BranchesSection, StatusBar, ChatObjectTabs, ProjectsSection
@@ -352,8 +374,8 @@ tunaFlow/
 ### P2: 후순위
 - Evaluation UI 연결 (backend 완료, frontend 미연결)
 - Chat virtualization (200+ 메시지 성능 이슈 시)
-- FTS 검색 (messages_fts 트리거 + UI)
-- Context budget scaling (60k → 단계적 상향)
+- Context budget 조정 UI (현재 읽기 전용)
+- Git sync Phase 1: branches.git_branch 필드 활용
 
 ---
 
