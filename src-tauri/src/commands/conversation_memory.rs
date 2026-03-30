@@ -21,6 +21,9 @@ const SUMMARY_PROMPT: &str = "\
 Summarize the following conversation into a structured memory document.
 Use these exact sections:
 
+## Participants
+Which agents (by profile name and engine) participated? List each with a one-line summary of their contribution.
+
 ## Task Overview
 What the user is working on and the main goal.
 
@@ -40,9 +43,10 @@ Unresolved issues or pending items.
 Any specific details, names, values, or constraints that must not be lost.
 
 Rules:
-- Be concise but preserve specifics (names, numbers, file paths).
+- Be concise but preserve specifics (names, numbers, file paths, agent names).
 - Each section should be 1-3 bullet points max.
-- Total summary should be under 1500 characters.
+- Total summary should be under 2000 characters.
+- The Participants section is mandatory — never omit agent names from the summary.
 - Write in the same language the conversation uses.
 
 ---
