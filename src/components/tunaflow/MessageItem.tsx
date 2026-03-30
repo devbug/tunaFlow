@@ -7,7 +7,7 @@ import { AgentAvatar } from "./AgentAvatar";
 import { markdownComponents } from "./chat/MarkdownComponents";
 import { MessageMeta } from "./message/MessageMeta";
 import { MessageActions } from "./message/MessageActions";
-import { TypingIndicator, ThinkingBlock, ThinkingSummary, ThinkingSummaryInline } from "./message/ProgressSurface";
+import { TypingIndicator } from "./message/ProgressSurface";
 
 function MarkdownBody({ content, className }: { content: string; className?: string }) {
   return (
@@ -70,24 +70,12 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
         <div className={cn("text-foreground/90 leading-relaxed", isCompact ? "text-xs" : "text-[13px]")}>
           {isUser ? (
             <p className={cn("bg-white/[0.035] rounded-lg px-3 py-2 inline-block", isCompact && "line-clamp-3")}>{message.content}</p>
-          ) : isStreaming && message.content === "" && !message.progressContent ? (
+          ) : isStreaming && !message.content ? (
             <TypingIndicator />
           ) : isStreaming ? (
-            <>
-              {/* Thinking block — live, separate from response */}
-              {message.progressContent && <ThinkingBlock content={message.progressContent} />}
-              {/* Response streaming below thinking */}
-              {message.content && <MarkdownBody content={message.content} />}
-            </>
+            <MarkdownBody content={message.content} />
           ) : (
-            <>
-              {/* Thinking: lazy-loaded from DB on expand (not part of context) */}
-              {message.progressContent && message.progressContent !== "…"
-                ? <ThinkingSummaryInline content={message.progressContent} />
-                : message.progressContent === "…" && <ThinkingSummary messageId={message.id} hasContent />
-              }
-              <MarkdownBody content={message.content} className={cn(isCompact && "line-clamp-3")} />
-            </>
+            <MarkdownBody content={message.content} className={cn(isCompact && "line-clamp-3")} />
           )}
         </div>
       </div>

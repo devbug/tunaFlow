@@ -128,34 +128,39 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
       messages: [
         ...state.messages,
         { id: `temp-user-${now}`, conversationId: selectedConversationId, role: "user", content: prompt, timestamp: now, status: "done" },
-        { id: `temp-thinking-${now}`, conversationId: selectedConversationId, role: "assistant", content: "", progressContent: config.label, timestamp: now, status: "streaming", engine: config.engineKey, model },
+        { id: `temp-thinking-${now}`, conversationId: selectedConversationId, role: "assistant", content: "", timestamp: now, status: "streaming", engine: config.engineKey, model },
       ],
     }));
 
-    // Helper: replace placeholder with real message on first event
-    const replaceOrUpdate = (messageId: string, field: "progressContent" | "content", text: string) => {
+    // Helper: replace placeholder with real message on first event, update content on subsequent
+    const replaceOrUpdate = (messageId: string, text: string) => {
       set((state) => {
         const existing = state.messages.find((m) => m.id === messageId);
         if (existing) {
-          if (field === "progressContent") {
-            const prev = existing.progressContent || "";
-            return { messages: state.messages.map((m) => m.id === messageId ? { ...m, progressContent: prev ? `${prev}\n${text}` : text } : m) };
-          }
           return { messages: state.messages.map((m) => m.id === messageId ? { ...m, content: text } : m) };
         }
+        // First event with real messageId — replace placeholder
         const withoutPlaceholder = state.messages.filter((m) => !m.id.startsWith("temp-thinking-"));
-        return { messages: [...withoutPlaceholder, { id: messageId, conversationId: selectedConversationId, role: "assistant" as const, content: field === "content" ? text : "", progressContent: field === "progressContent" ? text : undefined, timestamp: Date.now(), status: "streaming" as const, engine: config.engineKey, model }] };
+        return { messages: [...withoutPlaceholder, { id: messageId, conversationId: selectedConversationId, role: "assistant" as const, content: text, timestamp: Date.now(), status: "streaming" as const, engine: config.engineKey, model }] };
       });
     };
 
-    // Event listeners — engine-specific progress/chunk + common completed/error
+    // Event listeners — progress swaps placeholder, chunk updates content
     const eventPrefix = engine === "claude" ? "claude" : engine;
     const unlistenProgress = await listen<{ messageId: string; text: string }>(
-      `${eventPrefix}:progress`, (e) => replaceOrUpdate(e.payload.messageId, "progressContent", e.payload.text),
+      `${eventPrefix}:progress`, (e) => {
+        // Progress events only swap the placeholder to real messageId (content stays empty → typing indicator)
+        set((state) => {
+          const hasReal = state.messages.some((m) => m.id === e.payload.messageId);
+          if (hasReal) return state; // already swapped
+          const withoutPlaceholder = state.messages.filter((m) => !m.id.startsWith("temp-thinking-"));
+          return { messages: [...withoutPlaceholder, { id: e.payload.messageId, conversationId: selectedConversationId, role: "assistant" as const, content: "", timestamp: Date.now(), status: "streaming" as const, engine: config.engineKey, model }] };
+        });
+      },
     );
     const unlistenChunk = config.hasChunkEvent
       ? await listen<{ messageId: string; text: string }>(
-          `${eventPrefix}:chunk`, (e) => replaceOrUpdate(e.payload.messageId, "content", e.payload.text),
+          `${eventPrefix}:chunk`, (e) => replaceOrUpdate(e.payload.messageId, e.payload.text),
         )
       : () => {};
 
@@ -164,11 +169,6 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     const unlistenDone = await listen<{ messageId: string; conversationId: string }>("agent:completed", async (e) => {
       if (e.payload.conversationId !== selectedConversationId) return;
       cleanup();
-      // Save thinking/progress to DB before reloading (display only, not in context)
-      const streamingMsg = get().messages.find((m) => m.id === e.payload.messageId || m.status === "streaming");
-      if (streamingMsg?.progressContent) {
-        invoke("save_progress_content", { messageId: e.payload.messageId, progressContent: streamingMsg.progressContent }).catch(() => {});
-      }
       const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
       set({ messages });
       get()._endRun(selectedConversationId);
