@@ -326,7 +326,7 @@ function SearchBox({ projectKey, onSelectResult }: { projectKey: string | null; 
       </div>
 
       {open && results.length > 0 && (
-        <div className="absolute right-0 bottom-full mb-1 w-[360px] max-h-[400px] bg-popover border border-border/40 rounded-lg shadow-xl overflow-hidden z-50">
+        <div className="absolute right-0 top-full mt-1 w-[360px] max-h-[400px] bg-popover border border-border/40 rounded-lg shadow-xl overflow-hidden z-50">
           <div className="px-3 py-1.5 text-[11px] text-muted-foreground/50 border-b border-border/30">
             {results.length} results
           </div>
