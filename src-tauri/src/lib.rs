@@ -113,6 +113,7 @@ pub fn run() {
             commands::agents::start_gemini_stream,
             commands::agents::start_codex_run,
             commands::agents::start_opencode_run,
+            commands::agents::run_eval_agent,
             // Jobs
             commands::jobs::list_active_jobs,
             commands::jobs::cleanup_stale_jobs,

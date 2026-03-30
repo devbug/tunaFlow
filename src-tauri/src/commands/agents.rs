@@ -991,6 +991,57 @@ pub fn start_codex_run(input:SendWithClaudeInput,app:AppHandle,state:State<DbSta
     Ok(StartRunResult{message_id:r})
 }
 
+/// Eval-only: run a prompt through an engine synchronously, return content only.
+/// Does NOT persist to conversations/messages — result goes to eval_results instead.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvalAgentResult {
+    pub content: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cost_usd: f64,
+    pub duration_ms: i64,
+}
+
+#[tauri::command]
+pub fn run_eval_agent(
+    engine: String,
+    prompt: String,
+    model: Option<String>,
+    project_path: Option<String>,
+) -> Result<EvalAgentResult, AppError> {
+    use super::agents_helpers::send_common::*;
+    let t0 = std::time::Instant::now();
+
+    let run_input = claude::RunInput {
+        prompt: prompt.clone(),
+        model: model.clone(),
+        system_prompt: None,
+        resume_token: None,
+        project_path: project_path.clone(),
+    };
+
+    let result = match engine.as_str() {
+        "codex" => codex::run(run_input),
+        "gemini" => gemini::run(run_input),
+        "opencode" => opencode::run(run_input),
+        _ => claude::run(run_input), // default to claude
+    };
+
+    let duration_ms = t0.elapsed().as_millis() as i64;
+
+    match result {
+        Ok(out) => Ok(EvalAgentResult {
+            content: if out.content.is_empty() { "(no output)".into() } else { out.content },
+            input_tokens: out.input_tokens,
+            output_tokens: out.output_tokens,
+            cost_usd: out.cost_usd,
+            duration_ms,
+        }),
+        Err(e) => Err(AppError::Agent(format!("{} eval failed: {}", engine, e))),
+    }
+}
+
 /// Background OpenCode run — returns immediately.
 #[tauri::command]
 pub fn start_opencode_run(input:SendWithClaudeInput,app:AppHandle,state:State<DbState>)->Result<StartRunResult,AppError>{

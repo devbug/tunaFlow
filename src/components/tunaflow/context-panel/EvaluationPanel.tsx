@@ -306,10 +306,11 @@ function ExecuteButton({ run, onDone }: { run: EvalRun; onDone: () => void }) {
           const t0 = Date.now();
 
           try {
-            // Use CLI-style execution — placeholder for MVP
-            // Real execution would use start_claude_stream etc.
-            const content = `[Evaluation result placeholder — ${agent.engine}/${agent.label}]\n\nPrompt: ${run.prompt.slice(0, 100)}...`;
-            const durationMs = Date.now() - t0;
+            // Real agent execution via run_eval_agent
+            const result = await invoke<{ content: string; inputTokens: number; outputTokens: number; costUsd: number; durationMs: number }>(
+              "run_eval_agent",
+              { engine: agent.engine, prompt: fullPrompt, model: agent.model ?? null, projectPath: null }
+            );
 
             await invoke("add_eval_result", {
               input: {
@@ -317,11 +318,11 @@ function ExecuteButton({ run, onDone }: { run: EvalRun; onDone: () => void }) {
                 agentName: agent.label,
                 engine: agent.engine,
                 round,
-                content,
-                inputTokens: null,
-                outputTokens: null,
-                costUsd: null,
-                durationMs,
+                content: result.content,
+                inputTokens: result.inputTokens || null,
+                outputTokens: result.outputTokens || null,
+                costUsd: result.costUsd || null,
+                durationMs: result.durationMs,
               },
             });
           } catch (e) {
