@@ -60,13 +60,14 @@ fn fallback_models(engine: &str) -> Vec<(&'static str, &'static str, bool)> {
             ("o3-mini", "o3-mini", false),
         ],
         "gemini" => vec![
-            ("gemini-2.5-pro", "Gemini 2.5 Pro", true),
+            ("auto", "Auto (Gemini CLI default)", true),
+            ("gemini-2.5-pro", "Gemini 2.5 Pro", false),
             ("gemini-2.5-flash", "Gemini 2.5 Flash", false),
             ("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", false),
-            ("gemini-3-pro-preview", "Gemini 3 Pro Preview", false),
-            ("gemini-3-flash-preview", "Gemini 3 Flash Preview", false),
-            ("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview", false),
-            ("gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite Preview", false),
+            ("gemini-3-pro-preview", "Gemini 3 Pro (preview, 용량 미보장)", false),
+            ("gemini-3-flash-preview", "Gemini 3 Flash (preview, 용량 미보장)", false),
+            ("gemini-3.1-pro-preview", "Gemini 3.1 Pro (preview, 용량 미보장)", false),
+            ("gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite (preview, 용량 미보장)", false),
         ],
         "opencode" => vec![
             ("anthropic:claude-sonnet-4-6", "Claude Sonnet 4.6", true),
@@ -256,7 +257,11 @@ fn get_models_for_engine(engine: &str, force: bool) -> (Vec<String>, String) {
         _ => None,
     };
 
-    if let Some(models) = discovered {
+    if let Some(mut models) = discovered {
+        // Gemini: prepend "auto" option for CLI default routing
+        if engine == "gemini" && !models.contains(&"auto".to_string()) {
+            models.insert(0, "auto".to_string());
+        }
         let source = "discovered".to_string();
         if let Ok(mut cache) = MODEL_CACHE.lock() {
             cache.insert(engine.to_string(), CacheEntry {

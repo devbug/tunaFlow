@@ -121,7 +121,9 @@ pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
     cmd.arg("-p").arg(&input.prompt);
 
     if let Some(model) = &input.model {
-        cmd.arg("--model").arg(model);
+        if model != "auto" {
+            cmd.arg("--model").arg(model);
+        }
     }
 
     cmd.stdout(Stdio::piped())
@@ -237,7 +239,9 @@ where
         .arg("-y"); // auto-approve for non-interactive
 
     if let Some(model) = &input.model {
-        cmd.arg("--model").arg(model);
+        if model != "auto" {
+            cmd.arg("--model").arg(model);
+        }
     }
 
     cmd.stdout(Stdio::piped())
