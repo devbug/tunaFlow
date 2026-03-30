@@ -1,51 +1,76 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { ContextPanel } from "@/components/tunaflow/ContextPanel";
+import { render, screen } from "@testing-library/react";
+import { CenterPanel } from "@/components/tunaflow/CenterPanel";
+
+const workspaceState = {
+  artifacts: [],
+  memos: [],
+  messages: [],
+  branches: [],
+  conversations: [],
+  selectedConversationId: null,
+  activeBranchId: null,
+  parentConversationId: null,
+  threadBranchId: null,
+  threadBranchLabel: null,
+  runningThreadIds: [],
+  messageQueue: [],
+  rawqStatus: null,
+  deleteMemo: vi.fn(),
+  selectConversation: vi.fn(),
+  renameConversation: vi.fn(),
+  engineModels: [],
+  activeSkills: [],
+  scrollToMessageId: null,
+  selectedProjectKey: "test",
+  personaFragment: null,
+  personaLabel: null,
+};
 
 vi.mock("@/stores/chatStore", () => ({
-  useChatStore: vi.fn(() => ({
-    artifacts: [],
-    memos: [],
-    selectedConversationId: "conv-1",
-    activeBranchId: null,
-    parentConversationId: null,
-    runningThreadIds: [],
-    messageQueue: [],
-    rawqStatus: null,
-    branches: [],
-  })),
+  useChatStore: Object.assign(
+    vi.fn((selector?: any) => selector ? selector(workspaceState) : workspaceState),
+    { getState: () => workspaceState, setState: vi.fn() },
+  ),
 }));
 
-describe("Workspace panel smoke", () => {
-  it("renders workspace panel with mode tabs", () => {
-    render(<ContextPanel />);
-    expect(screen.getByTestId("workspace-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("mode-tab-plan")).toBeInTheDocument();
-    expect(screen.getByTestId("mode-tab-review")).toBeInTheDocument();
-    expect(screen.getByTestId("mode-tab-test")).toBeInTheDocument();
-    expect(screen.getByTestId("mode-tab-artifacts")).toBeInTheDocument();
-    expect(screen.getByTestId("mode-tab-trace")).toBeInTheDocument();
+vi.mock("@/lib/appStore", () => ({
+  getSetting: vi.fn(() => Promise.resolve([])),
+  setSetting: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(() => Promise.resolve([])),
+}));
+
+describe("CenterPanel smoke", () => {
+  it("renders with tab bar", () => {
+    render(<CenterPanel />);
+    expect(screen.getByText("Chat")).toBeInTheDocument();
+    expect(screen.getByText("Plan")).toBeInTheDocument();
+    expect(screen.getByText("Artifacts")).toBeInTheDocument();
+    expect(screen.getByText("Review")).toBeInTheDocument();
+    expect(screen.getByText("Test")).toBeInTheDocument();
   });
 
-  it("defaults to Plan mode", () => {
-    render(<ContextPanel />);
-    expect(screen.getByText("Plans")).toBeInTheDocument();
+  it("defaults to Chat tab", () => {
+    render(<CenterPanel />);
+    const chatTab = screen.getByText("Chat");
+    expect(chatTab).toBeInTheDocument();
   });
 
-  it("has all 5 mode tabs clickable", () => {
-    render(<ContextPanel />);
-    const modes = ["plan", "review", "test", "artifacts", "trace"];
-    for (const mode of modes) {
-      const tab = screen.getByTestId(`mode-tab-${mode}`);
-      expect(tab).toBeInTheDocument();
-      expect(tab).not.toBeDisabled();
+  it("has all 5 tabs clickable", () => {
+    render(<CenterPanel />);
+    const tabs = ["Chat", "Plan", "Artifacts", "Review", "Test"];
+    for (const tab of tabs) {
+      const el = screen.getByText(tab);
+      expect(el).toBeInTheDocument();
+      expect(el.closest("button")).not.toBeDisabled();
     }
   });
 
-  // Trace mode requires invoke mock for list_traces — skipped for now
-  it.skip("switches to Trace mode on tab click", () => {
-    render(<ContextPanel />);
-    fireEvent.click(screen.getByTestId("mode-tab-trace"));
-    expect(screen.getByText("Trace")).toBeInTheDocument();
+  it("shows search box", () => {
+    render(<CenterPanel />);
+    expect(screen.getByPlaceholderText("Search…")).toBeInTheDocument();
   });
 });

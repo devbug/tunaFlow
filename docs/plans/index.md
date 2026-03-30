@@ -165,6 +165,7 @@
 - [personaVsHandoffValidationPlan_2026-03-30](./personaVsHandoffValidationPlan_2026-03-30.md)
 - [handoffTruncationFixPlan_2026-03-30](./handoffTruncationFixPlan_2026-03-30.md)
 - [personaCliValidationPlan_2026-03-30](./personaCliValidationPlan_2026-03-30.md)
+- [codeHygienePassPlan_2026-03-30](./codeHygienePassPlan_2026-03-30.md)
 - [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md)
 - [sidebarThreeSectionPlan](./sidebarThreeSectionPlan.md)
 - [sidecarMigrationPlan](./sidecarMigrationPlan.md)

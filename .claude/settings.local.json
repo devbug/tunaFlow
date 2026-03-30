@@ -3,7 +3,20 @@
     "allow": [
       "Bash(cargo check:*)",
       "Bash(npm install:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx|js\\)$\")",
+      "Bash(find /Users/d9ng/privateProject/tunaFlow/src/components -type f -name *model* -o -name *select* -o -name *engine*)",
+      "Bash(gemini --version)",
+      "Bash(npm list:*)",
+      "Bash(npm root:*)",
+      "Bash(node:*)",
+      "Bash(ls -1 /Users/d9ng/privateProject/tunaFlow/docs/plans/*.md)",
+      "Bash(wc -l /Users/d9ng/privateProject/tunaFlow/src-tauri/src/commands/*.rs)",
+      "Bash(/tmp/tunaflow_docs_summary.txt:*)",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(rm:*)"
     ]
   }
 }
