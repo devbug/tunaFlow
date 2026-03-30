@@ -163,6 +163,8 @@
 - [chatSearchFtsPlan_2026-03-30](./chatSearchFtsPlan_2026-03-30.md)
 - [personaBehaviorValidationPlan_2026-03-30](./personaBehaviorValidationPlan_2026-03-30.md)
 - [personaVsHandoffValidationPlan_2026-03-30](./personaVsHandoffValidationPlan_2026-03-30.md)
+- [handoffTruncationFixPlan_2026-03-30](./handoffTruncationFixPlan_2026-03-30.md)
+- [personaCliValidationPlan_2026-03-30](./personaCliValidationPlan_2026-03-30.md)
 - [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md)
 - [sidebarThreeSectionPlan](./sidebarThreeSectionPlan.md)
 - [sidecarMigrationPlan](./sidecarMigrationPlan.md)
