@@ -144,7 +144,7 @@ export function Sidebar() {
             <span className="flex items-center gap-0.5 text-[9px] text-sidebar-foreground/30 font-mono shrink-0">
               <GitBranch className="w-2.5 h-2.5" />
               {gitBranch}
-              {gitDirty && <span className="text-status-draft">●</span>}
+              {gitDirty && <span className="text-status-draft ml-1">●</span>}
             </span>
           )}
           {currentRunning > 0 && (
