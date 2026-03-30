@@ -1,14 +1,15 @@
-import { cn, AGENT_DOT_COLORS, formatTimestamp, normalizeEngine } from "@/lib/utils";
-import { AgentAvatar } from "./AgentAvatar";
+import { cn, AGENT_DOT_COLORS, normalizeEngine } from "@/lib/utils";
 import type { Message, RoundtableParticipant } from "@/types";
-import { Copy, Users, Loader2, GitBranch, StickyNote, Forward, FileText, ShieldCheck, Trash2 } from "lucide-react";
+import { Users, Loader2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useState, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useChatStore } from "@/stores/chatStore";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { markdownComponents } from "./chat/MarkdownComponents";
+
+import { groupIntoRounds, getParticipants, parsePromptSources } from "./roundtable/rtUtils";
+import { RtMessageCard } from "./roundtable/RtMessageCard";
+
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 interface ParticipantStatus {
   name: string;
@@ -27,237 +28,15 @@ interface RoundtableViewProps {
   onFollowup?: (engine: string, content: string) => void;
   onSaveArtifact?: (content: string) => void;
   onDelete?: (messageId: string) => void;
-  /** Override conversationId for thread/drawer context */
   conversationId?: string;
 }
-
-// ─── Prompt source metadata ──────────────────────────────────────────────────
-
-interface PromptSources {
-  round: number;
-  totalRounds: number;
-  mode: string;
-  priorRoundRefs: string[];
-  currentRoundRefs: string[];
-}
-
-function parsePromptSources(msg: Message): PromptSources | null {
-  if (!msg.progressContent) return null;
-  try { return JSON.parse(msg.progressContent) as PromptSources; } catch { return null; }
-}
-
-function ReferenceBadge({ sources }: { sources: PromptSources }) {
-  const hasPrior = sources.priorRoundRefs.length > 0;
-  const hasCurrent = sources.currentRoundRefs.length > 0;
-
-  if (!hasPrior && !hasCurrent) {
-    return <span className="text-[8px] font-medium px-1 py-0.5 rounded bg-muted text-muted-foreground/50">Independent</span>;
-  }
-
-  const refs: string[] = [];
-  if (hasPrior) {
-    refs.push(sources.priorRoundRefs.length <= 2
-      ? sources.priorRoundRefs.map((n) => `← ${n}`).join(", ")
-      : `← Round ${sources.round - 1}`);
-  }
-  if (hasCurrent) {
-    refs.push(...sources.currentRoundRefs.map((n) => `← ${n}`));
-  }
-
-  return (
-    <span className="text-[8px] font-medium text-primary/50 bg-primary/5 px-1 py-0.5 rounded">
-      {refs.join(" · ")}
-    </span>
-  );
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function groupIntoRounds(messages: Message[]): Message[][] {
-  const assistantMsgs = messages.filter((m) => m.role === "assistant");
-  const hasSystemHeaders = assistantMsgs.some(
-    (m) => m.engine === "system" && /^---\s*Round\s+\d+/.test(m.content)
-  );
-
-  if (hasSystemHeaders) {
-    const rounds: Message[][] = [];
-    let currentRound: Message[] = [];
-    for (const msg of assistantMsgs) {
-      if (msg.engine === "system" && /^---\s*Round\s+\d+/.test(msg.content)) {
-        if (currentRound.length > 0) rounds.push(currentRound);
-        currentRound = [];
-      } else {
-        currentRound.push(msg);
-      }
-    }
-    if (currentRound.length > 0) rounds.push(currentRound);
-    return rounds;
-  }
-
-  const rounds: Message[][] = [];
-  let currentRound: Message[] = [];
-  const seenPersonas = new Set<string>();
-  for (const msg of assistantMsgs) {
-    if (msg.engine === "system") continue;
-    const persona = msg.persona ?? msg.engine ?? "agent";
-    if (seenPersonas.has(persona) && currentRound.length > 0) {
-      rounds.push(currentRound);
-      currentRound = [msg];
-      seenPersonas.clear();
-      seenPersonas.add(persona);
-    } else {
-      currentRound.push(msg);
-      seenPersonas.add(persona);
-    }
-  }
-  if (currentRound.length > 0) rounds.push(currentRound);
-  return rounds;
-}
-
-function getParticipants(messages: Message[]): { name: string; engine: string }[] {
-  const seen = new Map<string, string>();
-  for (const msg of messages) {
-    if (msg.role !== "assistant" || msg.engine === "system") continue;
-    const name = msg.persona ?? msg.engine ?? "Agent";
-    const engine = msg.engine ?? "claude";
-    if (!seen.has(name)) seen.set(name, engine);
-  }
-  return Array.from(seen.entries()).map(([name, engine]) => ({ name, engine }));
-}
-
-// ─── RT Message Card ────────────────────────────────────────────────────────
-
-interface RtMessageProps {
-  message: Message;
-  isLast: boolean;
-  onBranch?: (messageId: string) => void;
-  onBranchRT?: (messageId: string) => void;
-  onMemo?: (messageId: string) => void;
-  onFollowup?: (engine: string, content: string) => void;
-  onSaveArtifact?: (content: string) => void;
-  onDelete?: (messageId: string) => void;
-  participantMeta?: RoundtableParticipant;
-}
-
-function RoundtableMessage({ message, isLast, onBranch, onBranchRT, onMemo, onFollowup, onSaveArtifact, onDelete, participantMeta }: RtMessageProps) {
-  const [hovered, setHovered] = useState(false);
-  const name = message.persona ?? message.engine ?? "Agent";
-  const engine = message.engine ?? "";
-  const knownEngine = normalizeEngine(engine);
-  const dotColor = knownEngine ? AGENT_DOT_COLORS[knownEngine] : "bg-muted-foreground/40";
-  const content = message.content;
-  const sources = parsePromptSources(message);
-
-  return (
-    <div className="relative flex gap-3">
-      {/* Timeline line */}
-      {!isLast && (
-        <div className="absolute left-[11px] top-7 bottom-0 w-px bg-border/30" />
-      )}
-      {/* Avatar */}
-      <div className="relative z-10 shrink-0">
-        <AgentAvatar engine={engine} size="md" />
-      </div>
-      {/* Card */}
-      <div
-        className={cn(
-          "flex-1 min-w-0 mb-3 rounded-md bg-card/60 border border-border/30 p-3 transition-colors relative overflow-hidden",
-          hovered && "border-border/50"
-        )}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-      >
-        {/* Header: engine · model · role */}
-        <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-          <span className="inline-flex items-center gap-1">
-            <span className={cn("w-1.5 h-1.5 rounded-full", dotColor)} />
-            <span className="text-[10px] font-medium text-foreground/80">{engine || name}</span>
-          </span>
-          {message.model && (
-            <span className="text-[8px] text-foreground/40 font-mono bg-accent/40 px-1 py-0.5 rounded">
-              {message.model}
-            </span>
-          )}
-          {participantMeta?.role && (
-            <span className="text-[8px] text-primary/50 bg-primary/8 px-1 py-px rounded font-medium">
-              {participantMeta.role}
-            </span>
-          )}
-          {participantMeta?.blind && (
-            <span className="text-[8px] text-amber-500/60 bg-amber-500/8 px-1 py-px rounded font-medium inline-flex items-center gap-0.5">
-              <ShieldCheck className="w-2.5 h-2.5" />blind
-            </span>
-          )}
-          <span className="text-[9px] text-muted-foreground/40 font-mono">
-            {formatTimestamp(message.timestamp)}
-          </span>
-          {sources && <ReferenceBadge sources={sources} />}
-        </div>
-
-        {/* Body — same react-markdown pipeline as main chat */}
-        <div className="prose prose-sm prose-invert max-w-none text-[13px] text-foreground/90 leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-          <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]} components={markdownComponents}>
-            {content}
-          </ReactMarkdown>
-        </div>
-
-        {/* Actions */}
-        <div className={cn(
-          "absolute right-2 top-2 flex items-center gap-0.5 transition-opacity",
-          hovered ? "opacity-100" : "opacity-0 pointer-events-none"
-        )}>
-          {onBranch && (
-            <button onClick={() => onBranch(message.id)} title="Branch"
-              className="p-1 rounded text-muted-foreground/40 hover:text-foreground hover:bg-accent transition-colors">
-              <GitBranch className="w-3 h-3" />
-            </button>
-          )}
-          {onBranchRT && (
-            <button onClick={() => onBranchRT(message.id)} title="Roundtable"
-              className="p-1 rounded text-muted-foreground/40 hover:text-agent-gemini hover:bg-agent-gemini/10 transition-colors">
-              <Users className="w-3 h-3" />
-            </button>
-          )}
-          {onMemo && (
-            <button onClick={() => onMemo(message.id)} title="Memo"
-              className="p-1 rounded text-muted-foreground/40 hover:text-foreground hover:bg-accent transition-colors">
-              <StickyNote className="w-3 h-3" />
-            </button>
-          )}
-          {onSaveArtifact && (
-            <button onClick={() => onSaveArtifact(message.content)} title="Save as Artifact"
-              className="p-1 rounded text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors">
-              <FileText className="w-3 h-3" />
-            </button>
-          )}
-          {onFollowup && (
-            <button onClick={() => onFollowup(message.engine ?? "claude", message.content)} title="Forward"
-              className="p-1 rounded text-muted-foreground/40 hover:text-foreground hover:bg-accent transition-colors">
-              <Forward className="w-3 h-3" />
-            </button>
-          )}
-          <button onClick={() => navigator.clipboard.writeText(message.content)} title="Copy"
-            className="p-1 rounded text-muted-foreground/40 hover:text-foreground hover:bg-accent transition-colors">
-            <Copy className="w-3 h-3" />
-          </button>
-          {onDelete && (
-            <button onClick={() => onDelete(message.id)} title="Delete"
-              className="p-1 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors">
-              <Trash2 className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Main View ───────────────────────────────────────────────────────────────
 
 const RT_MODE_LABELS: Record<string, string> = {
   sequential: "Sequential",
   deliberative: "Deliberative",
 };
+
+// ─── Main View ──────────────────────────────────────────────────────────────
 
 export function RoundtableView({ messages, conversationId, onBranch, onBranchRT, onMemo, onFollowup, onSaveArtifact, onDelete }: RoundtableViewProps) {
   const participants = getParticipants(messages);
@@ -304,16 +83,12 @@ export function RoundtableView({ messages, conversationId, onBranch, onBranchRT,
       },
     ).then((fn) => { unlisten = fn; });
 
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
+    return () => { cancelled = true; unlisten?.(); };
   }, [targetConvId]);
 
-  // Clear statuses when RT finishes (no more running)
+  // Clear statuses when RT finishes
   useEffect(() => {
     if (!isRunning && pStatuses.size > 0) {
-      // Keep for 2s after completion so user sees final state, then clear
       const timer = setTimeout(() => setPStatuses(new Map()), 2000);
       return () => clearTimeout(timer);
     }
@@ -321,10 +96,7 @@ export function RoundtableView({ messages, conversationId, onBranch, onBranchRT,
 
   const userMessages = messages.filter((m) => m.role === "user");
   const originalTopic = userMessages.length > 0 ? userMessages[0].content : null;
-
-  const roundTopics: (string | null)[] = rounds.map((_, i) =>
-    i < userMessages.length ? userMessages[i].content : null
-  );
+  const roundTopics: (string | null)[] = rounds.map((_, i) => i < userMessages.length ? userMessages[i].content : null);
 
   const firstRtMsg = messages.find((m) => m.role === "assistant" && m.engine !== "system" && m.progressContent);
   const firstSources = firstRtMsg ? parsePromptSources(firstRtMsg) : null;
@@ -353,25 +125,20 @@ export function RoundtableView({ messages, conversationId, onBranch, onBranchRT,
         )}
 
         <div className="flex items-center gap-2.5 flex-wrap text-[10px] text-muted-foreground/50">
-          <span className="flex items-center gap-1">
-            <Users className="w-3 h-3" />
-            {participants.length} participants
-          </span>
+          <span className="flex items-center gap-1"><Users className="w-3 h-3" />{participants.length} participants</span>
           <span className="w-px h-3 bg-border/30" />
           <span>{totalRounds} round{totalRounds > 1 ? "s" : ""}</span>
           <span className="w-px h-3 bg-border/30" />
           <span>{RT_MODE_LABELS[rtMode] ?? rtMode}</span>
         </div>
 
-        {/* Participant dots */}
         <div className="flex items-center gap-1.5 flex-wrap">
           {participants.map(({ name, engine }) => {
             const knownEngine = normalizeEngine(engine);
             const dotColor = knownEngine ? AGENT_DOT_COLORS[knownEngine] : "bg-muted-foreground/40";
             return (
               <span key={name} className="inline-flex items-center gap-1 text-[10px] font-medium text-foreground/60">
-                <span className={cn("w-1.5 h-1.5 rounded-full", dotColor)} />
-                {name}
+                <span className={cn("w-1.5 h-1.5 rounded-full", dotColor)} />{name}
               </span>
             );
           })}
@@ -380,52 +147,34 @@ export function RoundtableView({ messages, conversationId, onBranch, onBranchRT,
 
       {/* Rounds */}
       {rounds.map((round, roundIdx) => {
-        const roundParticipants = [...new Set(
-          round.filter((m) => m.persona).map((m) => m.persona!)
-        )];
+        const roundParticipants = [...new Set(round.filter((m) => m.persona).map((m) => m.persona!))];
         const roundIntent = roundTopics[roundIdx];
-        // For Round 1 don't repeat topic (already shown in header)
         const showIntent = roundIdx > 0 && roundIntent && roundIntent !== originalTopic;
-        const intentSummary = showIntent
-          ? (roundIntent!.length > 80 ? roundIntent!.slice(0, 80) + "…" : roundIntent!)
-          : null;
+        const intentSummary = showIntent ? (roundIntent!.length > 80 ? roundIntent!.slice(0, 80) + "…" : roundIntent!) : null;
 
         return (
           <div key={roundIdx} className="mb-6">
-            {/* Round divider */}
             <div className="flex items-center gap-2.5 mb-2">
               <div className="flex-1 h-px bg-border/20" />
               <span className="text-[9px] font-semibold uppercase tracking-widest text-primary/50 bg-primary/6 px-2 py-0.5 rounded">
                 Round {roundIdx + 1}
               </span>
-              {roundParticipants.length > 0 && (
-                <span className="text-[8px] text-muted-foreground/40">
-                  {roundParticipants.join(", ")}
-                </span>
-              )}
-              {roundIdx === 0 && rounds.length > 1 && rtMode === "deliberative" && (
-                <span className="text-[8px] text-muted-foreground/30 italic">independent</span>
-              )}
-              {roundIdx > 0 && (
-                <span className="text-[8px] text-muted-foreground/30 italic">
-                  {rtMode === "sequential" ? "builds on prior" : "reflects on prior"}
-                </span>
-              )}
+              {roundParticipants.length > 0 && <span className="text-[8px] text-muted-foreground/40">{roundParticipants.join(", ")}</span>}
+              {roundIdx === 0 && rounds.length > 1 && rtMode === "deliberative" && <span className="text-[8px] text-muted-foreground/30 italic">independent</span>}
+              {roundIdx > 0 && <span className="text-[8px] text-muted-foreground/30 italic">{rtMode === "sequential" ? "builds on prior" : "reflects on prior"}</span>}
               <div className="flex-1 h-px bg-border/20" />
             </div>
-            {/* Round intent — shown for follow-up rounds with a different prompt */}
             {intentSummary && (
               <div className="mb-3 mx-1 rounded bg-accent/20 px-2.5 py-1.5">
                 <p className="text-[9px] text-muted-foreground/50 uppercase tracking-wider mb-0.5">Intent</p>
                 <p className="text-[11px] text-foreground/70 leading-relaxed">{intentSummary}</p>
               </div>
             )}
-
-            {/* Messages */}
             <div>
               {round.map((msg, i) => (
-                <RoundtableMessage key={msg.id} message={msg} isLast={i === round.length - 1}
-                  onBranch={onBranch} onBranchRT={onBranchRT} onMemo={onMemo} onFollowup={onFollowup} onSaveArtifact={onSaveArtifact} onDelete={onDelete}
+                <RtMessageCard key={msg.id} message={msg} isLast={i === round.length - 1}
+                  onBranch={onBranch} onBranchRT={onBranchRT} onMemo={onMemo} onFollowup={onFollowup}
+                  onSaveArtifact={onSaveArtifact} onDelete={onDelete}
                   participantMeta={rtParticipants.find((rp) => rp.name === (msg.persona ?? msg.engine))} />
               ))}
             </div>
@@ -433,12 +182,10 @@ export function RoundtableView({ messages, conversationId, onBranch, onBranchRT,
         );
       })}
 
-      {/* ─── Live participant telemetry ─── */}
+      {/* Live participant telemetry */}
       {pStatuses.size > 0 && (
         <div className="mt-2 mb-4 rounded-md border border-border/30 bg-card/40 px-3 py-2 space-y-1">
-          <p className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-1">
-            Participant Status
-          </p>
+          <p className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-1">Participant Status</p>
           {Array.from(pStatuses.values()).map((ps) => {
             const knownEngine = normalizeEngine(ps.engine);
             const dotColor = knownEngine ? AGENT_DOT_COLORS[knownEngine] : "bg-muted-foreground/40";
@@ -449,10 +196,7 @@ export function RoundtableView({ messages, conversationId, onBranch, onBranchRT,
                 {ps.model && <span className="text-[8px] text-foreground/35 font-mono bg-accent/30 px-0.5 rounded">{ps.model}</span>}
                 <span className="text-muted-foreground/40">R{ps.round}</span>
                 {ps.status === "running" ? (
-                  <span className="flex items-center gap-1 text-primary/60">
-                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                    running
-                  </span>
+                  <span className="flex items-center gap-1 text-primary/60"><Loader2 className="w-2.5 h-2.5 animate-spin" />running</span>
                 ) : ps.status === "error" ? (
                   <span className="text-destructive/60">error</span>
                 ) : (
