@@ -179,6 +179,7 @@
 - [gitSyncPhase2GuardedActionsPlan_2026-03-30](./gitSyncPhase2GuardedActionsPlan_2026-03-30.md)
 - [deferredTechReevaluationPlan_2026-03-30](./deferredTechReevaluationPlan_2026-03-30.md)
 - [contextStackReevaluationPlan_2026-03-30](./contextStackReevaluationPlan_2026-03-30.md)
+- [contextPackP0Phase1Plan_2026-03-30](./contextPackP0Phase1Plan_2026-03-30.md)
 - [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md)
 - [sidebarThreeSectionPlan](./sidebarThreeSectionPlan.md)
 - [sidecarMigrationPlan](./sidecarMigrationPlan.md)
