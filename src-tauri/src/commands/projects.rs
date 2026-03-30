@@ -86,6 +86,10 @@ pub fn create_project(
                     "UPDATE projects SET hidden = 0, name = ?1, updated_at = ?2 WHERE key = ?3",
                     params![input.name, now_epoch(), existing_key],
                 )?;
+                // Scaffold on restore too (creates only missing files)
+                if let Some(ref np) = normalized_path {
+                    scaffold_project_dir(np, &input.name);
+                }
                 return conn.query_row(
                     "SELECT key, name, path, type, default_engine, workspace_root, source, updated_at
                      FROM projects WHERE key = ?1",
