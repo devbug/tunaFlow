@@ -134,11 +134,11 @@ export function BranchThreadPanel() {
         )}>
           {isRT ? "RT" : "Branch"}
         </span>
-        {threadBranch?.gitBranch && (
-          <span className="text-[8px] font-mono text-muted-foreground/30 px-1 py-0.5 rounded bg-muted/50 shrink-0 truncate max-w-[80px]">
-            {threadBranch.gitBranch}
-          </span>
-        )}
+        <GitLinkBadge
+          branchId={threadBranchId}
+          gitBranch={threadBranch?.gitBranch ?? null}
+          isReadOnly={isReadOnly}
+        />
         {isReadOnly && (
           <span className={cn("text-[8px] font-medium px-1 py-0.5 rounded uppercase tracking-wider shrink-0",
             threadBranch?.status === "adopted" ? "text-status-approved/60 bg-status-approved/8" : "text-muted-foreground/40 bg-muted"
@@ -325,4 +325,53 @@ export function BranchThreadPanel() {
       />
     </div>
   );
+}
+
+// ─── Git Link Badge (editable) ──────────────────────────────────────────────
+
+function GitLinkBadge({ branchId, gitBranch, isReadOnly }: { branchId: string; gitBranch: string | null; isReadOnly: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(gitBranch ?? "");
+  const linkGitBranch = useChatStore((s) => s.linkGitBranch);
+
+  if (editing && !isReadOnly) {
+    return (
+      <input
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => { linkGitBranch(branchId, value.trim() || null); setEditing(false); }}
+        onKeyDown={(e) => { if (e.key === "Enter") { linkGitBranch(branchId, value.trim() || null); setEditing(false); } if (e.key === "Escape") setEditing(false); }}
+        placeholder="git branch"
+        className="text-[8px] font-mono text-muted-foreground/50 bg-muted/50 px-1.5 py-0.5 rounded outline-none border border-ring/30 w-[100px] shrink-0"
+      />
+    );
+  }
+
+  if (gitBranch) {
+    return (
+      <button
+        onClick={() => !isReadOnly && setEditing(true)}
+        className={cn("text-[8px] font-mono text-muted-foreground/30 px-1 py-0.5 rounded bg-muted/50 shrink-0 truncate max-w-[80px]",
+          !isReadOnly && "hover:text-muted-foreground/60 hover:bg-muted cursor-pointer")}
+        title={isReadOnly ? gitBranch : `Click to edit: ${gitBranch}`}
+      >
+        {gitBranch}
+      </button>
+    );
+  }
+
+  if (!isReadOnly) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        className="text-[8px] text-muted-foreground/20 hover:text-muted-foreground/40 px-1 py-0.5 rounded hover:bg-muted/50 shrink-0 transition-colors"
+        title="Link git branch"
+      >
+        + git
+      </button>
+    );
+  }
+
+  return null;
 }

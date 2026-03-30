@@ -123,6 +123,7 @@ export interface ChatState {
   renameConversation: (id: string, customLabel: string) => Promise<void>;
   deleteMessagePair: (messageId: string) => Promise<void>;
   renameBranch: (branchId: string, customLabel: string) => Promise<void>;
+  linkGitBranch: (branchId: string, gitBranch: string | null) => Promise<void>;
   adoptBranch: (branchId: string, conversationId: string) => Promise<void>;
   openBranchStream: (branchId: string) => Promise<void>;
   closeBranchStream: () => Promise<void>;

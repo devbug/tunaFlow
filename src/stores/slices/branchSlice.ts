@@ -27,6 +27,7 @@ export interface BranchSlice {
   createBranch: (conversationId: string, checkpointId?: string, label?: string, mode?: string) => Promise<void>;
   deleteBranch: (branchId: string) => Promise<void>;
   renameBranch: (branchId: string, customLabel: string) => Promise<void>;
+  linkGitBranch: (branchId: string, gitBranch: string | null) => Promise<void>;
   adoptBranch: (branchId: string, conversationId: string) => Promise<void>;
   openBranchStream: (branchId: string) => Promise<void>;
   closeBranchStream: () => Promise<void>;
@@ -120,6 +121,17 @@ export const createBranchSlice = (set: SetState, get: GetState): BranchSlice => 
     });
     try {
       await invoke("rename_branch", { id: branchId, customLabel });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  linkGitBranch: async (branchId: string, gitBranch: string | null) => {
+    set((state) => ({
+      branches: state.branches.map((b) => b.id === branchId ? { ...b, gitBranch: gitBranch ?? undefined } : b),
+    }));
+    try {
+      await invoke("link_git_branch", { id: branchId, gitBranch });
     } catch (e) {
       set({ error: String(e) });
     }

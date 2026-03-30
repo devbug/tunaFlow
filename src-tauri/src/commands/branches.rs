@@ -238,6 +238,15 @@ pub fn rename_branch(id: String, custom_label: String, state: State<DbState>) ->
     Ok(())
 }
 
+/// Link or unlink a git branch to a tunaFlow branch.
+#[tauri::command]
+pub fn link_git_branch(id: String, git_branch: Option<String>, state: State<DbState>) -> Result<(), AppError> {
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    let value = git_branch.as_deref().and_then(|v| if v.trim().is_empty() { None } else { Some(v.trim()) });
+    conn.execute("UPDATE branches SET git_branch = ?1 WHERE id = ?2", params![value, id])?;
+    Ok(())
+}
+
 /// Delete a branch and its descendants.
 /// - Active branches: full delete (branch + shadow conv + messages + memos + artifacts)
 /// - Adopted/archived branches: pointer-only delete (branch row removed, shadow conv + messages preserved)
