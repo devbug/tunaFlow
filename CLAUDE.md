@@ -386,19 +386,24 @@ tunaFlow/
 
 ## 11. 다음 우선순위
 
-### P0: 제품 완성도
-- branchSlice sendThreadMessage 팩토리 전환 (runtimeSlice만 완료)
-- 실질적 테스트 추가: store 상태 전이, ContextPack 조립 경로, 메시지 큐잉
+### P0: 실사용 검증 (다음 세션 즉시)
+- Compressed memory 검증: 긴 대화(12+ msg)에서 생성/stale 전환/ContextPack 주입
+- Conversation retrieval 검증: 다중 대화 프로젝트에서 FTS5 chunk 회수 + 중복 억제
+- Auto mode 검증: 짧은 follow-up → Lite, 구조화 작업 → Full, 나머지 → Standard
+- Budget control UI 실반영: Settings 변경 → 실제 prompt/trace 반영
+- RT 기능 안정성: blind verifier, role cap, completion-order, identity 주입
 
 ### P1: 코드 정합성
-- smoke test 복구 (store mock 업데이트 — isRunning 제거 반영)
-- RoundtableView 453줄 분할
-- Compressed memory 품질 검증 (긴 대화 시나리오)
+- branchSlice sendThreadMessage 추가 정리
+- RoundtableView 분할 (현재 450줄+)
+- smoke test 복구 (store mock — isRunning 제거 반영)
 
 ### P2: 후순위
-- Chat virtualization (200+ 메시지 성능 이슈 시)
-- Long-term memory Phase 2: structured memory 강화, conversation retrieval
-- context-hub auto ContextPack injection (현재는 explicit handoff만)
+- Startup UX 마감 (워크플로우 안정화 후)
+- RT preset / workflow preset
+- Chat virtualization (200+ 메시지)
+- context-hub 설치 후 실연동 검증
+- context-hub auto ContextPack injection
 
 ---
 

@@ -117,6 +117,7 @@
 | [roundtableParticipantRoleBlindUiPlan_2026-03-30](./roundtableParticipantRoleBlindUiPlan_2026-03-30.md) | 중요 / P1 — RT participant 설정 UI에서 role/blind/max token override를 실제로 다루게 하는 연결 단계 |
 | [roundtableParticipantSurfaceVisibilityPlan_2026-03-30](./roundtableParticipantSurfaceVisibilityPlan_2026-03-30.md) | 중요 / P1 — RT 실행/조회 표면에서 participant role/blind를 다시 읽을 수 있게 하는 가시화 단계 |
 | [roundtableRoleTerminologySeparationPlan_2026-03-30](./roundtableRoleTerminologySeparationPlan_2026-03-30.md) | 중요 / P1 — 프로젝트 프로필 역할과 RT 토론 역할을 분리해 `role` 혼동을 없애는 정리 단계 |
+| [runtimeFeatureValidationPlan_2026-03-30](./runtimeFeatureValidationPlan_2026-03-30.md) | 중요 / P1 — compressed memory / retrieval / auto mode / budget reflection / RT 회귀를 실제 시나리오로 검증하는 라운드 |
 | [agentDaemonRoadmapPlan](./agentDaemonRoadmapPlan.md) | Phase 1-2 완료 (background worker + job registry). Phase 3 daemon extraction 진행 예정 |
 | [contextBudgetScalingPlan](./contextBudgetScalingPlan.md) | background execution 안정화 후 베타에서 단계적 context budget 상향 실험 |
 | [planBasedFollowupPlan](./planBasedFollowupPlan.md) | PlansPanel Forward 버튼은 구현됨. subtask 단위 자동 dispatch는 미구현 |
@@ -232,6 +233,7 @@
 - [roundtableParticipantRoleBlindUiPlan_2026-03-30](./roundtableParticipantRoleBlindUiPlan_2026-03-30.md)
 - [roundtableParticipantSurfaceVisibilityPlan_2026-03-30](./roundtableParticipantSurfaceVisibilityPlan_2026-03-30.md)
 - [roundtableRoleTerminologySeparationPlan_2026-03-30](./roundtableRoleTerminologySeparationPlan_2026-03-30.md)
+- [runtimeFeatureValidationPlan_2026-03-30](./runtimeFeatureValidationPlan_2026-03-30.md)
 - [promptQualityAdoptionPlan_2026-03-30](./promptQualityAdoptionPlan_2026-03-30.md)
 - [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md)
 - [sidebarThreeSectionPlan](./sidebarThreeSectionPlan.md)
