@@ -611,7 +611,7 @@ pub fn assemble_prompt(
     // Layer 5+: Skills, rawq, cross-session (supplementary sources)
     if ctx_mode >= ContextMode::Full || !data.active_skills.is_empty() {
         if let Some(s) = guardrail::truncate_section(
-            build_skills_section(&data.active_skills),
+            build_skills_section(&data.active_skills, &data.prompt),
             guardrail::MAX_SKILLS_SECTION,
         ) {
             sections.push(s);

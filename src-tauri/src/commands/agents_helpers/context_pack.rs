@@ -176,20 +176,89 @@ pub fn combine_prompt_parts(parts: impl IntoIterator<Item = Option<String>>) -> 
     if joined.is_empty() { None } else { Some(joined) }
 }
 
-pub fn build_skills_section(skill_names: &[String]) -> Option<String> {
+/// Build skills section with selective injection.
+///
+/// Instead of injecting full SKILL.md content, splits each skill by `## ` headers
+/// and only includes sections whose header or content matches keywords from the prompt.
+/// Unmatched sections are replaced with a compact reference: "[SkillName: N sections omitted]".
+pub fn build_skills_section(skill_names: &[String], prompt: &str) -> Option<String> {
     if skill_names.is_empty() {
         return None;
     }
-    let mut sections = Vec::new();
+
+    // Extract keywords from prompt (≥3 chars, lowercased, unique)
+    let keywords: Vec<String> = prompt
+        .split_whitespace()
+        .map(|w| w.to_lowercase())
+        .filter(|w| w.len() >= 3)
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    let mut skill_blocks = Vec::new();
     for name in skill_names {
         if let Ok(skill) = crate::commands::skills::get_skill(name.clone()) {
-            sections.push(format!("### {}\n\n{}", skill.name, skill.content));
+            let block = extract_relevant_skill_sections(&skill.name, &skill.content, &keywords);
+            skill_blocks.push(block);
         }
     }
-    if sections.is_empty() {
+    if skill_blocks.is_empty() {
         return None;
     }
-    Some(format!("## Active skills\n\n{}", sections.join("\n\n")))
+    Some(format!("## Active skills\n\n{}", skill_blocks.join("\n\n")))
+}
+
+/// Extract only relevant sections from a skill's markdown content.
+///
+/// Splits by `## ` headers, checks each section for keyword matches,
+/// includes matching sections and summarizes omitted ones.
+fn extract_relevant_skill_sections(skill_name: &str, content: &str, keywords: &[String]) -> String {
+    // Split content by ## headers
+    let mut sections: Vec<(&str, &str)> = Vec::new(); // (header, body)
+    let mut current_header = "";
+    let mut current_start = 0;
+
+    for (i, line) in content.lines().enumerate() {
+        if line.starts_with("## ") {
+            if i > 0 {
+                let body = &content[current_start..content.lines().take(i).map(|l| l.len() + 1).sum::<usize>().saturating_sub(1)];
+                sections.push((current_header, body.trim()));
+            }
+            current_header = line;
+            current_start = content.lines().take(i).map(|l| l.len() + 1).sum::<usize>();
+        }
+    }
+    // Last section
+    let remaining = &content[current_start..];
+    sections.push((current_header, remaining.trim()));
+
+    // If no headers found (flat content) or keywords empty → include everything
+    if sections.len() <= 1 || keywords.is_empty() {
+        return format!("### {}\n\n{}", skill_name, truncate_str(content, 2000));
+    }
+
+    let mut included = Vec::new();
+    let mut omitted = 0;
+
+    for (header, body) in &sections {
+        let combined = format!("{} {}", header.to_lowercase(), body.to_lowercase());
+        let matches = keywords.iter().any(|kw| combined.contains(kw.as_str()));
+        if matches || header.is_empty() {
+            // Include this section (truncate individual sections to prevent bloat)
+            included.push(format!("{}\n{}", header, truncate_str(body, 800)));
+        } else {
+            omitted += 1;
+        }
+    }
+
+    let mut result = format!("### {}\n\n", skill_name);
+    if !included.is_empty() {
+        result.push_str(&included.join("\n\n"));
+    }
+    if omitted > 0 {
+        result.push_str(&format!("\n\n[{}: {} section{} omitted]", skill_name, omitted, if omitted > 1 { "s" } else { "" }));
+    }
+    result
 }
 
 pub fn build_cross_session_section(
