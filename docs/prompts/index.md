@@ -58,5 +58,6 @@ Opus/Claude에 전달하는 실행 지시문, hand-off 문서, 초기 구현 프
 - [2026-03-30/artifact_navigation_actions_prompt](./2026-03-30/artifact_navigation_actions_prompt.md): Artifact provenance를 실제 source/subtask navigation으로 연결하는 프롬프트
 - [2026-03-30/chat_search_fts_prompt](./2026-03-30/chat_search_fts_prompt.md): CenterPanel 검색 placeholder를 FTS 기반 메시지 검색으로 바꾸는 프롬프트
 - [2026-03-30/persona_behavior_validation_prompt](./2026-03-30/persona_behavior_validation_prompt.md): General/Reviewer/Tester persona가 실제 응답 차이로 이어지는지 검증하는 프롬프트
+- [2026-03-30/persona_handoff_validation_prompt](./2026-03-30/persona_handoff_validation_prompt.md): persona 비교와 agent handoff 검증을 분리해서 다시 수행하는 프롬프트
 - [2026-03-29/window_state_restore_fix_prompt](./2026-03-29/window_state_restore_fix_prompt.md): 창 위치/크기 복원 확인 및 수정 프롬프트
 - [2026-03-29/window_state_restore_review_checklist](./2026-03-29/window_state_restore_review_checklist.md): 창 상태 복원 검증 체크리스트
