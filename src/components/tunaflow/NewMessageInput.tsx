@@ -230,7 +230,16 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
               {/* Custom mode: show engine/model selectors */}
               {(!selectedProfileId || profiles.length === 0) && (
                 <>
-                  <EngineSelector engine={engine} setEngine={setEngine} />
+                  <EngineSelector engine={engine} setEngine={(e) => {
+                    setEngine(e);
+                    // Reset persona if engine doesn't match current profile
+                    const currentProfile = profiles.find((p) => p.id === selectedProfileId);
+                    if (currentProfile && currentProfile.engine !== e) {
+                      setSelectedProfileId(null);
+                      setSetting("lastProfileId", null);
+                      useChatStore.setState({ personaFragment: null, personaLabel: null });
+                    }
+                  }} />
                   <ModelSelector
                     currentModels={currentModels}
                     selectedModel={selectedModel}
