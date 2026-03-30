@@ -129,13 +129,7 @@ pub fn run() {
             commands::branches::create_git_branch,
             commands::branches::checkout_git_branch,
             commands::branches::open_branch_stream,
-            // Agent
-            commands::agents::send_with_claude,
-            commands::agents::stream_with_claude,
-            commands::agents::send_with_codex,
-            commands::agents::send_with_gemini,
-            commands::agents::stream_with_gemini,
-            commands::agents::send_with_opencode,
+            // Agent (background start_* commands only)
             commands::agents::start_claude_stream,
             commands::agents::start_gemini_stream,
             commands::agents::start_codex_run,

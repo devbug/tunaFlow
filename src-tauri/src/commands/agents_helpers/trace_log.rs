@@ -25,6 +25,7 @@ pub struct ContextPackMeta {
 
 impl ContextPackMeta {
     /// Build metadata from assembled prompt parts.
+    #[allow(dead_code)]
     pub fn from_parts(
         mode: &str,
         section_flags: &[(&str, bool)],

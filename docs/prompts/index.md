@@ -107,5 +107,8 @@ Opus/Claude에 전달하는 실행 지시문, hand-off 문서, 초기 구현 프
 - [2026-03-30/roundtable_participant_surface_visibility_prompt](./2026-03-30/roundtable_participant_surface_visibility_prompt.md): RT 실행/조회 표면에서 participant role/blind를 다시 읽을 수 있게 하는 프롬프트
 - [2026-03-30/roundtable_role_terminology_separation_prompt](./2026-03-30/roundtable_role_terminology_separation_prompt.md): 프로젝트 프로필 역할과 RT 토론 역할을 분리해 `role` 혼동을 없애는 프롬프트
 - [2026-03-30/runtime_feature_validation_prompt](./2026-03-30/runtime_feature_validation_prompt.md): compressed memory / retrieval / auto mode / budget reflection / RT 회귀를 실제 사용 흐름으로 검증하는 프롬프트
+- [2026-03-30/post_parity_runtime_validation_sweep_prompt](./2026-03-30/post_parity_runtime_validation_sweep_prompt.md): Claude parity fix 이후 통합 ContextPack 파이프라인이 실제로 동작하는지 재검증하는 프롬프트
+- [2026-03-30/live_runtime_trace_parity_validation_prompt](./2026-03-30/live_runtime_trace_parity_validation_prompt.md): 앱 실행 기준으로 4-engine trace/meta parity를 실제 surface에서 재확인하는 프롬프트
+- [2026-03-30/real_workflow_memory_quality_validation_prompt](./2026-03-30/real_workflow_memory_quality_validation_prompt.md): 실제 프로젝트 흐름에서 memory/retrieval/auto/budget이 응답 품질에 주는 효과를 검증하는 프롬프트
 - [2026-03-29/window_state_restore_fix_prompt](./2026-03-29/window_state_restore_fix_prompt.md): 창 위치/크기 복원 확인 및 수정 프롬프트
 - [2026-03-29/window_state_restore_review_checklist](./2026-03-29/window_state_restore_review_checklist.md): 창 상태 복원 검증 체크리스트

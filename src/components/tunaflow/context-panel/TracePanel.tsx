@@ -62,17 +62,25 @@ function formatTime(epoch: number): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+/** Extract base mode name from trace format, e.g. "Standard(auto:standard(baseline))" → "standard" */
+function baseMode(mode: string): string {
+  const idx = mode.indexOf("(");
+  return (idx > 0 ? mode.slice(0, idx) : mode).toLowerCase();
+}
+
 function contextModeColor(mode: string): string {
-  const m = mode.toLowerCase();
+  const m = baseMode(mode);
   if (m === "full") return "bg-purple-500/15 text-purple-400/80";
   if (m === "standard") return "bg-blue-500/15 text-blue-400/80";
   return "bg-muted-foreground/10 text-muted-foreground/60"; // Lite
 }
 
 function contextModeAbbrev(mode: string): string {
-  const m = mode.toLowerCase();
+  const m = baseMode(mode);
   if (m === "standard") return "Std";
-  return mode.charAt(0).toUpperCase() + mode.slice(1).toLowerCase();
+  if (m === "full") return "Full";
+  if (m === "lite") return "Lite";
+  return mode.charAt(0).toUpperCase() + mode.slice(1);
 }
 
 function formatElapsed(startedAt: number): string {

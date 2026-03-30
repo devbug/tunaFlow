@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { ENGINE_CONFIGS } from "./runtimeSlice";
 import type {
   SetState,
   GetState,
@@ -301,7 +302,7 @@ export const createBranchSlice = (set: SetState, get: GetState): BranchSlice => 
       threadMessages: [
         ...state.threadMessages,
         { id: `temp-user-${now}`, conversationId: threadBranchConvId, role: "user", content: prompt, timestamp: now, status: "done" },
-        { id: `temp-thinking-${now}`, conversationId: threadBranchConvId, role: "assistant", content: "", progressContent: `${engine ?? "claude"} starting...`, timestamp: now, status: "streaming", engine: engine ?? "claude", model },
+        { id: `temp-thinking-${now}`, conversationId: threadBranchConvId, role: "assistant", content: "", progressContent: (ENGINE_CONFIGS[engine ?? "claude"] ?? ENGINE_CONFIGS.claude).label, timestamp: now, status: "streaming", engine: (ENGINE_CONFIGS[engine ?? "claude"] ?? ENGINE_CONFIGS.claude).engineKey, model },
       ],
     }));
 
@@ -355,11 +356,8 @@ export const createBranchSlice = (set: SetState, get: GetState): BranchSlice => 
     });
 
     try {
-      const ENGINE_COMMANDS: Record<string, string> = {
-        claude: "start_claude_stream", codex: "start_codex_run",
-        gemini: "start_gemini_stream", opencode: "start_opencode_run",
-      };
-      await invoke<{ messageId: string }>(ENGINE_COMMANDS[engineKey] ?? "start_claude_stream", { input });
+      const config = ENGINE_CONFIGS[engineKey] ?? ENGINE_CONFIGS.claude;
+      await invoke<{ messageId: string }>(config.command, { input });
     } catch (e) {
       cleanup();
       set((state) => ({ error: String(e), threadMessages: state.threadMessages.filter((m) => !m.id.startsWith("temp-thinking-")) }));

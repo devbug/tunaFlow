@@ -95,7 +95,7 @@ export function RuntimeStatusBar() {
             <>
               <span className="w-px h-3 bg-border/30" />
               <span className="text-muted-foreground/50">
-                {lastContextMode === "Standard" ? "Std" : lastContextMode}
+                {(() => { const b = lastContextMode.indexOf("(") > 0 ? lastContextMode.slice(0, lastContextMode.indexOf("(")) : lastContextMode; return b === "Standard" ? "Std" : b; })()}
                 {lastContextSections > 0 && <span className="text-muted-foreground/30"> · {lastContextSections}s</span>}
                 {lastSkippedLayers > 0 && <span className="text-amber-500/40"> -{lastSkippedLayers}</span>}
               </span>

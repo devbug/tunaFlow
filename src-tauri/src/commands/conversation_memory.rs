@@ -84,109 +84,6 @@ pub fn needs_compression(conn: &Connection, conversation_id: &str) -> bool {
     }
 }
 
-/// Generate compressed memory for a conversation.
-/// Compresses messages older than the recent window into a structured summary.
-pub fn generate_compressed_memory(
-    conn: &Connection,
-    conversation_id: &str,
-) -> Result<Option<String>, AppError> {
-    // Load all messages except the most recent RECENT_WINDOW
-    let total: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
-            [conversation_id],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
-
-    if total <= RECENT_WINDOW {
-        return Ok(None);
-    }
-
-    let older_count = total - RECENT_WINDOW;
-    let mut stmt = conn.prepare(
-        "SELECT role, content, engine, persona FROM messages
-         WHERE conversation_id = ?1
-         ORDER BY timestamp ASC
-         LIMIT ?2",
-    )?;
-
-    let rows: Vec<(String, String, Option<String>, Option<String>)> = stmt
-        .query_map(params![conversation_id, older_count], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-            ))
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    if rows.is_empty() {
-        return Ok(None);
-    }
-
-    // Build transcript for compression
-    let mut transcript = String::new();
-    for (role, content, engine, persona) in &rows {
-        let author = match (role.as_str(), persona, engine) {
-            ("assistant", Some(p), Some(e)) if !p.is_empty() => format!("{}:{} ({})", role, p, e),
-            ("assistant", None, Some(e)) if !e.is_empty() => format!("{} ({})", role, e),
-            _ => role.clone(),
-        };
-        // Truncate long messages for compression input
-        let content_preview = if content.len() > 500 {
-            format!("{}…", &content[..content.char_indices().take_while(|&(i, _)| i <= 500).last().map_or(0, |(i, _)| i)])
-        } else {
-            content.clone()
-        };
-        transcript.push_str(&format!("[{}] {}\n\n", author, content_preview));
-    }
-
-    // Compress via Claude
-    let prompt = format!("{}{}", SUMMARY_PROMPT, transcript);
-    let result = crate::agents::claude::run(crate::agents::claude::RunInput {
-        prompt,
-        model: None,
-        system_prompt: None,
-        resume_token: None,
-        project_path: None,
-    });
-
-    match result {
-        Ok(out) if !out.content.trim().is_empty() => {
-            let summary = out.content.trim().to_string();
-            let id = Uuid::new_v4().to_string();
-            let now = now_epoch_ms();
-
-            // Upsert: delete old memory for this conversation, insert new
-            conn.execute(
-                "DELETE FROM conversation_memory WHERE conversation_id = ?1",
-                [conversation_id],
-            )?;
-            conn.execute(
-                "INSERT INTO conversation_memory (id, conversation_id, summary, source_count, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-                params![id, conversation_id, summary, total, now],
-            )?;
-
-            eprintln!(
-                "[memory] compressed {} messages → {} chars for {}",
-                rows.len(),
-                summary.len(),
-                conversation_id
-            );
-
-            Ok(Some(summary))
-        }
-        _ => {
-            eprintln!("[memory] compression failed for {}", conversation_id);
-            Ok(None)
-        }
-    }
-}
-
 /// Load the most recent compressed memory for a conversation.
 pub fn load_compressed_memory(conn: &Connection, conversation_id: &str) -> Option<String> {
     conn.query_row(
@@ -253,9 +150,9 @@ pub fn get_memory_status(conn: &Connection, conversation_id: &str) -> MemoryStat
         }
         None => {
             let state = if msg_count > COMPRESSION_THRESHOLD {
-                "not_generated"
+                "not_generated"   // threshold exceeded but never compressed
             } else {
-                "not_generated"
+                "below_threshold" // not enough messages yet
             };
             MemoryStatus {
                 state: state.to_string(),
@@ -281,15 +178,112 @@ pub fn get_conversation_memory_status(
 }
 
 /// Tauri command: trigger memory compression for a conversation.
+///
+/// Lock strategy: read data with short lock → release → call Claude (slow) → re-lock to write.
+/// This prevents blocking the entire app during the Claude API call.
 #[tauri::command]
 pub fn compress_conversation_memory(
     conversation_id: String,
     state: tauri::State<crate::db::DbState>,
 ) -> Result<bool, AppError> {
-    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-    if !needs_compression(&conn, &conversation_id) {
-        return Ok(false);
+    // Phase 1: check + gather data (short lock)
+    let (transcript, total) = {
+        let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+        if !needs_compression(&conn, &conversation_id) {
+            return Ok(false);
+        }
+
+        let total: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
+                [&conversation_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        if total <= RECENT_WINDOW {
+            return Ok(false);
+        }
+
+        let older_count = total - RECENT_WINDOW;
+        let mut stmt = conn.prepare(
+            "SELECT role, content, engine, persona FROM messages
+             WHERE conversation_id = ?1
+             ORDER BY timestamp ASC
+             LIMIT ?2",
+        )?;
+        let rows: Vec<(String, String, Option<String>, Option<String>)> = stmt
+            .query_map(params![&conversation_id, older_count], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if rows.is_empty() {
+            return Ok(false);
+        }
+
+        let mut transcript = String::new();
+        for (role, content, engine, persona) in &rows {
+            let author = match (role.as_str(), persona, engine) {
+                ("assistant", Some(p), Some(e)) if !p.is_empty() => format!("{}:{} ({})", role, p, e),
+                ("assistant", None, Some(e)) if !e.is_empty() => format!("{} ({})", role, e),
+                _ => role.clone(),
+            };
+            let content_preview = if content.len() > 500 {
+                format!("{}…", &content[..content.char_indices().take_while(|&(i, _)| i <= 500).last().map_or(0, |(i, _)| i)])
+            } else {
+                content.clone()
+            };
+            transcript.push_str(&format!("[{}] {}\n\n", author, content_preview));
+        }
+        (transcript, total)
+        // Lock released here
+    };
+
+    // Phase 2: call Claude WITHOUT holding any lock
+    let prompt = format!("{}{}", SUMMARY_PROMPT, transcript);
+    let result = crate::agents::claude::run(crate::agents::claude::RunInput {
+        prompt,
+        model: None,
+        system_prompt: None,
+        resume_token: None,
+        project_path: None,
+    });
+
+    let summary = match result {
+        Ok(out) if !out.content.trim().is_empty() => out.content.trim().to_string(),
+        _ => {
+            eprintln!("[memory] compression failed for {}", conversation_id);
+            return Ok(false);
+        }
+    };
+
+    // Phase 3: write result (short lock)
+    {
+        let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+        let id = Uuid::new_v4().to_string();
+        let now = now_epoch_ms();
+        conn.execute(
+            "DELETE FROM conversation_memory WHERE conversation_id = ?1",
+            [&conversation_id],
+        )?;
+        conn.execute(
+            "INSERT INTO conversation_memory (id, conversation_id, summary, source_count, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+            params![id, conversation_id, summary, total, now],
+        )?;
+        eprintln!(
+            "[memory] compressed → {} chars for {}",
+            summary.len(),
+            conversation_id
+        );
     }
-    let result = generate_compressed_memory(&conn, &conversation_id)?;
-    Ok(result.is_some())
+
+    Ok(true)
 }

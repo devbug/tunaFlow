@@ -166,6 +166,7 @@ fn fold_import_block(snippet: &str) -> String {
 }
 
 /// Combine multiple optional system-prompt sections, joining with double newline.
+#[allow(dead_code)]
 pub fn combine_prompt_parts(parts: impl IntoIterator<Item = Option<String>>) -> Option<String> {
     let joined: String = parts
         .into_iter()
@@ -348,6 +349,7 @@ fn dedup_rawq_results(results: Vec<rawq::SearchResult>) -> Vec<rawq::SearchResul
     deduped
 }
 
+#[allow(dead_code)]
 pub fn build_context_summary(
     current_rows: &[(String, String)],
     parent_rows: &[(String, String)],

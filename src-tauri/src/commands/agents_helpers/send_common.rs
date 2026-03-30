@@ -146,7 +146,8 @@ pub fn build_normalized_prompt(
     cross_session_ids: &[String],
     persona_fragment: Option<&str>,
 ) -> (String, ContextPackMeta) {
-    build_normalized_prompt_with_budget(conn, conversation_id, prompt, project_path, active_skills, cross_session_ids, persona_fragment, None, None)
+    let (assembled, _, meta) = build_normalized_prompt_with_budget(conn, conversation_id, prompt, project_path, active_skills, cross_session_ids, persona_fragment, None, None);
+    (assembled, meta)
 }
 
 pub fn build_normalized_prompt_with_budget(
@@ -159,7 +160,7 @@ pub fn build_normalized_prompt_with_budget(
     persona_fragment: Option<&str>,
     context_mode_override: Option<&str>,
     context_budget_cap: Option<usize>,
-) -> (String, ContextPackMeta) {
+) -> (String, Option<String>, ContextPackMeta) {
     use super::context_pack::*;
     use crate::guardrail;
     use super::compression::maybe_compress_section_typed;
@@ -182,7 +183,11 @@ pub fn build_normalized_prompt_with_budget(
             // Signals pushing toward Full (+)
             if !active_skills.is_empty() { score += 2; }          // skills active → needs skill context
             if !cross_session_ids.is_empty() { score += 1; }       // cross-session → multi-conv work
-            if persona_fragment.is_some() { score += 1; }           // persona set → structured task
+            // Only count explicit persona (not the always-present identity block)
+            let has_explicit_persona = persona_fragment
+                .map(|f| f.contains("## Persona"))
+                .unwrap_or(false);
+            if has_explicit_persona { score += 1; }                 // persona set → structured task
             if is_branch { score += 1; }                            // branch → deeper work
 
             // Check if structured memory exists (plan/findings/artifacts)
@@ -231,9 +236,9 @@ pub fn build_normalized_prompt_with_budget(
             retrieval_cap: 2_000,
             compressed_cap: 2_000,
             cross_session_cap: 2_000,
-            retrieval_min_remaining: 6_000,
-            compressed_min_remaining: 3_000,
-            retrieval_content_max: 120,
+            retrieval_min_remaining: 3_000,  // lowered from 6k — Lite still needs continuity
+            compressed_min_remaining: 1_500, // lowered from 3k — allow memory in tight budgets
+            retrieval_content_max: 150,      // raised from 120 — 120 chars loses intent
             context_message_max: 300,
         },
         ContextMode::Standard => ModeProfile {
@@ -505,13 +510,15 @@ pub fn build_normalized_prompt_with_budget(
     }
 
     // Assemble final prompt
-    let assembled = if sections.is_empty() {
-        prompt.to_string()
+    // system_context: context sections only (for engines with system_prompt separation, e.g. Claude)
+    let system_context = if sections.is_empty() {
+        None
     } else {
-        let context = sections.join("\n\n");
-        let limited = guardrail::enforce_total_limit(Some(context), total_budget)
-            .unwrap_or_default();
-        format!("{}\n\n---\n\n{}", limited, prompt)
+        guardrail::enforce_total_limit(Some(sections.join("\n\n")), total_budget)
+    };
+    let assembled = match &system_context {
+        Some(ctx) => format!("{}\n\n---\n\n{}", ctx, prompt),
+        None => prompt.to_string(),
     };
 
     // Include auto reason in mode string for trace readability (e.g., "Standard(auto:standard(baseline))")
@@ -536,10 +543,11 @@ pub fn build_normalized_prompt_with_budget(
         truncated,
     };
 
-    (assembled, meta)
+    (assembled, system_context, meta)
 }
 
 /// Result from an agent run, before DB persistence.
+#[allow(dead_code)]
 pub struct AgentRunResult {
     pub content: String,
     pub status: String,
@@ -551,6 +559,7 @@ pub struct AgentRunResult {
 /// Persist assistant message and update conversation usage.
 /// Returns the constructed Message for the Tauri response.
 /// If `ctx_meta` is provided, records context metadata in trace_log.
+#[allow(dead_code)]
 pub fn persist_assistant_message(
     conn: &Connection,
     conversation_id: &str,
@@ -634,6 +643,7 @@ pub fn persist_assistant_message(
 
 /// Same as `persist_assistant_message` but uses a pre-generated message ID.
 /// Required for streaming commands where the ID is emitted to the frontend before DB persist.
+#[allow(dead_code)]
 pub fn persist_assistant_message_with_id(
     conn: &Connection,
     msg_id: &str,
