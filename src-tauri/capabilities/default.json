@@ -10,6 +10,9 @@
     "notification:allow-notify",
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",
+    "fs:default",
+    "fs:allow-watch",
+    "fs:allow-read",
     "store:default",
     "window-state:default"
   ]

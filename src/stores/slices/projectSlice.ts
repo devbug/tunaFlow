@@ -14,9 +14,8 @@ export interface ProjectSlice {
 
 // Cleanup function for previous rawq listeners
 let rawqListenerCleanup: (() => void) | null = null;
-// Periodic re-index timer for active project
-let reindexTimer: ReturnType<typeof setInterval> | null = null;
-const REINDEX_INTERVAL_MS = 60_000; // 60 seconds
+// Cleanup function for fs watcher
+let fsWatcherCleanup: (() => void) | null = null;
 
 export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice => ({
   projects: [],
@@ -118,16 +117,24 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
           await invoke("start_rawq_index", { projectPath });
         }
 
-        // Start periodic re-index (picks up files created by agents or user)
-        if (reindexTimer) clearInterval(reindexTimer);
-        reindexTimer = setInterval(() => {
-          if (get().selectedProjectKey === key) {
-            invoke("start_rawq_index", { projectPath }).catch(() => {});
-          } else {
-            // Project changed — stop timer
-            if (reindexTimer) { clearInterval(reindexTimer); reindexTimer = null; }
-          }
-        }, REINDEX_INTERVAL_MS);
+        // Start fs watcher for project directory — triggers re-index on file changes
+        if (fsWatcherCleanup) { fsWatcherCleanup(); fsWatcherCleanup = null; }
+        try {
+          const { watch } = await import("@tauri-apps/plugin-fs");
+          let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+          const stopWatcher = await watch(projectPath, (_event) => {
+            // Debounce: wait 3 seconds after last change before re-indexing
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+              if (get().selectedProjectKey === key) {
+                invoke("start_rawq_index", { projectPath }).catch(() => {});
+              }
+            }, 3000);
+          }, { recursive: true });
+          fsWatcherCleanup = () => { stopWatcher(); if (debounceTimer) clearTimeout(debounceTimer); };
+        } catch {
+          console.warn("[rawq] fs watcher unavailable — install @tauri-apps/plugin-fs");
+        }
       } catch {
         if (get().selectedProjectKey === key) {
           set({ rawqStatus: { available: false, indexed: false, status: "unavailable", message: "rawq not found" } });
