@@ -160,6 +160,7 @@
 - [artifactDetailViewPlan_2026-03-30](./artifactDetailViewPlan_2026-03-30.md)
 - [artifactProvenanceWorkflowPlan_2026-03-30](./artifactProvenanceWorkflowPlan_2026-03-30.md)
 - [artifactNavigationActionsPlan_2026-03-30](./artifactNavigationActionsPlan_2026-03-30.md)
+- [chatSearchFtsPlan_2026-03-30](./chatSearchFtsPlan_2026-03-30.md)
 - [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md)
 - [sidebarThreeSectionPlan](./sidebarThreeSectionPlan.md)
 - [sidecarMigrationPlan](./sidecarMigrationPlan.md)

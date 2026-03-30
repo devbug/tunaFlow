@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { MessageSquare, ClipboardList, FileSearch, TestTube, FileText, GitBranch, Users, Loader2, Search, StickyNote } from "lucide-react";
@@ -211,12 +212,10 @@ export function CenterPanel() {
           </div>
 
           {/* Search */}
-          <div className="w-[200px]">
-            <div className="flex items-center gap-2 bg-background/50 hover:bg-background/70 border border-border/30 rounded-md px-2.5 py-1.5 transition-colors cursor-text">
-              <Search className="w-3.5 h-3.5 text-muted-foreground/40" />
-              <span className="text-[13px] text-muted-foreground/40 font-medium">Search…</span>
-            </div>
-          </div>
+          <SearchBox
+            projectKey={useChatStore.getState().selectedProjectKey}
+            onSelectResult={(convId) => { selectConversation(convId); setActiveTab("chat"); }}
+          />
         </div>
       </div>
 
@@ -260,6 +259,100 @@ export function CenterPanel() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Search Box ─────────────────────────────────────────────────────────────
+
+interface SearchResult {
+  messageId: string;
+  conversationId: string;
+  conversationLabel: string;
+  role: string;
+  contentSnippet: string;
+  timestamp: number;
+  engine: string | null;
+  persona: string | null;
+}
+
+function SearchBox({ projectKey, onSelectResult }: { projectKey: string | null; onSelectResult: (convId: string) => void }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const doSearch = useCallback((q: string) => {
+    if (!projectKey || q.length < 2) { setResults([]); setOpen(false); return; }
+    setLoading(true);
+    invoke<SearchResult[]>("search_messages", { query: q, projectKey, limit: 15 })
+      .then((r) => { setResults(r); setOpen(r.length > 0); })
+      .catch(() => { setResults([]); })
+      .finally(() => setLoading(false));
+  }, [projectKey]);
+
+  const handleChange = (value: string) => {
+    setQuery(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => doSearch(value), 300);
+  };
+
+  return (
+    <div className="relative w-[200px]" ref={ref}>
+      <div className="flex items-center gap-2 bg-background/50 hover:bg-background/70 border border-border/30 rounded-md px-2.5 py-1.5 transition-colors focus-within:border-ring/40">
+        <Search className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => handleChange(e.target.value)}
+          onFocus={() => { if (results.length > 0) setOpen(true); }}
+          placeholder="Search…"
+          className="flex-1 bg-transparent text-[13px] font-medium outline-none text-foreground placeholder:text-muted-foreground/40"
+        />
+        {loading && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground/30 shrink-0" />}
+      </div>
+
+      {open && results.length > 0 && (
+        <div className="absolute right-0 bottom-full mb-1 w-[360px] max-h-[400px] bg-popover border border-border/40 rounded-lg shadow-xl overflow-hidden z-50">
+          <div className="px-3 py-1.5 text-[11px] text-muted-foreground/50 border-b border-border/30">
+            {results.length} results
+          </div>
+          <div className="overflow-y-auto max-h-[350px]">
+            {results.map((r) => (
+              <button
+                key={r.messageId}
+                onClick={() => { onSelectResult(r.conversationId); setOpen(false); setQuery(""); }}
+                className="w-full text-left px-3 py-2 hover:bg-accent/50 transition-colors"
+              >
+                <div className="flex items-center gap-2 text-[11px]">
+                  <span className="text-foreground/70 font-medium truncate flex-1">{r.conversationLabel}</span>
+                  <span className="text-[9px] text-muted-foreground/40">{r.role}</span>
+                  {r.persona && <span className="text-[9px] text-muted-foreground/30">{r.persona}</span>}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 leading-snug line-clamp-2 mt-0.5"
+                  dangerouslySetInnerHTML={{ __html: r.contentSnippet.replace(/\*\*/g, (_, i) => i % 2 === 0 ? '<mark class="bg-primary/20 text-foreground rounded px-0.5">' : '</mark>') }}
+                />
+                <span className="text-[9px] text-muted-foreground/30 font-mono">
+                  {new Date(r.timestamp).toLocaleDateString()}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

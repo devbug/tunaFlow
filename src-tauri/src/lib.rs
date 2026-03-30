@@ -90,6 +90,7 @@ pub fn run() {
             commands::messages::append_assistant_message,
             commands::messages::update_message_status,
             commands::messages::delete_message_pair,
+            commands::messages::search_messages,
             // Branch
             commands::branches::list_branches,
             commands::branches::create_branch,

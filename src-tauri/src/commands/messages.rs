@@ -213,3 +213,59 @@ pub fn delete_message_pair(
 
     Ok(deleted)
 }
+
+/// FTS5 search across messages for the current project.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResult {
+    pub message_id: String,
+    pub conversation_id: String,
+    pub conversation_label: String,
+    pub role: String,
+    pub content_snippet: String,
+    pub timestamp: i64,
+    pub engine: Option<String>,
+    pub persona: Option<String>,
+}
+
+#[tauri::command]
+pub fn search_messages(
+    query: String,
+    project_key: String,
+    limit: Option<i64>,
+    state: State<DbState>,
+) -> Result<Vec<SearchResult>, AppError> {
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
+    let max = limit.unwrap_or(20);
+
+    // FTS5 match query — join with messages and conversations to get context
+    let mut stmt = conn.prepare(
+        "SELECT m.id, m.conversation_id, COALESCE(c.custom_label, c.label, ''), m.role,
+                snippet(messages_fts, 0, '**', '**', '…', 40), m.timestamp, m.engine, m.persona
+         FROM messages_fts fts
+         JOIN messages m ON m.rowid = fts.rowid
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE messages_fts MATCH ?1
+           AND c.project_key = ?2
+         ORDER BY rank
+         LIMIT ?3"
+    )?;
+
+    let results = stmt
+        .query_map(params![query, project_key, max], |row| {
+            Ok(SearchResult {
+                message_id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                conversation_label: row.get(2)?,
+                role: row.get(3)?,
+                content_snippet: row.get(4)?,
+                timestamp: row.get(5)?,
+                engine: row.get(6)?,
+                persona: row.get(7)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(results)
+}

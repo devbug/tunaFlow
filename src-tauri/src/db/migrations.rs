@@ -67,6 +67,9 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     if current < 14 {
         apply_v14(conn)?;
     }
+    if current < 15 {
+        apply_v15(conn)?;
+    }
     Ok(())
 }
 
@@ -279,6 +282,31 @@ fn apply_v14(conn: &Connection) -> Result<(), AppError> {
     }
 
     conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (14, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+/// FTS5 triggers for messages_fts + initial population
+fn apply_v15(conn: &Connection) -> Result<(), AppError> {
+    // Create triggers for keeping FTS in sync
+    conn.execute_batch("
+        CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+            INSERT INTO messages_fts(rowid, content) VALUES (NEW.rowid, NEW.content);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', OLD.rowid, OLD.content);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE OF content ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', OLD.rowid, OLD.content);
+            INSERT INTO messages_fts(rowid, content) VALUES (NEW.rowid, NEW.content);
+        END;
+    ")?;
+
+    // Populate FTS with existing messages
+    conn.execute_batch("INSERT INTO messages_fts(rowid, content) SELECT rowid, content FROM messages;")?;
+
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (15, ?1)", [now_epoch()])?;
     Ok(())
 }
 
