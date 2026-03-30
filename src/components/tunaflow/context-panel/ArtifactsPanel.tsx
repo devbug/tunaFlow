@@ -80,7 +80,14 @@ function ArtifactCard({ artifact, onOpen }: { artifact: Artifact; onOpen: (a: Ar
       </p>
       <div className="flex items-center gap-2 ml-6 mt-0.5 text-[9px] text-muted-foreground/30 font-mono">
         <span>{new Date(artifact.updatedAt * 1000).toLocaleDateString()}</span>
-        {provenanceHint && <span>· {provenanceHint}</span>}
+        {provenanceHint && (
+          <button
+            onClick={(e) => { e.stopPropagation(); jumpToSource(artifact, useChatStore.getState()); }}
+            className="hover:text-primary/60 hover:underline transition-colors"
+          >
+            · {provenanceHint}
+          </button>
+        )}
         {artifact.subtaskId && <span>· subtask</span>}
       </div>
     </div>
@@ -128,6 +135,15 @@ function HarnessStrip({ artifacts }: { artifacts: Artifact[] }) {
 }
 
 // ─── ArtifactsPanel (main export) ────────────────────────────────────────────
+
+// Navigate to artifact source conversation/branch
+function jumpToSource(artifact: Artifact, store: any) {
+  if (artifact.branchId) {
+    store.openThread(artifact.branchId);
+  } else if (artifact.conversationId) {
+    store.selectConversation(artifact.conversationId);
+  }
+}
 
 const FILTER_TABS = [
   { id: "all", label: "All" },
@@ -320,10 +336,17 @@ function ArtifactDetailModal({ artifact, onClose }: { artifact: Artifact; onClos
               <span className="text-muted-foreground/40 font-mono">{artifact.type}</span>
               <span className="text-muted-foreground/30 font-mono">{new Date(artifact.updatedAt * 1000).toLocaleString()}</span>
             </div>
-            {/* Provenance */}
+            {/* Provenance — clickable */}
             {(sourceLabel || artifact.subtaskId) && (
               <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground/50">
-                {sourceLabel && <span>Source: {sourceLabel}</span>}
+                {sourceLabel && (
+                  <button
+                    onClick={() => { jumpToSource(artifact, useChatStore.getState()); onClose(); }}
+                    className="hover:text-primary/60 hover:underline transition-colors"
+                  >
+                    Source: {sourceLabel}
+                  </button>
+                )}
                 {artifact.subtaskId && <span>· Subtask linked</span>}
               </div>
             )}

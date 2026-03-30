@@ -55,5 +55,6 @@ Opus/Claude에 전달하는 실행 지시문, hand-off 문서, 초기 구현 프
 - [2026-03-30/artifacts_tab_usability_prompt](./2026-03-30/artifacts_tab_usability_prompt.md): Artifacts 탭에 필터/정렬/상세 보기를 추가하는 사용성 개선 프롬프트
 - [2026-03-30/artifact_detail_view_prompt](./2026-03-30/artifact_detail_view_prompt.md): Artifacts 탭에서 문서형 artifact를 읽는 상세 보기 프롬프트
 - [2026-03-30/artifact_provenance_workflow_prompt](./2026-03-30/artifact_provenance_workflow_prompt.md): Artifact 출처와 workflow 연결을 더 잘 보이게 하는 프롬프트
+- [2026-03-30/artifact_navigation_actions_prompt](./2026-03-30/artifact_navigation_actions_prompt.md): Artifact provenance를 실제 source/subtask navigation으로 연결하는 프롬프트
 - [2026-03-29/window_state_restore_fix_prompt](./2026-03-29/window_state_restore_fix_prompt.md): 창 위치/크기 복원 확인 및 수정 프롬프트
 - [2026-03-29/window_state_restore_review_checklist](./2026-03-29/window_state_restore_review_checklist.md): 창 상태 복원 검증 체크리스트
