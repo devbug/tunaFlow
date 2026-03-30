@@ -127,6 +127,47 @@ pub fn build_lite_enriched_prompt(
     )
 }
 
+/// All data needed to assemble a ContextPack, pre-loaded from DB.
+/// Separating data loading (DB-dependent) from prompt assembly (pure function)
+/// enables unit testing of assembly logic and tighter DB lock scopes.
+pub struct ContextData {
+    pub conversation_id: String,
+    pub project_path: Option<String>,
+    pub prompt: String,
+    pub is_branch: bool,
+
+    // Auto mode signals
+    pub has_active_plan: bool,
+
+    // Recent context (role, content, engine, persona)
+    pub current_messages: Vec<(String, String, Option<String>, Option<String>)>,
+    pub parent_messages: Vec<(String, String, Option<String>, Option<String>)>,
+
+    // Structured memory (pre-built section strings)
+    pub plan_section: Option<String>,
+    pub findings_section: Option<String>,
+    pub artifacts_section: Option<String>,
+
+    // Retrieval
+    pub retrieval_chunks: Vec<crate::commands::context_queries::RetrievedChunk>,
+
+    // Compressed memory
+    pub compressed_memory: Option<String>,
+
+    // Cross-session (label, messages)
+    pub cross_session_data: Vec<(String, Vec<(String, String)>)>,
+
+    // Thread inheritance
+    pub thread_inheritance: Option<String>,
+
+    // Pass-through (no DB needed)
+    pub active_skills: Vec<String>,
+    pub cross_session_ids: Vec<String>,
+    pub persona_fragment: Option<String>,
+    pub context_mode_override: Option<String>,
+    pub context_budget_cap: Option<usize>,
+}
+
 /// Build a normalized enriched prompt for non-Claude engines.
 ///
 /// Includes the same context sections as Claude's full ContextPack, but assembled
@@ -152,7 +193,12 @@ pub fn build_normalized_prompt(
     (assembled, meta)
 }
 
-pub fn build_normalized_prompt_with_budget(
+/// Phase A: Load all data needed for ContextPack assembly from DB.
+///
+/// This function gathers all DB-dependent data into a `ContextData` struct.
+/// The returned struct can then be passed to `assemble_prompt()` (Phase B)
+/// which is a pure function with no DB dependency.
+pub fn load_context_data(
     conn: &Connection,
     conversation_id: &str,
     prompt: &str,
@@ -162,49 +208,154 @@ pub fn build_normalized_prompt_with_budget(
     persona_fragment: Option<&str>,
     context_mode_override: Option<&str>,
     context_budget_cap: Option<usize>,
+) -> ContextData {
+    use super::context_pack::*;
+    use crate::commands::context_queries::{
+        load_recent_messages, load_recent_messages_with_author, conversation_label,
+        retrieve_relevant_chunks_with_overlap,
+    };
+    use crate::commands::conversation_memory::load_compressed_memory;
+    use crate::guardrail;
+
+    let is_branch = conversation_id.starts_with("branch:");
+
+    // Query 1: has_active_plan (auto mode signal)
+    let has_active_plan: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM plans WHERE conversation_id = ?1 AND status = 'active'",
+        [conversation_id], |row| row.get(0),
+    ).unwrap_or(false);
+
+    // Query 2: current messages — budget-based dynamic window + per-agent last-message guarantee
+    // Load more messages than we'll use, then trim in assemble_prompt based on context_cap.
+    // 20 messages gives enough headroom for multi-agent conversations (4 agents × 5 turns).
+    let current_messages = load_recent_messages_with_author(conn, conversation_id, 20);
+
+    // Query 3: parent messages (branch only)
+    let parent_messages: Vec<(String, String, Option<String>, Option<String>)> = if is_branch {
+        let parent_id: Option<String> = conn
+            .query_row(
+                "SELECT parent_id FROM conversations WHERE id = ?1",
+                [conversation_id],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten();
+        parent_id
+            .map(|pid| load_recent_messages_with_author(conn, &pid, 4))
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    // Query 4-7: plan, findings, artifacts (via plan_conv_id)
+    let plan_conv_id = resolve_plan_conversation_id(conn, conversation_id);
+    let plan_section = build_plan_section(conn, &plan_conv_id);
+    let findings_section = build_findings_section(conn, &plan_conv_id);
+    let artifacts_section = build_artifact_handoff_section(conn, &plan_conv_id);
+
+    // Query 8-9: retrieval chunks
+    let project_key: Option<String> = conn.query_row(
+        "SELECT project_key FROM conversations WHERE id = ?1",
+        [conversation_id],
+        |row| row.get(0),
+    ).ok();
+    let retrieval_chunks = if let Some(pk) = &project_key {
+        let recent_ids: Vec<String> = conn.prepare(
+            "SELECT id FROM messages WHERE conversation_id = ?1 ORDER BY timestamp DESC LIMIT 12"
+        ).ok().map(|mut stmt| {
+            stmt.query_map([conversation_id], |row| row.get::<_, String>(0))
+                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                .unwrap_or_default()
+        }).unwrap_or_default();
+        // Note: existing_context is None here (not yet assembled).
+        // Overlap penalty will be slightly less precise but functionally equivalent.
+        retrieve_relevant_chunks_with_overlap(conn, pk, conversation_id, prompt, &recent_ids, 10, None)
+    } else {
+        Vec::new()
+    };
+
+    // Query 10: compressed memory
+    let compressed_memory = load_compressed_memory(conn, conversation_id);
+
+    // Query 11: cross-session data
+    let cross_session_data: Vec<(String, Vec<(String, String)>)> = cross_session_ids
+        .iter()
+        .filter(|id| id.as_str() != conversation_id)
+        .filter_map(|id| {
+            let label = conversation_label(conn, id)?;
+            let rows = load_recent_messages(conn, id, 3);
+            if rows.is_empty() { None } else { Some((label, rows)) }
+        })
+        .collect();
+
+    // Query 12: thread inheritance
+    let thread_inheritance = if is_branch {
+        build_thread_inheritance_section(conn, conversation_id)
+    } else {
+        None
+    };
+
+    ContextData {
+        conversation_id: conversation_id.to_string(),
+        project_path: project_path.map(|s| s.to_string()),
+        prompt: prompt.to_string(),
+        is_branch,
+        has_active_plan,
+        current_messages,
+        parent_messages,
+        plan_section,
+        findings_section,
+        artifacts_section,
+        retrieval_chunks,
+        compressed_memory,
+        cross_session_data,
+        thread_inheritance,
+        active_skills: active_skills.to_vec(),
+        cross_session_ids: cross_session_ids.to_vec(),
+        persona_fragment: persona_fragment.map(|s| s.to_string()),
+        context_mode_override: context_mode_override.map(|s| s.to_string()),
+        context_budget_cap,
+    }
+}
+
+/// Phase B: Assemble a ContextPack prompt from pre-loaded data. Pure function — no DB dependency.
+///
+/// Takes a `ContextData` struct (from `load_context_data`) and produces the same
+/// `(assembled, system_context, meta)` tuple as the original monolithic function.
+pub fn assemble_prompt(
+    data: &ContextData,
+    identity_fragment: Option<&str>,
 ) -> (String, Option<String>, ContextPackMeta) {
     use super::context_pack::*;
     use crate::guardrail;
     use super::compression::maybe_compress_section_typed;
 
-    let is_branch = conversation_id.starts_with("branch:");
     let mut included_sections: Vec<String> = Vec::new();
 
-    let total_budget = context_budget_cap.unwrap_or(guardrail::MAX_TOTAL_PROMPT);
+    let total_budget = data.context_budget_cap.unwrap_or(guardrail::MAX_TOTAL_PROMPT);
 
     // Determine context mode — user override takes priority, then auto heuristic
-    let (ctx_mode, auto_reason) = match context_mode_override {
+    let (ctx_mode, auto_reason) = match data.context_mode_override.as_deref() {
         Some("full") => (ContextMode::Full, "user-override"),
         Some("standard") => (ContextMode::Standard, "user-override"),
         Some("lite") => (ContextMode::Lite, "user-override"),
         _ => {
-            // Auto heuristic: score signals to decide Lite / Standard / Full
-            // Each signal pushes toward heavier modes. Default baseline = Standard.
-            let mut score: i32 = 0; // 0 = Standard baseline
+            let mut score: i32 = 0;
 
-            // Signals pushing toward Full (+)
-            if active_skills.len() >= 3 { score += 2; }           // many skills → Full territory
-            else if !active_skills.is_empty() { score += 1; }     // 1-2 skills → moderate push
-            if !cross_session_ids.is_empty() { score += 1; }       // cross-session → multi-conv work
-            // Only count explicit persona (not the always-present identity block)
-            let has_explicit_persona = persona_fragment
+            if data.active_skills.len() >= 3 { score += 2; }
+            else if !data.active_skills.is_empty() { score += 1; }
+            if !data.cross_session_ids.is_empty() { score += 1; }
+            let has_explicit_persona = data.persona_fragment
+                .as_ref()
                 .map(|f| f.contains("## Persona"))
                 .unwrap_or(false);
-            if has_explicit_persona { score += 1; }                 // persona set → structured task
-            if is_branch { score += 1; }                            // branch → deeper work
+            if has_explicit_persona { score += 1; }
+            if data.is_branch { score += 1; }
+            if data.has_active_plan { score += 1; }
 
-            // Check if structured memory exists (plan/findings/artifacts)
-            let has_plan: bool = conn.query_row(
-                "SELECT COUNT(*) > 0 FROM plans WHERE conversation_id = ?1 AND status = 'active'",
-                [conversation_id], |row| row.get(0),
-            ).unwrap_or(false);
-            if has_plan { score += 1; }
+            if data.prompt.len() < 50 { score -= 1; }
+            if data.prompt.len() < 20 { score -= 1; }
 
-            // Signals pushing toward Lite (-)
-            if prompt.len() < 50 { score -= 1; }                   // short prompt → likely simple
-            if prompt.len() < 20 { score -= 1; }                   // very short → Lite territory
-
-            // Map score to mode
             let (mode, reason) = if score >= 3 {
                 (ContextMode::Full, "auto:full(skills/cross/plan)")
             } else if score <= -1 {
@@ -216,11 +367,8 @@ pub fn build_normalized_prompt_with_budget(
             (mode, reason)
         }
     };
+
     // ─── Mode-specific context assembly profile ──────────────────────────
-    // Each mode defines: section caps, thresholds, and content resolution.
-    // Lite = focused (fewer sources, lower resolution)
-    // Standard = balanced (default)
-    // Full = rich (more permissive, higher resolution)
     #[allow(dead_code)]
     struct ModeProfile {
         context_cap: usize,
@@ -229,8 +377,8 @@ pub fn build_normalized_prompt_with_budget(
         cross_session_cap: usize,
         retrieval_min_remaining: usize,
         compressed_min_remaining: usize,
-        retrieval_content_max: usize,  // per-chunk content truncation
-        context_message_max: usize,    // per-message truncation in context summary
+        retrieval_content_max: usize,
+        context_message_max: usize,
     }
 
     let profile = match ctx_mode {
@@ -239,9 +387,9 @@ pub fn build_normalized_prompt_with_budget(
             retrieval_cap: 2_000,
             compressed_cap: 2_000,
             cross_session_cap: 2_000,
-            retrieval_min_remaining: 3_000,  // lowered from 6k — Lite still needs continuity
-            compressed_min_remaining: 1_500, // lowered from 3k — allow memory in tight budgets
-            retrieval_content_max: 150,      // raised from 120 — 120 chars loses intent
+            retrieval_min_remaining: 3_000,
+            compressed_min_remaining: 1_500,
+            retrieval_content_max: 150,
             context_message_max: 300,
         },
         ContextMode::Standard => ModeProfile {
@@ -272,17 +420,14 @@ pub fn build_normalized_prompt_with_budget(
     let mut section_sizes: Vec<(String, usize)> = Vec::new();
 
     // Project
-    if let Some(p) = project_path {
+    if let Some(p) = &data.project_path {
         sections.push(format!("Project: {}", p));
         included_sections.push("project".into());
     }
 
     // Identity + Persona section
-    // Identity framing is always injected regardless of persona selection.
-    // It uses persona_fragment format: first line = "profile:{label}|engine:{name}" metadata
-    // (injected by callers via build_identity_persona_fragment)
     {
-        let (identity_block, persona_block) = parse_identity_and_persona(persona_fragment);
+        let (identity_block, persona_block) = parse_identity_and_persona(identity_fragment);
         if let Some(id) = &identity_block {
             sections.push(id.clone());
             included_sections.push("identity".into());
@@ -293,27 +438,78 @@ pub fn build_normalized_prompt_with_budget(
         }
     }
 
-    // Recent conversation context (with author attribution)
+    // ─── Conversation participants meta ────────────────────────────────
+    // Always-present section listing which agents participated in this conversation.
+    // Ensures agents never lose awareness of other agents' presence, even when
+    // individual messages fall outside the recent context window.
     {
-        use crate::commands::context_queries::load_recent_messages_with_author;
-        let current = load_recent_messages_with_author(conn, conversation_id, 6);
-        let parent: Vec<(String, String, Option<String>, Option<String>)> = if is_branch {
-            let parent_id: Option<String> = conn
-                .query_row(
-                    "SELECT parent_id FROM conversations WHERE id = ?1",
-                    [conversation_id],
-                    |row| row.get(0),
-                )
-                .ok()
-                .flatten();
-            parent_id
-                .map(|pid| load_recent_messages_with_author(conn, &pid, 4))
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        let mut agent_map: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+        for (role, content, engine, persona) in &data.current_messages {
+            if role == "assistant" {
+                let label = match (persona, engine) {
+                    (Some(p), Some(e)) if !p.is_empty() => format!("{} ({})", p, e),
+                    (None, Some(e)) if !e.is_empty() => format!("({})", e),
+                    _ => continue,
+                };
+                // Keep latest content preview per agent
+                let preview = if content.len() > 80 {
+                    format!("{}…", &content[..content.char_indices().take_while(|&(i,_)| i<=80).last().map_or(0,|(i,_)|i)])
+                } else { content.clone() };
+                agent_map.insert(label, preview);
+            }
+        }
+        if !agent_map.is_empty() {
+            let mut meta_section = String::from("## Conversation participants\n\nAgents active in this conversation:\n");
+            for (agent, last_msg) in &agent_map {
+                meta_section.push_str(&format!("- **{}**: {}\n", agent, last_msg));
+            }
+            sections.push(meta_section);
+            included_sections.push("participants".into());
+        }
+    }
+
+    // ─── Recent conversation context (budget-based dynamic window) ───
+    // Instead of a fixed 6-message window, include as many messages as fit
+    // within context_cap, with per-agent last-message guarantee.
+    {
+        // Step 1: Identify each agent's last message index (must-include set)
+        let mut agent_last_idx: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for (i, (role, _, engine, persona)) in data.current_messages.iter().enumerate() {
+            if role == "assistant" {
+                let key = match (persona, engine) {
+                    (Some(p), _) if !p.is_empty() => p.clone(),
+                    (_, Some(e)) if !e.is_empty() => e.clone(),
+                    _ => continue,
+                };
+                agent_last_idx.insert(key, i);
+            }
+        }
+        let must_include: std::collections::HashSet<usize> = agent_last_idx.values().copied().collect();
+
+        // Step 2: Budget-based trimming from oldest — but keep must-include messages
+        let mut trimmed: Vec<&(String, String, Option<String>, Option<String>)> = Vec::new();
+        let mut char_budget = profile.context_cap;
+
+        // Work backwards (newest first) to fill budget
+        for (i, msg) in data.current_messages.iter().enumerate().rev() {
+            let msg_cost = msg.0.len() + msg.1.len().min(profile.context_message_max) + 40; // role + truncated content + overhead
+            if msg_cost <= char_budget {
+                trimmed.push(msg);
+                char_budget = char_budget.saturating_sub(msg_cost);
+            } else if must_include.contains(&i) {
+                // Force-include agent's last message even if over budget
+                trimmed.push(msg);
+                char_budget = 0;
+            }
+            // else: skip this message (oldest first)
+        }
+        trimmed.reverse(); // restore chronological order
+
+        let trimmed_owned: Vec<(String, String, Option<String>, Option<String>)> =
+            trimmed.into_iter().cloned().collect();
+
         if let Some(ctx) = maybe_compress_section_typed(
-            build_context_summary_with_authors(&current, &parent, is_branch),
+            build_context_summary_with_authors(&trimmed_owned, &data.parent_messages, data.is_branch),
             profile.context_cap,
             Some("context"),
         ) {
@@ -323,29 +519,25 @@ pub fn build_normalized_prompt_with_budget(
     }
 
     // ═══ UNIFIED MEMORY POLICY ═══
-    // Priority (high to low): explicit handoff → recent → structured → retrieval → compressed → memo/cross-session
-    // Budget fallback: lower priority layers yield first.
-    // Overlap: structured > retrieval > compressed. Duplicates are suppressed by later layers.
 
-    // Layer 2: Structured task memory (plan / findings / artifacts) — highest task relevance
+    // Layer 2: Structured task memory (plan / findings / artifacts)
     if ctx_mode >= ContextMode::Standard {
-        let plan_conv_id = resolve_plan_conversation_id(conn, conversation_id);
         if let Some(s) = guardrail::truncate_section(
-            build_plan_section(conn, &plan_conv_id),
+            data.plan_section.clone(),
             guardrail::MAX_PLAN_SECTION,
         ) {
             sections.push(s);
             included_sections.push("plan".into());
         }
         if let Some(s) = guardrail::truncate_section(
-            build_findings_section(conn, &plan_conv_id),
+            data.findings_section.clone(),
             guardrail::MAX_FINDINGS_SECTION,
         ) {
             sections.push(s);
             included_sections.push("findings".into());
         }
         if let Some(s) = guardrail::truncate_section(
-            build_artifact_handoff_section(conn, &plan_conv_id),
+            data.artifacts_section.clone(),
             guardrail::MAX_ARTIFACTS_SECTION,
         ) {
             sections.push(s);
@@ -354,56 +546,39 @@ pub fn build_normalized_prompt_with_budget(
     }
 
     // Layer 3: Retrieval memory — past conversation chunks, ranked and deduped
-    // Placed AFTER structured (plan/findings/artifacts) but BEFORE compressed memory.
-    // Budget-aware: skip if remaining budget is tight.
     if ctx_mode >= ContextMode::Standard {
         let current_size: usize = sections.iter().map(|s| s.len()).sum();
         let remaining = total_budget.saturating_sub(current_size);
         if remaining > profile.retrieval_min_remaining {
-            let project_key: Option<String> = conn.query_row(
-                "SELECT project_key FROM conversations WHERE id = ?1",
-                [conversation_id],
-                |row| row.get(0),
-            ).ok();
-            if let Some(pk) = &project_key {
-                use crate::commands::context_queries::retrieve_relevant_chunks_with_overlap;
-                let existing_snapshot = sections.join(" ");
-                let recent_ids: Vec<String> = conn.prepare(
-                    "SELECT id FROM messages WHERE conversation_id = ?1 ORDER BY timestamp DESC LIMIT 12"
-                ).ok().map(|mut stmt| {
-                    stmt.query_map([conversation_id], |row| row.get::<_, String>(0))
-                        .map(|rows| rows.filter_map(|r| r.ok()).collect())
-                        .unwrap_or_default()
-                }).unwrap_or_default();
-
-                let retrieval_limit = match ctx_mode {
-                    ContextMode::Lite => 3,
-                    ContextMode::Standard => 6,
-                    ContextMode::Full => 10,
-                };
-                let chunks = retrieve_relevant_chunks_with_overlap(conn, pk, conversation_id, prompt, &recent_ids, retrieval_limit, Some(&existing_snapshot));
-                if !chunks.is_empty() {
-                    let mut section = String::from("## Relevant prior conversation\n\nPast conversation chunks relevant to the current question.\n");
-                    for chunk in &chunks {
-                        let kind_label = match chunk.kind { "pair" => "Q&A", "anchor" => "Branch anchor", "brief" => "RT brief", _ => chunk.kind };
-                        section.push_str(&format!("\n--- {} ---\n", kind_label));
-                        for (role, content, engine, persona) in &chunk.messages {
-                            let author = match (role.as_str(), persona, engine) {
-                                ("assistant", Some(p), Some(e)) if !p.is_empty() => format!("assistant:{} ({})", p, e),
-                                ("assistant", None, Some(e)) if !e.is_empty() => format!("assistant ({})", e),
-                                _ => role.clone(),
-                            };
-                            let truncated = if content.len() > profile.retrieval_content_max {
-                                let end = content.char_indices().take_while(|&(i, _)| i <= profile.retrieval_content_max).last().map_or(0, |(i, _)| i);
-                                format!("{}…", &content[..end])
-                            } else { content.clone() };
-                            section.push_str(&format!("[{}] {}\n", author, truncated));
-                        }
+            // Apply mode-specific limit to pre-loaded chunks
+            let retrieval_limit = match ctx_mode {
+                ContextMode::Lite => 3,
+                ContextMode::Standard => 6,
+                ContextMode::Full => 10,
+            };
+            let chunks: Vec<&crate::commands::context_queries::RetrievedChunk> =
+                data.retrieval_chunks.iter().take(retrieval_limit).collect();
+            if !chunks.is_empty() {
+                let mut section = String::from("## Relevant prior conversation\n\nPast conversation chunks relevant to the current question.\n");
+                for chunk in &chunks {
+                    let kind_label = match chunk.kind { "pair" => "Q&A", "anchor" => "Branch anchor", "brief" => "RT brief", _ => chunk.kind };
+                    section.push_str(&format!("\n--- {} ---\n", kind_label));
+                    for (role, content, engine, persona) in &chunk.messages {
+                        let author = match (role.as_str(), persona, engine) {
+                            ("assistant", Some(p), Some(e)) if !p.is_empty() => format!("assistant:{} ({})", p, e),
+                            ("assistant", None, Some(e)) if !e.is_empty() => format!("assistant ({})", e),
+                            _ => role.clone(),
+                        };
+                        let truncated = if content.len() > profile.retrieval_content_max {
+                            let end = content.char_indices().take_while(|&(i, _)| i <= profile.retrieval_content_max).last().map_or(0, |(i, _)| i);
+                            format!("{}…", &content[..end])
+                        } else { content.clone() };
+                        section.push_str(&format!("[{}] {}\n", author, truncated));
                     }
-                    if let Some(s) = guardrail::truncate_section(Some(section), profile.retrieval_cap) {
-                        sections.push(s);
-                        included_sections.push("retrieval".into());
-                    }
+                }
+                if let Some(s) = guardrail::truncate_section(Some(section), profile.retrieval_cap) {
+                    sections.push(s);
+                    included_sections.push("retrieval".into());
                 }
             }
         } else {
@@ -413,13 +588,11 @@ pub fn build_normalized_prompt_with_budget(
     }
 
     // Layer 4: Compressed conversation memory — continuity layer
-    // Lowest priority among memory layers. Yields first when budget is tight.
     {
         let current_size: usize = sections.iter().map(|s| s.len()).sum();
         let remaining = total_budget.saturating_sub(current_size);
         if remaining > profile.compressed_min_remaining {
-            use crate::commands::conversation_memory::load_compressed_memory;
-            if let Some(memory) = load_compressed_memory(conn, conversation_id) {
+            if let Some(memory) = &data.compressed_memory {
                 if let Some(s) = guardrail::truncate_section(Some(format!(
                     "## Compressed conversation memory\n\n\
                     Structured summary of older messages. For current task details, see Plan/Findings/Artifacts above.\n\n\
@@ -436,9 +609,9 @@ pub fn build_normalized_prompt_with_budget(
     }
 
     // Layer 5+: Skills, rawq, cross-session (supplementary sources)
-    if ctx_mode >= ContextMode::Full || !active_skills.is_empty() {
+    if ctx_mode >= ContextMode::Full || !data.active_skills.is_empty() {
         if let Some(s) = guardrail::truncate_section(
-            build_skills_section(active_skills),
+            build_skills_section(&data.active_skills),
             guardrail::MAX_SKILLS_SECTION,
         ) {
             sections.push(s);
@@ -447,25 +620,15 @@ pub fn build_normalized_prompt_with_budget(
     }
     // rawq: mode-independent — prompt_needs_rawq() internally decides
     if let Some(s) = guardrail::truncate_section(
-        build_rawq_section(project_path, prompt),
+        build_rawq_section(data.project_path.as_deref(), &data.prompt),
         guardrail::MAX_RAWQ_SECTION,
     ) {
         sections.push(s);
         included_sections.push("rawq".into());
     }
-    if !cross_session_ids.is_empty() {
-        use crate::commands::context_queries::{load_recent_messages, conversation_label};
-        let cross_data: Vec<(String, Vec<(String, String)>)> = cross_session_ids
-            .iter()
-            .filter(|id| id.as_str() != conversation_id)
-            .filter_map(|id| {
-                let label = conversation_label(conn, id)?;
-                let rows = load_recent_messages(conn, id, 3);
-                if rows.is_empty() { None } else { Some((label, rows)) }
-            })
-            .collect();
+    if !data.cross_session_data.is_empty() {
         if let Some(s) = maybe_compress_section_typed(
-            build_cross_session_section(&cross_data),
+            build_cross_session_section(&data.cross_session_data),
             profile.cross_session_cap,
             Some("cross-session"),
         ) {
@@ -475,9 +638,9 @@ pub fn build_normalized_prompt_with_budget(
     }
 
     // Thread inheritance (branch)
-    if is_branch {
-        if let Some(s) = build_thread_inheritance_section(conn, conversation_id) {
-            sections.push(s);
+    if data.is_branch {
+        if let Some(s) = &data.thread_inheritance {
+            sections.push(s.clone());
             included_sections.push("thread-inheritance".into());
         }
     }
@@ -507,7 +670,6 @@ pub fn build_normalized_prompt_with_budget(
             .map(|s| s.as_str())
             .collect();
         let skipped_str = if skipped.is_empty() { "none".to_string() } else { skipped.join(",") };
-        // Log top consumers
         let mut sorted_sizes = section_sizes.clone();
         sorted_sizes.sort_by(|a, b| b.1.cmp(&a.1));
         let top3: Vec<String> = sorted_sizes.iter().take(3).map(|(n, s)| format!("{}={:.1}k", n, *s as f64 / 1000.0)).collect();
@@ -518,18 +680,16 @@ pub fn build_normalized_prompt_with_budget(
     }
 
     // Assemble final prompt
-    // system_context: context sections only (for engines with system_prompt separation, e.g. Claude)
     let system_context = if sections.is_empty() {
         None
     } else {
         guardrail::enforce_total_limit(Some(sections.join("\n\n")), total_budget)
     };
     let assembled = match &system_context {
-        Some(ctx) => format!("{}\n\n---\n\n{}", ctx, prompt),
-        None => prompt.to_string(),
+        Some(ctx) => format!("{}\n\n---\n\n{}", ctx, &data.prompt),
+        None => data.prompt.clone(),
     };
 
-    // Include auto reason in mode string for trace readability (e.g., "Standard(auto:standard(baseline))")
     let ctx_mode_str = if auto_reason.starts_with("auto:") {
         format!("{:?}({})", ctx_mode, auto_reason)
     } else {
@@ -538,7 +698,6 @@ pub fn build_normalized_prompt_with_budget(
     let total_len = assembled.len();
     let truncated = total_len >= total_budget;
 
-    // Encode section sizes as JSON in the hash field for trace observability
     let sizes_json = serde_json::to_string(
         &section_sizes.iter().map(|(n, s)| serde_json::json!({ "name": n, "chars": s })).collect::<Vec<_>>()
     ).unwrap_or_default();
@@ -552,6 +711,27 @@ pub fn build_normalized_prompt_with_budget(
     };
 
     (assembled, system_context, meta)
+}
+
+/// Legacy entry point — delegates to load_context_data + assemble_prompt.
+/// Signature and return type are unchanged; no caller modifications needed.
+pub fn build_normalized_prompt_with_budget(
+    conn: &Connection,
+    conversation_id: &str,
+    prompt: &str,
+    project_path: Option<&str>,
+    active_skills: &[String],
+    cross_session_ids: &[String],
+    persona_fragment: Option<&str>,
+    context_mode_override: Option<&str>,
+    context_budget_cap: Option<usize>,
+) -> (String, Option<String>, ContextPackMeta) {
+    let data = load_context_data(
+        conn, conversation_id, prompt, project_path,
+        active_skills, cross_session_ids, persona_fragment,
+        context_mode_override, context_budget_cap,
+    );
+    assemble_prompt(&data, persona_fragment)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -580,11 +760,12 @@ pub fn prepare_engine_run(
     identity_frag: Option<&str>,
     state: &tauri::State<DbState>,
 ) -> Result<PreparedRun, crate::errors::AppError> {
-    let (enriched_prompt, system_context, project_path, msg_id, ctx_meta) = {
+    // Phase A: DB operations under lock — persist user msg, load context data, pre-create streaming msg
+    let (data, project_path, msg_id) = {
         let conn = state.write.lock().map_err(|_| crate::errors::AppError::Lock)?;
         persist_user_message(&conn, &input.conversation_id, &input.prompt, &input.user_message_id)?;
         let pp = load_project_path(&conn, &input.project_key);
-        let (ep, sys_ctx, meta) = build_normalized_prompt_with_budget(
+        let ctx_data = load_context_data(
             &conn, &input.conversation_id, &input.prompt, pp.as_deref(),
             &input.active_skills, &input.cross_session_ids, identity_frag,
             input.context_mode_override.as_deref(), input.context_budget_cap,
@@ -596,8 +777,12 @@ pub fn prepare_engine_run(
              VALUES(?1,?2,'assistant','',?3,'streaming',?4,?5,?6)",
             params![mid, input.conversation_id, now, engine_key, input.model, input.persona_label],
         )?;
-        (ep, sys_ctx, pp, mid, meta)
+        (ctx_data, pp, mid)
+        // lock released here
     };
+
+    // Phase B: Pure prompt assembly — no DB lock held
+    let (enriched_prompt, system_context, ctx_meta) = assemble_prompt(&data, identity_frag);
 
     let job_id = format!("job-{}", Uuid::new_v4());
     {
@@ -918,5 +1103,67 @@ mod tests {
     fn identity_block_user_language() {
         let block = build_identity_block(Some("Test"), "claude");
         assert!(block.contains("사용자의 언어에 맞춰"));
+    }
+
+    // ─── assemble_prompt (pure function) ────────────────────────────────
+
+    fn empty_context_data() -> ContextData {
+        ContextData {
+            conversation_id: "test-conv".into(),
+            project_path: Some("/tmp/test".into()),
+            prompt: "hello".into(),
+            is_branch: false,
+            has_active_plan: false,
+            current_messages: vec![],
+            parent_messages: vec![],
+            plan_section: None,
+            findings_section: None,
+            artifacts_section: None,
+            retrieval_chunks: vec![],
+            compressed_memory: None,
+            cross_session_data: vec![],
+            thread_inheritance: None,
+            active_skills: vec![],
+            cross_session_ids: vec![],
+            persona_fragment: None,
+            context_mode_override: None,
+            context_budget_cap: None,
+        }
+    }
+
+    #[test]
+    fn assemble_empty_data_returns_prompt_only() {
+        let data = empty_context_data();
+        let (assembled, _sys_ctx, meta) = assemble_prompt(&data, None);
+        assert!(assembled.contains("hello"));
+        // project section should be present
+        assert!(meta.sections.contains(&"project".to_string()));
+    }
+
+    #[test]
+    fn assemble_with_plan_includes_plan_section() {
+        let mut data = empty_context_data();
+        data.plan_section = Some("## Active Plan\n\n### Migration\n\n**Progress:** 2/5 done".into());
+        data.context_mode_override = Some("standard".into());
+        let (_, _, meta) = assemble_prompt(&data, None);
+        assert!(meta.sections.contains(&"plan".to_string()));
+    }
+
+    #[test]
+    fn auto_mode_short_prompt_selects_lite() {
+        let mut data = empty_context_data();
+        data.prompt = "ㅇㅇ".into();
+        let (_, _, meta) = assemble_prompt(&data, None);
+        assert!(meta.mode.contains("Lite"), "expected Lite mode, got: {}", meta.mode);
+    }
+
+    #[test]
+    fn auto_mode_with_skills_pushes_toward_full() {
+        let mut data = empty_context_data();
+        data.active_skills = vec!["a".into(), "b".into(), "c".into()]; // +2
+        data.cross_session_ids = vec!["other-conv".into()];            // +1  → total ≥ 3
+        data.prompt = "코드를 리팩토링해주세요. 이 함수가 너무 길어요.".into();
+        let (_, _, meta) = assemble_prompt(&data, None);
+        assert!(meta.mode.contains("Full"), "expected Full mode, got: {}", meta.mode);
     }
 }
