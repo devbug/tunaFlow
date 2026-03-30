@@ -129,10 +129,32 @@ pub fn create_branch(
     };
 
     let branch_mode = input.mode.as_deref().unwrap_or("chat");
+    // Resolve git_branch default: inherit from parent branch, or detect from project path
+    let git_branch: Option<String> = if let Some(ref parent_id) = input.parent_branch_id {
+        // Inherit from parent branch
+        conn.query_row("SELECT git_branch FROM branches WHERE id = ?1", [parent_id], |row| row.get(0))
+            .ok()
+            .flatten()
+    } else {
+        // Try to detect current git branch from project path
+        let project_path: Option<String> = conn
+            .query_row("SELECT path FROM projects WHERE key = (SELECT project_key FROM conversations WHERE id = ?1)", [&root_conv_id], |row| row.get(0))
+            .ok()
+            .flatten();
+        project_path.and_then(|p| {
+            std::process::Command::new("git")
+                .args(["rev-parse", "--abbrev-ref", "HEAD"])
+                .current_dir(&p)
+                .output()
+                .ok()
+                .and_then(|o| if o.status.success() { Some(String::from_utf8_lossy(&o.stdout).trim().to_string()) } else { None })
+        })
+    };
+
     conn.execute(
         "INSERT INTO branches
-         (id, conversation_id, label, status, checkpoint_id, parent_branch_id, mode, subtask_id, created_at)
-         VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?6, ?7, ?8)",
+         (id, conversation_id, label, status, checkpoint_id, parent_branch_id, mode, subtask_id, git_branch, created_at)
+         VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             id,
             root_conv_id,
@@ -141,6 +163,7 @@ pub fn create_branch(
             input.parent_branch_id,
             branch_mode,
             input.subtask_id,
+            git_branch,
             now,
         ],
     )?;
@@ -154,7 +177,7 @@ pub fn create_branch(
         checkpoint_id: input.checkpoint_id,
         parent_branch_id: input.parent_branch_id,
         session_id: None,
-        git_branch: None,
+        git_branch,
         mode: Some(branch_mode.to_string()),
         subtask_id: input.subtask_id,
         created_at: now,
