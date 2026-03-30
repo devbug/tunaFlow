@@ -86,6 +86,13 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     }
     // Fire-and-forget: compress older messages into long-term memory
     invoke("compress_conversation_memory", { conversationId: threadId }).catch(() => {});
+    // Fire-and-forget: re-index project code (agent may have created/modified files)
+    const projectKey = get().selectedProjectKey;
+    if (projectKey) {
+      invoke("get_project", { key: projectKey }).then((p: any) => {
+        if (p?.path) invoke("start_rawq_index", { projectPath: p.path }).catch(() => {});
+      }).catch(() => {});
+    }
 
     // Drain next queued action for this thread
     const queue = get().messageQueue;
