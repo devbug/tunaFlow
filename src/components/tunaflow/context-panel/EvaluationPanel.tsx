@@ -141,9 +141,7 @@ export function EvaluationPanel() {
               <div className="rounded-lg border border-border/30 bg-background/50 p-3">
                 <div className="flex items-center gap-2">
                   <h3 className="text-[13px] font-medium text-foreground flex-1">{selectedRun.title}</h3>
-                  {selectedRun.status !== "running" && results.length === 0 && (
-                    <ExecuteButton run={selectedRun} onDone={() => { refresh(); }} />
-                  )}
+                  <ExecuteButton run={selectedRun} onDone={() => { refresh(); }} />
                 </div>
                 <p className="text-[11px] text-muted-foreground/60 mt-1 line-clamp-2">{selectedRun.prompt}</p>
                 <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground/40">
@@ -176,6 +174,9 @@ export function EvaluationPanel() {
                           {result.outputTokens != null && <span>{result.outputTokens.toLocaleString()} out</span>}
                           {result.costUsd != null && <span>${result.costUsd < 0.01 ? result.costUsd.toFixed(4) : result.costUsd.toFixed(2)}</span>}
                           {result.durationMs != null && <span>{(result.durationMs / 1000).toFixed(1)}s</span>}
+                          <span className="flex-1" />
+                          <button onClick={() => navigator.clipboard.writeText(result.content)}
+                            className="text-muted-foreground/20 hover:text-foreground transition-colors">Copy</button>
                         </div>
                       </div>
                     ))}
@@ -281,9 +282,14 @@ function CreateRunForm({ conversationId, onCreated, onCancel }: {
 function ExecuteButton({ run, onDone }: { run: EvalRun; onDone: () => void }) {
   const [executing, setExecuting] = useState(false);
   const [progress, setProgress] = useState("");
+  const [cancelled, setCancelled] = useState(false);
+
+  const cancelRef = { current: false };
 
   const execute = async () => {
     setExecuting(true);
+    setCancelled(false);
+    cancelRef.current = false;
     try {
       await invoke("update_eval_run_status", { id: run.id, status: "running" });
 
@@ -299,6 +305,7 @@ function ExecuteButton({ run, onDone }: { run: EvalRun; onDone: () => void }) {
 
       for (let round = 1; round <= totalRounds; round++) {
         for (const agent of agents) {
+          if (cancelRef.current) throw new Error("cancelled");
           setProgress(`Round ${round} · ${agent.label}...`);
           const persona = agent.personaId ? DEFAULT_PERSONAS.find((p: any) => p.id === agent.personaId) : null;
           const personaSection = persona ? `## Persona\n\n${persona.promptFragment}\n\n---\n\n` : "";
@@ -351,13 +358,27 @@ function ExecuteButton({ run, onDone }: { run: EvalRun; onDone: () => void }) {
     }
   };
 
+  const handleCancel = () => {
+    cancelRef.current = true;
+    setCancelled(true);
+  };
+
+  const showRetry = !executing && (run.status === "done" || run.status === "failed");
+
   return (
     <div className="flex items-center gap-2">
       {progress && <span className="text-[9px] text-primary/60 animate-pulse">{progress}</span>}
-      <button onClick={execute} disabled={executing}
-        className="flex items-center gap-1 px-3 py-1 rounded-md text-[11px] font-medium bg-primary/15 text-primary hover:bg-primary/25 transition-colors disabled:opacity-40">
-        {executing ? "Running…" : "Execute"}
-      </button>
+      {executing ? (
+        <button onClick={handleCancel}
+          className="px-3 py-1 rounded-md text-[11px] font-medium text-destructive/70 hover:bg-destructive/10 transition-colors">
+          Cancel
+        </button>
+      ) : (
+        <button onClick={execute}
+          className="flex items-center gap-1 px-3 py-1 rounded-md text-[11px] font-medium bg-primary/15 text-primary hover:bg-primary/25 transition-colors">
+          {showRetry ? "Retry" : "Execute"}
+        </button>
+      )}
     </div>
   );
 }

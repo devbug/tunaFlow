@@ -68,6 +68,7 @@ Opus/Claude에 전달하는 실행 지시문, hand-off 문서, 초기 구현 프
 - [2026-03-30/evaluation_run_creation_ui_prompt](./2026-03-30/evaluation_run_creation_ui_prompt.md): Test > Evaluation에서 새 eval run을 시작하는 최소 생성 UI 프롬프트
 - [2026-03-30/evaluation_run_execution_linkage_prompt](./2026-03-30/evaluation_run_execution_linkage_prompt.md): 생성된 eval run에 실제 agent 결과를 채우는 실행 연결 프롬프트
 - [2026-03-30/evaluation_run_execution_real_wiring_prompt](./2026-03-30/evaluation_run_execution_real_wiring_prompt.md): placeholder eval execution을 실제 agent 실행 경로와 연결하는 프롬프트
+- [2026-03-30/evaluation_usability_pass_prompt](./2026-03-30/evaluation_usability_pass_prompt.md): Evaluation cancel/retry/result action 등 사용성 보강 프롬프트
 - [2026-03-30/git_sync_phase1_prompt](./2026-03-30/git_sync_phase1_prompt.md): git automation 없이 프로젝트/branch의 git 상태와 연결 정보를 보여주는 1차 프롬프트
 - [2026-03-30/git_branch_link_visibility_prompt](./2026-03-30/git_branch_link_visibility_prompt.md): branch별 linked git branch를 표시하고 수동 편집 가능하게 하는 프롬프트
 - [2026-03-30/git_branch_defaulting_prompt](./2026-03-30/git_branch_defaulting_prompt.md): branch 생성 시 linked git branch 기본값을 제안/채우는 프롬프트
