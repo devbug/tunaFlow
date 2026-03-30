@@ -158,6 +158,7 @@
 - [artifactManualPromotionMvpPlan_2026-03-30](./artifactManualPromotionMvpPlan_2026-03-30.md)
 - [artifactsTabUsabilityPlan_2026-03-30](./artifactsTabUsabilityPlan_2026-03-30.md)
 - [artifactDetailViewPlan_2026-03-30](./artifactDetailViewPlan_2026-03-30.md)
+- [artifactProvenanceWorkflowPlan_2026-03-30](./artifactProvenanceWorkflowPlan_2026-03-30.md)
 - [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md)
 - [sidebarThreeSectionPlan](./sidebarThreeSectionPlan.md)
 - [sidecarMigrationPlan](./sidecarMigrationPlan.md)

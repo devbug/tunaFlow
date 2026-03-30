@@ -38,6 +38,13 @@ function ArtifactCard({ artifact, onOpen }: { artifact: Artifact; onOpen: (a: Ar
   const status = STATUS_CONFIG[artifact.status];
   const isHarness = HARNESS_TYPES.has(artifact.type);
   const harnessConfig = isHarness ? HARNESS_TYPE_CONFIG[artifact.type] : null;
+  const conversations = useChatStore((s) => s.conversations);
+  const branches = useChatStore((s) => s.branches);
+  const sourceConv = artifact.conversationId ? conversations.find((c) => c.id === artifact.conversationId) : null;
+  const sourceBranch = artifact.branchId ? branches.find((b) => b.id === artifact.branchId) : null;
+  const provenanceHint = sourceBranch
+    ? (sourceBranch.customLabel ?? sourceBranch.label) + (sourceBranch.mode === "roundtable" ? " · RT" : "")
+    : sourceConv ? (sourceConv.customLabel ?? sourceConv.label) : null;
 
   return (
     <div
@@ -71,9 +78,11 @@ function ArtifactCard({ artifact, onOpen }: { artifact: Artifact; onOpen: (a: Ar
       <p className="text-[10px] text-muted-foreground/60 leading-snug line-clamp-2 ml-6">
         {artifact.content.slice(0, 100)}
       </p>
-      <p className="text-[9px] text-muted-foreground/30 ml-6 mt-0.5 font-mono">
-        {new Date(artifact.updatedAt * 1000).toLocaleDateString()}
-      </p>
+      <div className="flex items-center gap-2 ml-6 mt-0.5 text-[9px] text-muted-foreground/30 font-mono">
+        <span>{new Date(artifact.updatedAt * 1000).toLocaleDateString()}</span>
+        {provenanceHint && <span>· {provenanceHint}</span>}
+        {artifact.subtaskId && <span>· subtask</span>}
+      </div>
     </div>
   );
 }
@@ -276,9 +285,18 @@ export function ArtifactsPanel() {
 // ─── Detail Modal ───────────────────────────────────────────────────────────
 
 function ArtifactDetailModal({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
-  const { updateArtifactStatus, deleteArtifact, sendFollowup } = useChatStore();
+  const { updateArtifactStatus, deleteArtifact, sendFollowup, conversations, branches } = useChatStore();
   const status = STATUS_CONFIG[artifact.status];
   const harnessConfig = HARNESS_TYPES.has(artifact.type) ? HARNESS_TYPE_CONFIG[artifact.type] : null;
+
+  // Provenance
+  const sourceConv = artifact.conversationId ? conversations.find((c) => c.id === artifact.conversationId) : null;
+  const sourceBranch = artifact.branchId ? branches.find((b) => b.id === artifact.branchId) : null;
+  const sourceLabel = sourceBranch
+    ? `Branch: ${sourceBranch.customLabel ?? sourceBranch.label}${sourceBranch.mode === "roundtable" ? " (RT)" : ""}`
+    : sourceConv
+    ? `${sourceConv.customLabel ?? sourceConv.label}`
+    : null;
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center">
@@ -294,7 +312,7 @@ function ArtifactDetailModal({ artifact, onClose }: { artifact: Artifact; onClos
           )}
           <div className="flex-1 min-w-0">
             <h2 className="text-[15px] font-[550] text-foreground leading-snug">{artifact.title}</h2>
-            <div className="flex items-center gap-2 mt-1 text-[11px]">
+            <div className="flex items-center gap-2 mt-1 text-[11px] flex-wrap">
               <span className={cn("inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded", status.class)}>
                 {status.icon} {status.label}
               </span>
@@ -302,6 +320,13 @@ function ArtifactDetailModal({ artifact, onClose }: { artifact: Artifact; onClos
               <span className="text-muted-foreground/40 font-mono">{artifact.type}</span>
               <span className="text-muted-foreground/30 font-mono">{new Date(artifact.updatedAt * 1000).toLocaleString()}</span>
             </div>
+            {/* Provenance */}
+            {(sourceLabel || artifact.subtaskId) && (
+              <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground/50">
+                {sourceLabel && <span>Source: {sourceLabel}</span>}
+                {artifact.subtaskId && <span>· Subtask linked</span>}
+              </div>
+            )}
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0">
             <X className="w-4 h-4" />
