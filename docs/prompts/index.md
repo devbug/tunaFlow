@@ -74,5 +74,6 @@ Opus/Claude에 전달하는 실행 지시문, hand-off 문서, 초기 구현 프
 - [2026-03-30/git_branch_defaulting_prompt](./2026-03-30/git_branch_defaulting_prompt.md): branch 생성 시 linked git branch 기본값을 제안/채우는 프롬프트
 - [2026-03-30/git_sync_phase2_guarded_actions_prompt](./2026-03-30/git_sync_phase2_guarded_actions_prompt.md): 제한적인 git branch create/checkout만 안전하게 여는 2차 프롬프트
 - [2026-03-30/deferred_tech_reevaluation_prompt](./2026-03-30/deferred_tech_reevaluation_prompt.md): 보류/신규 기술 후보를 다시 분류해 다음 구현 라운드를 추천하는 프롬프트
+- [2026-03-30/context_stack_reevaluation_prompt](./2026-03-30/context_stack_reevaluation_prompt.md): ContextPack/context-hub/flow agent의 다음 구현 순서를 다시 좁히는 프롬프트
 - [2026-03-29/window_state_restore_fix_prompt](./2026-03-29/window_state_restore_fix_prompt.md): 창 위치/크기 복원 확인 및 수정 프롬프트
 - [2026-03-29/window_state_restore_review_checklist](./2026-03-29/window_state_restore_review_checklist.md): 창 상태 복원 검증 체크리스트
