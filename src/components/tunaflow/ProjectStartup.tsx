@@ -23,6 +23,25 @@ export function ProjectStartup() {
         await loadProjects();
         await selectProject(key);
         setSetting("lastProjectKey", key);
+        // Show scaffold notification as first system message
+        try {
+          const convs = useChatStore.getState().conversations;
+          const mainConv = convs.find((c) => c.projectKey === key);
+          if (mainConv) {
+            await invoke("create_user_message", {
+              input: {
+                conversationId: mainConv.id,
+                content: `📁 Project initialized: ${name}\n\n` +
+                  `Created:\n` +
+                  `- \`CLAUDE.md\` — agent convention rules (edit to customize)\n` +
+                  `- \`docs/plans/\` — plan documents\n` +
+                  `- \`docs/reference/\` — reference documents\n` +
+                  `- \`docs/prompts/\` — execution prompts\n\n` +
+                  `Tip: Edit CLAUDE.md to add your project's tech stack, goals, and specific rules.`,
+              },
+            });
+          }
+        } catch { /* best-effort notification */ }
       }
     } catch { /* cancelled */ }
     finally { setAdding(false); }
