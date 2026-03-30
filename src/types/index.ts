@@ -185,6 +185,12 @@ export interface RoundtableParticipant {
   model?: string;
   /** "claude" | "codex" | "gemini" | "opencode" — defaults to "claude" on backend */
   engine?: string;
+  /** Blind verifier — receives topic only, no prior/current transcript */
+  blind?: boolean;
+  /** RT role — affects output cap directive. "proposer" | "reviewer" | "verifier" | "synthesizer" */
+  role?: string;
+  /** Explicit output token cap. If not set, derived from role. */
+  maxTokens?: number;
 }
 
 /** RT execution mode:

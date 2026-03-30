@@ -293,9 +293,11 @@ export function TracePanel() {
       {(() => {
         const latest = spans.find((sp) => sp.contextMode);
         if (!latest) return null;
-        const sectionCount = (() => {
-          try { return (JSON.parse(latest.contextSections || "[]") as string[]).length; } catch { return 0; }
+        const allSections = (() => {
+          try { return JSON.parse(latest.contextSections || "[]") as string[]; } catch { return [] as string[]; }
         })();
+        const activeCount = allSections.filter((s) => !s.includes(":skipped")).length;
+        const skippedCount = allSections.filter((s) => s.includes(":skipped")).length;
         return (
           <button
             onClick={() => { if (!historyOpen) setHistoryOpen(true); }}
@@ -305,7 +307,7 @@ export function TracePanel() {
             <span className={cn("px-1 py-px rounded text-[8px] font-semibold", contextModeColor(latest.contextMode!))}>
               {contextModeAbbrev(latest.contextMode!)}
             </span>
-            <span>· {sectionCount} section{sectionCount !== 1 ? "s" : ""}</span>
+            <span>· {activeCount} active{skippedCount > 0 ? `, ${skippedCount} skipped` : ""}</span>
             {latest.contextLength != null && (
               <span className="font-mono">· {(latest.contextLength / 1000).toFixed(1)}k</span>
             )}
@@ -393,9 +395,18 @@ export function TracePanel() {
                       {sp.contextSections && (() => {
                         try {
                           const s = JSON.parse(sp.contextSections) as string[];
-                          return s.map((sec) => (
-                            <span key={sec} className="bg-accent/60 text-muted-foreground/60 px-1 py-px rounded text-[8px]">{sec}</span>
-                          ));
+                          const active = s.filter((sec) => !sec.includes(":skipped"));
+                          const skipped = s.filter((sec) => sec.includes(":skipped")).map((sec) => sec.replace(":skipped", ""));
+                          return (
+                            <>
+                              {active.map((sec) => (
+                                <span key={sec} className="bg-accent/60 text-muted-foreground/60 px-1 py-px rounded text-[8px]">{sec}</span>
+                              ))}
+                              {skipped.map((sec) => (
+                                <span key={`skip-${sec}`} className="bg-destructive/10 text-destructive/40 px-1 py-px rounded text-[8px] line-through">{sec}</span>
+                              ))}
+                            </>
+                          );
                         } catch { return null; }
                       })()}
                     </div>
@@ -410,6 +421,27 @@ export function TracePanel() {
                         </span>
                       )}
                     </div>
+                    {/* Section budget breakdown — from contextHash */}
+                    {sp.contextHash && sp.contextHash.startsWith("[") && (() => {
+                      try {
+                        const sizes = JSON.parse(sp.contextHash) as { name: string; chars: number }[];
+                        if (sizes.length === 0) return null;
+                        const sorted = [...sizes].sort((a, b) => b.chars - a.chars);
+                        const top = sorted.slice(0, 4);
+                        return (
+                          <div className="flex items-center gap-1.5 text-[7px] text-muted-foreground/30 pl-[18px] flex-wrap">
+                            {top.map((s) => (
+                              <span key={s.name} className={cn(
+                                "font-mono",
+                                s.chars > 8000 ? "text-amber-500/50" : ""
+                              )}>
+                                {s.name}:{(s.chars / 1000).toFixed(1)}k
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      } catch { return null; }
+                    })()}
                   </div>
                 )}
               </div>

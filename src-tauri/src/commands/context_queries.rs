@@ -90,6 +90,240 @@ pub fn parent_conversation_id(conn: &Connection, branch_conv_id: &str) -> Option
     .flatten()
 }
 
+/// A retrieved conversation chunk — pair (user+assistant), anchor, or brief.
+pub struct RetrievedChunk {
+    pub kind: &'static str,  // "pair", "anchor", "brief"
+    pub messages: Vec<(String, String, Option<String>, Option<String>)>, // (role, content, engine, persona)
+    pub conversation_id: String,
+    pub score: f64,
+    pub timestamp: i64,
+}
+
+/// Retrieve past conversation chunks with scoring, dedup, and overlap suppression.
+///
+/// Pipeline: FTS5 broad search → chunk assembly → scoring → Jaccard dedup → top-N trim.
+/// `existing_context` is concatenated text from sections already in ContextPack (for overlap penalty).
+#[allow(dead_code)]
+pub fn retrieve_relevant_chunks(
+    conn: &Connection,
+    project_key: &str,
+    _current_conversation_id: &str,
+    query: &str,
+    recent_message_ids: &[String],
+    limit: i64,
+) -> Vec<RetrievedChunk> {
+    retrieve_relevant_chunks_with_overlap(conn, project_key, _current_conversation_id, query, recent_message_ids, limit, None)
+}
+
+pub fn retrieve_relevant_chunks_with_overlap(
+    conn: &Connection,
+    project_key: &str,
+    _current_conversation_id: &str,
+    query: &str,
+    recent_message_ids: &[String],
+    limit: i64,
+    existing_context: Option<&str>,
+) -> Vec<RetrievedChunk> {
+    let fts_query = build_fts_query(query);
+    if fts_query.is_empty() {
+        return Vec::new();
+    }
+
+    // Step 1: Broad FTS5 search (fetch more than needed for ranking headroom)
+    let fetch_count = (limit * 4).max(20);
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT m.id, m.role, m.conversation_id, m.timestamp, rank
+         FROM messages_fts fts
+         JOIN messages m ON m.rowid = fts.rowid
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE messages_fts MATCH ?1
+           AND c.project_key = ?2
+         ORDER BY rank
+         LIMIT ?3",
+    ) else {
+        return Vec::new();
+    };
+
+    let hits: Vec<(String, String, String, i64, f64)> = stmt
+        .query_map(params![fts_query, project_key, fetch_count], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+        })
+        .map(|mapped| mapped.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default();
+
+    // Step 2: Assemble chunks with initial scoring
+    let mut seen_chunks: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut chunks: Vec<RetrievedChunk> = Vec::new();
+    let now_ts = crate::db::migrations::now_epoch_ms();
+
+    for (hit_id, hit_role, conv_id, hit_ts, fts_rank) in &hits {
+        if recent_message_ids.contains(hit_id) {
+            continue;
+        }
+
+        let chunk_key = format!("{}:{}", conv_id, hit_ts);
+        if seen_chunks.contains(&chunk_key) {
+            continue;
+        }
+
+        let chunk = if conv_id.starts_with("branch:") {
+            let is_brief: bool = conn.query_row(
+                "SELECT COUNT(*) > 0 FROM memos WHERE message_id = ?1 AND type = 'roundtable_brief'",
+                [hit_id], |row| row.get(0),
+            ).unwrap_or(false);
+            if is_brief {
+                build_single_chunk(conn, hit_id, "brief")
+            } else {
+                build_pair_chunk(conn, conv_id, hit_id, hit_role, *hit_ts)
+            }
+        } else {
+            build_pair_chunk(conn, conv_id, hit_id, hit_role, *hit_ts)
+        };
+
+        if let Some(mut c) = chunk {
+            c.conversation_id = conv_id.clone();
+            c.timestamp = *hit_ts;
+
+            // Scoring: combine FTS rank + recency + kind bonus
+            let fts_score = (-fts_rank).max(0.0).min(10.0) / 10.0; // normalize 0-1
+            let age_hours = ((now_ts - hit_ts) as f64 / 3_600_000.0).max(0.0);
+            let recency_score = 1.0 / (1.0 + age_hours / 24.0); // decay over days
+            let kind_bonus = match c.kind {
+                "pair" => 0.3,   // full Q&A is most useful
+                "brief" => 0.2,  // RT briefs are curated
+                "anchor" => 0.1, // anchors provide context
+                _ => 0.0,
+            };
+
+            // Overlap penalty: if chunk content strongly overlaps existing context
+            let overlap_penalty = if let Some(existing) = existing_context {
+                let chunk_text: String = c.messages.iter().map(|(_, content, _, _)| content.as_str()).collect::<Vec<_>>().join(" ");
+                let sim = jaccard_word_similarity(&chunk_text, existing);
+                if sim > 0.6 { 0.5 } else if sim > 0.4 { 0.2 } else { 0.0 }
+            } else {
+                0.0
+            };
+
+            c.score = fts_score * 0.4 + recency_score * 0.3 + kind_bonus - overlap_penalty;
+
+            seen_chunks.insert(chunk_key);
+            chunks.push(c);
+        }
+    }
+
+    // Step 3: Jaccard dedup — remove near-duplicate chunks
+    let mut deduped: Vec<RetrievedChunk> = Vec::new();
+    for chunk in chunks {
+        let chunk_text: String = chunk.messages.iter().map(|(_, c, _, _)| c.as_str()).collect::<Vec<_>>().join(" ");
+        let is_duplicate = deduped.iter().any(|existing| {
+            let existing_text: String = existing.messages.iter().map(|(_, c, _, _)| c.as_str()).collect::<Vec<_>>().join(" ");
+            jaccard_word_similarity(&chunk_text, &existing_text) > 0.7
+        });
+        if !is_duplicate {
+            deduped.push(chunk);
+        }
+    }
+
+    // Step 4: Sort by score descending, trim to limit
+    deduped.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    deduped.truncate(limit as usize);
+
+    deduped
+}
+
+/// Word-level Jaccard similarity (shared with context_pack but duplicated here to avoid circular deps).
+fn jaccard_word_similarity(a: &str, b: &str) -> f64 {
+    let words_a: std::collections::HashSet<&str> = a.split_whitespace().collect();
+    let words_b: std::collections::HashSet<&str> = b.split_whitespace().collect();
+    if words_a.is_empty() && words_b.is_empty() { return 1.0; }
+    let intersection = words_a.intersection(&words_b).count();
+    let union = words_a.union(&words_b).count();
+    if union == 0 { return 0.0; }
+    intersection as f64 / union as f64
+}
+
+/// Build a user+assistant pair chunk around a hit message.
+fn build_pair_chunk(
+    conn: &Connection,
+    conv_id: &str,
+    hit_id: &str,
+    hit_role: &str,
+    hit_ts: i64,
+) -> Option<RetrievedChunk> {
+    // If hit is user, get the next assistant; if assistant, get the previous user
+    let (user_msg, asst_msg) = if hit_role == "user" {
+        let user = load_message_by_id(conn, hit_id)?;
+        let asst = conn.query_row(
+            "SELECT id, role, content, engine, persona FROM messages
+             WHERE conversation_id = ?1 AND role = 'assistant' AND timestamp > ?2
+             ORDER BY timestamp ASC LIMIT 1",
+            params![conv_id, hit_ts],
+            |row| Ok((row.get::<_,String>(0)?, row.get::<_,String>(1)?, row.get::<_,String>(2)?, row.get::<_,Option<String>>(3)?, row.get::<_,Option<String>>(4)?)),
+        ).ok();
+        (Some(user), asst)
+    } else {
+        let asst = load_message_by_id(conn, hit_id)?;
+        let user = conn.query_row(
+            "SELECT id, role, content, engine, persona FROM messages
+             WHERE conversation_id = ?1 AND role = 'user' AND timestamp <= ?2
+             ORDER BY timestamp DESC LIMIT 1",
+            params![conv_id, hit_ts],
+            |row| Ok((row.get::<_,String>(0)?, row.get::<_,String>(1)?, row.get::<_,String>(2)?, row.get::<_,Option<String>>(3)?, row.get::<_,Option<String>>(4)?)),
+        ).ok();
+        (user, Some(asst))
+    };
+
+    let mut messages = Vec::new();
+    if let Some((_, role, content, engine, persona)) = user_msg {
+        messages.push((role, content, engine, persona));
+    }
+    if let Some((_, role, content, engine, persona)) = asst_msg {
+        messages.push((role, content, engine, persona));
+    }
+
+    if messages.is_empty() { return None; }
+
+    Some(RetrievedChunk {
+        kind: "pair",
+        messages,
+        conversation_id: String::new(),
+        score: 0.0,
+        timestamp: 0,
+    })
+}
+
+/// Build a single-message chunk (anchor or brief).
+fn build_single_chunk(conn: &Connection, msg_id: &str, kind: &'static str) -> Option<RetrievedChunk> {
+    let msg = load_message_by_id(conn, msg_id)?;
+    let (_, role, content, engine, persona) = msg;
+    Some(RetrievedChunk {
+        kind,
+        messages: vec![(role, content, engine, persona)],
+        conversation_id: String::new(),
+        score: 0.0,
+        timestamp: 0,
+    })
+}
+
+fn load_message_by_id(conn: &Connection, id: &str) -> Option<(String, String, String, Option<String>, Option<String>)> {
+    conn.query_row(
+        "SELECT id, role, content, engine, persona FROM messages WHERE id = ?1",
+        [id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+    ).ok()
+}
+
+/// Build FTS5 query from natural language.
+/// Extracts words ≥2 chars, joins with OR for broad matching.
+fn build_fts_query(query: &str) -> String {
+    let words: Vec<&str> = query.split_whitespace()
+        .filter(|w| w.len() >= 2)
+        .take(8)
+        .collect();
+    if words.is_empty() { return String::new(); }
+    words.join(" OR ")
+}
+
 /// Load the project_key for a conversation, then resolve the project path.
 pub fn project_path_for_conversation(conn: &Connection, conversation_id: &str) -> Option<String> {
     let project_key: String = conn

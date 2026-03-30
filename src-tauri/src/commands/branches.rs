@@ -348,7 +348,10 @@ pub fn delete_branch(
         let branch_conv_id = format!("branch:{}", branch_id);
 
         if status == "active" {
-            // Active: full delete — remove everything
+            // Active: full delete — remove everything including FK dependents
+            conn.execute("DELETE FROM conversation_memory WHERE conversation_id = ?1", [&branch_conv_id])?;
+            conn.execute("DELETE FROM trace_log WHERE conversation_id = ?1", [&branch_conv_id])?;
+            conn.execute("DELETE FROM agent_jobs WHERE conversation_id = ?1", [&branch_conv_id])?;
             conn.execute("DELETE FROM messages WHERE conversation_id = ?1", [&branch_conv_id])?;
             conn.execute("DELETE FROM memos WHERE conversation_id = ?1", [&branch_conv_id])?;
             conn.execute("DELETE FROM artifacts WHERE conversation_id = ?1", [&branch_conv_id])?;

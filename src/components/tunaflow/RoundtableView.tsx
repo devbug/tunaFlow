@@ -1,10 +1,14 @@
 import { cn, AGENT_DOT_COLORS, formatTimestamp, normalizeEngine } from "@/lib/utils";
 import { AgentAvatar } from "./AgentAvatar";
-import type { Message } from "@/types";
-import { Copy, Users, Loader2, GitBranch, StickyNote, Forward, FileText } from "lucide-react";
+import type { Message, RoundtableParticipant } from "@/types";
+import { Copy, Users, Loader2, GitBranch, StickyNote, Forward, FileText, ShieldCheck, Trash2 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { useState, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useChatStore } from "@/stores/chatStore";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { markdownComponents } from "./chat/MarkdownComponents";
 
 interface ParticipantStatus {
   name: string;
@@ -22,6 +26,7 @@ interface RoundtableViewProps {
   onMemo?: (messageId: string) => void;
   onFollowup?: (engine: string, content: string) => void;
   onSaveArtifact?: (content: string) => void;
+  onDelete?: (messageId: string) => void;
   /** Override conversationId for thread/drawer context */
   conversationId?: string;
 }
@@ -67,16 +72,6 @@ function ReferenceBadge({ sources }: { sources: PromptSources }) {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function parseMarkdown(text: string): React.ReactNode {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
-  return parts.map((part, i) => {
-    if (part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={i} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>;
-    }
-    return <span key={i}>{part}</span>;
-  });
-}
 
 function groupIntoRounds(messages: Message[]): Message[][] {
   const assistantMsgs = messages.filter((m) => m.role === "assistant");
@@ -140,15 +135,17 @@ interface RtMessageProps {
   onMemo?: (messageId: string) => void;
   onFollowup?: (engine: string, content: string) => void;
   onSaveArtifact?: (content: string) => void;
+  onDelete?: (messageId: string) => void;
+  participantMeta?: RoundtableParticipant;
 }
 
-function RoundtableMessage({ message, isLast, onBranch, onBranchRT, onMemo, onFollowup, onSaveArtifact }: RtMessageProps) {
+function RoundtableMessage({ message, isLast, onBranch, onBranchRT, onMemo, onFollowup, onSaveArtifact, onDelete, participantMeta }: RtMessageProps) {
   const [hovered, setHovered] = useState(false);
   const name = message.persona ?? message.engine ?? "Agent";
   const engine = message.engine ?? "";
   const knownEngine = normalizeEngine(engine);
   const dotColor = knownEngine ? AGENT_DOT_COLORS[knownEngine] : "bg-muted-foreground/40";
-  const paragraphs = message.content.split("\n\n").filter(Boolean);
+  const content = message.content;
   const sources = parsePromptSources(message);
 
   return (
@@ -164,21 +161,31 @@ function RoundtableMessage({ message, isLast, onBranch, onBranchRT, onMemo, onFo
       {/* Card */}
       <div
         className={cn(
-          "flex-1 mb-3 rounded-md bg-card/60 border border-border/30 p-3 transition-colors relative",
+          "flex-1 min-w-0 mb-3 rounded-md bg-card/60 border border-border/30 p-3 transition-colors relative overflow-hidden",
           hovered && "border-border/50"
         )}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        {/* Header */}
+        {/* Header: engine · model · role */}
         <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
           <span className="inline-flex items-center gap-1">
             <span className={cn("w-1.5 h-1.5 rounded-full", dotColor)} />
-            <span className="text-[10px] font-medium text-foreground/80">{name}</span>
+            <span className="text-[10px] font-medium text-foreground/80">{engine || name}</span>
           </span>
           {message.model && (
             <span className="text-[8px] text-foreground/40 font-mono bg-accent/40 px-1 py-0.5 rounded">
               {message.model}
+            </span>
+          )}
+          {participantMeta?.role && (
+            <span className="text-[8px] text-primary/50 bg-primary/8 px-1 py-px rounded font-medium">
+              {participantMeta.role}
+            </span>
+          )}
+          {participantMeta?.blind && (
+            <span className="text-[8px] text-amber-500/60 bg-amber-500/8 px-1 py-px rounded font-medium inline-flex items-center gap-0.5">
+              <ShieldCheck className="w-2.5 h-2.5" />blind
             </span>
           )}
           <span className="text-[9px] text-muted-foreground/40 font-mono">
@@ -187,24 +194,11 @@ function RoundtableMessage({ message, isLast, onBranch, onBranchRT, onMemo, onFo
           {sources && <ReferenceBadge sources={sources} />}
         </div>
 
-        {/* Body */}
-        <div className="text-[13px] text-foreground/90 leading-relaxed space-y-1.5">
-          {paragraphs.map((para, i) => {
-            if (para.startsWith("- ")) {
-              const items = para.split("\n").filter(Boolean);
-              return (
-                <ul key={i} className="space-y-0.5 ml-1">
-                  {items.map((item, j) => (
-                    <li key={j} className="flex gap-1.5">
-                      <span className="text-muted-foreground/40 mt-0.5 shrink-0 text-[10px]">•</span>
-                      <span>{parseMarkdown(item.replace(/^- /, ""))}</span>
-                    </li>
-                  ))}
-                </ul>
-              );
-            }
-            return <p key={i}>{parseMarkdown(para)}</p>;
-          })}
+        {/* Body — same react-markdown pipeline as main chat */}
+        <div className="prose prose-sm prose-invert max-w-none text-[13px] text-foreground/90 leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+          <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]} components={markdownComponents}>
+            {content}
+          </ReactMarkdown>
         </div>
 
         {/* Actions */}
@@ -246,6 +240,12 @@ function RoundtableMessage({ message, isLast, onBranch, onBranchRT, onMemo, onFo
             className="p-1 rounded text-muted-foreground/40 hover:text-foreground hover:bg-accent transition-colors">
             <Copy className="w-3 h-3" />
           </button>
+          {onDelete && (
+            <button onClick={() => onDelete(message.id)} title="Delete"
+              className="p-1 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors">
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -259,13 +259,27 @@ const RT_MODE_LABELS: Record<string, string> = {
   deliberative: "Deliberative",
 };
 
-export function RoundtableView({ messages, conversationId, onBranch, onBranchRT, onMemo, onFollowup, onSaveArtifact }: RoundtableViewProps) {
+export function RoundtableView({ messages, conversationId, onBranch, onBranchRT, onMemo, onFollowup, onSaveArtifact, onDelete }: RoundtableViewProps) {
   const participants = getParticipants(messages);
   const rounds = groupIntoRounds(messages);
   const selectedConversationId = useChatStore((s) => s.selectedConversationId);
   const runningThreadIds = useChatStore((s) => s.runningThreadIds);
   const targetConvId = conversationId ?? selectedConversationId;
   const isRunning = !!targetConvId && runningThreadIds.includes(targetConvId);
+
+  // Load RT config for role/blind visibility
+  const [rtParticipants, setRtParticipants] = useState<RoundtableParticipant[]>([]);
+  useEffect(() => {
+    if (!targetConvId) return;
+    invoke<string>("get_rt_config", { conversationId: targetConvId })
+      .then((json) => {
+        try {
+          const cfg = JSON.parse(json) as { participants?: RoundtableParticipant[] };
+          setRtParticipants(cfg.participants ?? []);
+        } catch { setRtParticipants([]); }
+      })
+      .catch(() => setRtParticipants([]));
+  }, [targetConvId]);
 
   // ─── Real-time participant telemetry ─────────────────────────────
   const [pStatuses, setPStatuses] = useState<Map<string, ParticipantStatus>>(new Map());
@@ -411,7 +425,8 @@ export function RoundtableView({ messages, conversationId, onBranch, onBranchRT,
             <div>
               {round.map((msg, i) => (
                 <RoundtableMessage key={msg.id} message={msg} isLast={i === round.length - 1}
-                  onBranch={onBranch} onBranchRT={onBranchRT} onMemo={onMemo} onFollowup={onFollowup} onSaveArtifact={onSaveArtifact} />
+                  onBranch={onBranch} onBranchRT={onBranchRT} onMemo={onMemo} onFollowup={onFollowup} onSaveArtifact={onSaveArtifact} onDelete={onDelete}
+                  participantMeta={rtParticipants.find((rp) => rp.name === (msg.persona ?? msg.engine))} />
               ))}
             </div>
           </div>

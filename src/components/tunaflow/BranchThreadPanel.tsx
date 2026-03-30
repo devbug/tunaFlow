@@ -1,6 +1,8 @@
 import { useRef, useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { X, Check, GitBranch, Users, Trash2, ChevronsLeft, ChevronsRight, ChevronRight } from "lucide-react";
 import { ask } from "@tauri-apps/plugin-dialog";
+import type { Message } from "@/types";
 import { AgentAvatar } from "./AgentAvatar";
 import { cn, normalizeEngine, AGENT_DOT_COLORS, AGENT_DISPLAY_NAMES, formatTimestamp } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
@@ -275,6 +277,13 @@ export function BranchThreadPanel() {
               onBranchRT={!isReadOnly ? (id) => setRtDialogCheckpoint(id) : undefined}
               onMemo={!isReadOnly ? (id) => createMemo(id, threadMessages.find((m) => m.id === id)?.content ?? "") : undefined}
               onFollowup={!isReadOnly ? (engine, content) => sendThreadMessage(content, engine as any) : undefined}
+              onDelete={!isReadOnly ? async (id) => {
+                await invoke("delete_message_pair", { messageId: id });
+                if (threadBranchConvId) {
+                  const msgs = await invoke<Message[]>("list_messages", { conversationId: threadBranchConvId });
+                  useChatStore.setState({ threadMessages: msgs });
+                }
+              } : undefined}
             />
             <div ref={bottomRef} />
           </>

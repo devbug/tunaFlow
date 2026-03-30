@@ -89,5 +89,22 @@ Opus/Claude에 전달하는 실행 지시문, hand-off 문서, 초기 구현 프
 - [2026-03-30/long_term_memory_phase1_compression_prompt](./2026-03-30/long_term_memory_phase1_compression_prompt.md): recent window 밖의 대화를 compressed memory source로 유지하는 long-term memory 1차 프롬프트
 - [2026-03-30/compressed_memory_operational_polish_prompt](./2026-03-30/compressed_memory_operational_polish_prompt.md): compressed memory의 상태/실패/provenance/재압축 정책을 운영 가능한 수준으로 보강하는 프롬프트
 - [2026-03-30/structured_memory_source_strengthening_prompt](./2026-03-30/structured_memory_source_strengthening_prompt.md): plan/findings/artifacts/memo/cross-session를 장기기억용 structured memory source로 강화하는 프롬프트
+- [2026-03-30/contextpack_algorithm_phase1_prompt](./2026-03-30/contextpack_algorithm_phase1_prompt.md): Jaccard dedup, markdown 경량화, import collapse, rawq 다해상도 같은 저리스크 ContextPack 알고리즘 개선 프롬프트
+- [2026-03-30/conversation_retrieval_phase1_prompt](./2026-03-30/conversation_retrieval_phase1_prompt.md): 프로젝트 범위 과거 대화 chunk를 회수하는 conversation retrieval 최소 실험 프롬프트
+- [2026-03-30/conversation_retrieval_chunking_prompt](./2026-03-30/conversation_retrieval_chunking_prompt.md): retrieval 결과를 message 단건에서 pair/chunk 단위로 끌어올리는 프롬프트
+- [2026-03-30/conversation_retrieval_ranking_polish_prompt](./2026-03-30/conversation_retrieval_ranking_polish_prompt.md): retrieval chunk를 ranking/dedup/overlap suppression으로 더 적고 관련성 높게 다듬는 프롬프트
+- [2026-03-30/unified_memory_policy_phase1_prompt](./2026-03-30/unified_memory_policy_phase1_prompt.md): working/structured/compressed/retrieval memory를 하나의 selection policy로 통합하는 프롬프트
+- [2026-03-30/unified_memory_policy_threshold_tuning_prompt](./2026-03-30/unified_memory_policy_threshold_tuning_prompt.md): retrieval/compressed memory cutoff를 실제 사용 패턴에 맞게 조정하는 프롬프트
+- [2026-03-30/memory_policy_trace_surface_prompt](./2026-03-30/memory_policy_trace_surface_prompt.md): memory layer 포함/스킵/threshold 결과를 Trace/Runtime surface에서 읽기 쉽게 노출하는 프롬프트
+- [2026-03-30/memory_section_budget_breakdown_prompt](./2026-03-30/memory_section_budget_breakdown_prompt.md): 각 ContextPack section의 budget 기여도를 Trace/Runtime에서 읽게 하는 프롬프트
+- [2026-03-30/top_heavy_section_tuning_prompt](./2026-03-30/top_heavy_section_tuning_prompt.md): top budget consumer section 2~3개를 targeted tuning으로 줄이는 프롬프트
+- [2026-03-30/mode_specific_section_heuristics_prompt](./2026-03-30/mode_specific_section_heuristics_prompt.md): Lite/Standard/Full/Auto를 section 해상도까지 다른 context assembly profile로 정교화하는 프롬프트
+- [2026-03-30/auto_mode_heuristic_polish_prompt](./2026-03-30/auto_mode_heuristic_polish_prompt.md): Auto가 Lite/Standard/Full 중 적절한 profile을 설명 가능하게 선택하도록 다듬는 프롬프트
+- [2026-03-30/project_first_startup_ux_prompt](./2026-03-30/project_first_startup_ux_prompt.md): 프로젝트 선택부터 시작하는 최종 제품 진입 UX를 실제 startup flow로 옮기는 프롬프트
+- [2026-03-30/roundtable_completion_order_prompt](./2026-03-30/roundtable_completion_order_prompt.md): Deliberative RT의 reduce 병목을 completion-order collection으로 제거하는 프롬프트
+- [2026-03-30/roundtable_blind_verifier_phase_prompt](./2026-03-30/roundtable_blind_verifier_phase_prompt.md): sycophancy 방지를 위해 특정 participant를 blind verifier로 격리하는 RT 확장 프롬프트
+- [2026-03-30/roundtable_participant_role_blind_ui_prompt](./2026-03-30/roundtable_participant_role_blind_ui_prompt.md): RT participant 설정 UI에서 role/blind/max token override를 실제로 다루게 하는 프롬프트
+- [2026-03-30/roundtable_participant_surface_visibility_prompt](./2026-03-30/roundtable_participant_surface_visibility_prompt.md): RT 실행/조회 표면에서 participant role/blind를 다시 읽을 수 있게 하는 프롬프트
+- [2026-03-30/roundtable_role_terminology_separation_prompt](./2026-03-30/roundtable_role_terminology_separation_prompt.md): 프로젝트 프로필 역할과 RT 토론 역할을 분리해 `role` 혼동을 없애는 프롬프트
 - [2026-03-29/window_state_restore_fix_prompt](./2026-03-29/window_state_restore_fix_prompt.md): 창 위치/크기 복원 확인 및 수정 프롬프트
 - [2026-03-29/window_state_restore_review_checklist](./2026-03-29/window_state_restore_review_checklist.md): 창 상태 복원 검증 체크리스트

@@ -38,9 +38,9 @@ describe("Context budget — cap validation", () => {
   });
 
   it("custom cap returns the value", () => {
-    const cap = 80_000;
-    const override = cap === BUDGET_DEFAULT ? undefined : cap;
-    expect(override).toBe(80_000);
+    const cap: number = 80_000;
+    const overrideVal = cap === BUDGET_DEFAULT ? undefined : cap;
+    expect(overrideVal).toBe(80_000);
   });
 
   it("valid caps are multiples of step within range", () => {

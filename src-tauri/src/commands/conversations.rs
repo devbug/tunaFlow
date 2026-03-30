@@ -125,6 +125,7 @@ pub fn delete_conversation(id: String, state: State<DbState>) -> Result<(), AppE
     let conn = state.write.lock().map_err(|_| AppError::Lock)?;
 
     // Manual cleanup for tables without FK CASCADE
+    conn.execute("DELETE FROM conversation_memory WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM memos WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM artifacts WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM trace_log WHERE conversation_id = ?1", [&id])?;
@@ -141,6 +142,7 @@ pub fn delete_conversation(id: String, state: State<DbState>) -> Result<(), AppE
         ids
     };
     for shadow_id in &shadow_ids {
+        conn.execute("DELETE FROM conversation_memory WHERE conversation_id = ?1", [shadow_id])?;
         conn.execute("DELETE FROM memos WHERE conversation_id = ?1", [shadow_id])?;
         conn.execute("DELETE FROM artifacts WHERE conversation_id = ?1", [shadow_id])?;
         conn.execute("DELETE FROM trace_log WHERE conversation_id = ?1", [shadow_id])?;

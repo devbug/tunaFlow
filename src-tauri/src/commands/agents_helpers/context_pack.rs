@@ -59,9 +59,110 @@ fn format_section_with_authors(
             ("assistant", Some(p), _) if !p.is_empty() => format!("assistant:{}", p),
             _ => role.clone(),
         };
-        out.push_str(&format!("\n[{}] {}\n", author_tag, truncate_str(content, max_chars)));
+        // Apply markdown lightening to reduce token waste in long assistant messages
+        let lightened = if role == "assistant" && content.len() > 200 {
+            lighten_markdown(&truncate_str(content, max_chars))
+        } else {
+            truncate_str(content, max_chars)
+        };
+        out.push_str(&format!("\n[{}] {}\n", author_tag, lightened));
     }
     out
+}
+
+// ─── Algorithm helpers ──────────────────────────────────────────────────────
+
+/// Jaccard similarity between two strings (word-level).
+/// Returns 0.0–1.0. Used for detecting near-duplicate blocks.
+fn jaccard_similarity(a: &str, b: &str) -> f64 {
+    let words_a: std::collections::HashSet<&str> = a.split_whitespace().collect();
+    let words_b: std::collections::HashSet<&str> = b.split_whitespace().collect();
+    if words_a.is_empty() && words_b.is_empty() { return 1.0; }
+    let intersection = words_a.intersection(&words_b).count();
+    let union = words_a.union(&words_b).count();
+    if union == 0 { return 0.0; }
+    intersection as f64 / union as f64
+}
+
+/// Fold near-duplicate entries in a list of (label, content) pairs.
+/// If Jaccard similarity > threshold, keep the first and replace subsequent with "[similar to above]".
+const JACCARD_FOLD_THRESHOLD: f64 = 0.8;
+
+fn fold_similar_blocks(blocks: &mut Vec<String>) {
+    if blocks.len() < 2 { return; }
+    let mut i = 1;
+    while i < blocks.len() {
+        if jaccard_similarity(&blocks[i - 1], &blocks[i]) > JACCARD_FOLD_THRESHOLD {
+            blocks[i] = format!("[similar to previous entry — folded]");
+        }
+        i += 1;
+    }
+}
+
+/// Strip heavy markdown formatting to save tokens.
+/// Preserves code blocks and meaningful structure.
+fn lighten_markdown(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut in_code_block = false;
+    for line in text.lines() {
+        if line.trim_start().starts_with("```") {
+            in_code_block = !in_code_block;
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+        if in_code_block {
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        }
+        // Strip bold/italic markers
+        let cleaned = line
+            .replace("**", "")
+            .replace("__", "")
+            .replace("*", "")
+            .replace("_", " ");
+        // Collapse multiple spaces
+        let collapsed: String = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+        result.push_str(&collapsed);
+        result.push('\n');
+    }
+    result
+}
+
+/// Fold import/use/from/require blocks in code snippets.
+/// Replaces consecutive import lines with a summary.
+fn fold_import_block(snippet: &str) -> String {
+    let lines: Vec<&str> = snippet.lines().collect();
+    let mut result: Vec<String> = Vec::new();
+    let mut import_buf: Vec<String> = Vec::new();
+
+    let flush_imports = |buf: &mut Vec<String>, out: &mut Vec<String>| {
+        if buf.len() > 2 {
+            out.push(format!("[{} imports folded]", buf.len()));
+        } else {
+            out.extend(buf.drain(..));
+        }
+        buf.clear();
+    };
+
+    for line in &lines {
+        let trimmed = line.trim();
+        let is_import = trimmed.starts_with("import ")
+            || trimmed.starts_with("use ")
+            || trimmed.starts_with("from ")
+            || trimmed.starts_with("require(")
+            || (trimmed.starts_with("const ") && trimmed.contains("require("));
+
+        if is_import {
+            import_buf.push(line.to_string());
+        } else {
+            flush_imports(&mut import_buf, &mut result);
+            result.push(line.to_string());
+        }
+    }
+    flush_imports(&mut import_buf, &mut result);
+    result.join("\n")
 }
 
 /// Combine multiple optional system-prompt sections, joining with double newline.
@@ -107,6 +208,8 @@ pub fn build_cross_session_section(
         }
         blocks.push(block);
     }
+    // Fold near-duplicate cross-session blocks
+    fold_similar_blocks(&mut blocks);
     if blocks.is_empty() {
         return None;
     }
@@ -168,24 +271,47 @@ pub fn build_rawq_section(project_path: Option<&str>, prompt: &str) -> Option<St
             }
 
             let mut out = String::from("## Code context (rawq)\n");
-            for r in &results {
-                // Header: file, line, scope, confidence
+            for (idx, r) in results.iter().enumerate() {
                 let meta = match &r.scope {
                     Some(s) => format!(" ({}, {:.0}%)", s, r.confidence * 100.0),
                     None => format!(" ({:.0}%)", r.confidence * 100.0),
                 };
-                // Snippet: truncate to RAWQ_SNIPPET_MAX_CHARS
-                let snippet = if r.snippet.len() > RAWQ_SNIPPET_MAX_CHARS {
-                    let end = r.snippet.char_indices()
-                        .map(|(i, _)| i)
-                        .take_while(|&i| i <= RAWQ_SNIPPET_MAX_CHARS)
-                        .last()
-                        .unwrap_or(0);
-                    format!("{}…", &r.snippet[..end])
+
+                // Multi-resolution: top 2 = full snippet, next 2 = skeleton, rest = one-line
+                let snippet = if idx < 2 {
+                    // Full snippet — fold imports, truncate to max
+                    let folded = fold_import_block(&r.snippet);
+                    if folded.len() > RAWQ_SNIPPET_MAX_CHARS {
+                        let end = folded.char_indices()
+                            .map(|(i, _)| i)
+                            .take_while(|&i| i <= RAWQ_SNIPPET_MAX_CHARS)
+                            .last()
+                            .unwrap_or(0);
+                        format!("{}…", &folded[..end])
+                    } else {
+                        folded
+                    }
+                } else if idx < 4 {
+                    // Skeleton — first meaningful line only (signature/declaration)
+                    r.snippet.lines()
+                        .find(|l| {
+                            let t = l.trim();
+                            !t.is_empty() && !t.starts_with("import ") && !t.starts_with("use ")
+                                && !t.starts_with("from ") && !t.starts_with("//") && !t.starts_with("#")
+                        })
+                        .unwrap_or("")
+                        .trim()
+                        .to_string()
                 } else {
-                    r.snippet.clone()
+                    // One-line reference
+                    String::new()
                 };
-                out.push_str(&format!("\n`{}` L{}{}:\n{}\n", r.file, r.line, meta, snippet));
+
+                if snippet.is_empty() {
+                    out.push_str(&format!("\n`{}` L{}{}\n", r.file, r.line, meta));
+                } else {
+                    out.push_str(&format!("\n`{}` L{}{}:\n{}\n", r.file, r.line, meta, snippet));
+                }
             }
             Some(out)
         }
@@ -824,5 +950,67 @@ mod tests {
         ];
         let deduped = dedup_rawq_results(results);
         assert_eq!(deduped.len(), 2);
+    }
+
+    // ─── Jaccard similarity ─────────────────────────────────────────────
+    #[test]
+    fn jaccard_identical() {
+        assert!((jaccard_similarity("hello world", "hello world") - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn jaccard_disjoint() {
+        assert!(jaccard_similarity("hello world", "foo bar") < 0.01);
+    }
+
+    #[test]
+    fn jaccard_partial_overlap() {
+        let sim = jaccard_similarity("the quick brown fox", "the quick red fox");
+        assert!(sim > 0.5 && sim < 1.0);
+    }
+
+    #[test]
+    fn fold_similar_blocks_removes_duplicates() {
+        let mut blocks = vec![
+            "user asked about Rust code review".into(),
+            "user asked about Rust code review process".into(),
+            "completely different topic about Python".into(),
+        ];
+        fold_similar_blocks(&mut blocks);
+        assert!(blocks[1].contains("folded"));
+        assert!(!blocks[2].contains("folded"));
+    }
+
+    // ─── lighten_markdown ───────────────────────────────────────────────
+    #[test]
+    fn lighten_strips_bold_italic() {
+        let result = lighten_markdown("**bold** and *italic* text");
+        assert!(!result.contains("**"));
+        assert!(!result.contains("*italic*"));
+        assert!(result.contains("bold"));
+    }
+
+    #[test]
+    fn lighten_preserves_code_blocks() {
+        let input = "text\n```rust\nlet **x** = 1;\n```\nmore text";
+        let result = lighten_markdown(input);
+        assert!(result.contains("let **x** = 1;"));
+    }
+
+    // ─── fold_import_block ──────────────────────────────────────────────
+    #[test]
+    fn fold_imports_large_block() {
+        let snippet = "import a\nimport b\nimport c\nimport d\nfn main() {}";
+        let folded = fold_import_block(snippet);
+        assert!(folded.contains("[4 imports folded]"));
+        assert!(folded.contains("fn main()"));
+    }
+
+    #[test]
+    fn fold_imports_keeps_small_block() {
+        let snippet = "import a\nimport b\nfn main() {}";
+        let folded = fold_import_block(snippet);
+        // 2 imports — not folded (threshold is >2)
+        assert!(!folded.contains("folded"));
     }
 }

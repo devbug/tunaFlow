@@ -236,7 +236,9 @@ export function useSendActions({
         prompt = followCmd.prompt;
         setActiveParticipants(new Set(participants.map((p) => p.name)));
       } else if (configParticipants) {
-        participants = configParticipants;
+        // Filter by activeParticipants toggle state — 1명도 허용 (targeted follow-up, solo synthesis)
+        const filtered = configParticipants.filter((p) => activeParticipants.has(p.name));
+        participants = filtered.length > 0 ? filtered : configParticipants; // 0명일 때만 전체 fallback
       } else {
         // No RT config found — warn user instead of silent Haiku fallback
         console.warn("[RT] No rt_config found for", effectiveConvId, "— using default participants");

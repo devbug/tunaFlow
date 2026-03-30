@@ -17,15 +17,30 @@ pub fn truncate(s: &str, max: usize) -> String {
 
 /// Build context-enriched prompt for a single participant.
 ///
-/// Prepends prior-round and current-round responses as reference context,
-/// then appends the user's prompt. No directive text is injected —
-/// the user controls what to ask, agents just see the discussion context.
+/// Prepends participant identity + prior/current-round responses as reference context,
+/// then appends the user's prompt.
+#[allow(dead_code)]
 pub fn build_round_prompt(
     topic: &str,
     transcript: &[(String, String)],
     current_round: &[(String, String)],
 ) -> String {
+    build_round_prompt_with_identity(topic, transcript, current_round, None)
+}
+
+/// Build prompt with explicit participant identity.
+pub fn build_round_prompt_with_identity(
+    topic: &str,
+    transcript: &[(String, String)],
+    current_round: &[(String, String)],
+    identity: Option<&str>,
+) -> String {
     let mut sections: Vec<String> = Vec::new();
+
+    // Participant identity — tells the agent who it is in this roundtable
+    if let Some(id) = identity {
+        sections.push(id.to_string());
+    }
 
     if !transcript.is_empty() {
         let lines: Vec<String> = transcript

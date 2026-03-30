@@ -100,6 +100,23 @@
 | [longTermMemoryPhase1CompressionPlan_2026-03-30](./longTermMemoryPhase1CompressionPlan_2026-03-30.md) | 중요 / P0 — recent window를 넘는 대화를 compressed memory로 유지하는 1차 구현 |
 | [compressedMemoryOperationalPolishPlan_2026-03-30](./compressedMemoryOperationalPolishPlan_2026-03-30.md) | 중요 / P0 — compressed memory의 상태/실패/provenance/재압축 정책 운영 보강 |
 | [structuredMemorySourceStrengtheningPlan_2026-03-30](./structuredMemorySourceStrengtheningPlan_2026-03-30.md) | 중요 / P0 — plan/findings/artifacts/memo/cross-session를 장기기억용 structured memory source로 강화 |
+| [contextPackAlgorithmPhase1Plan_2026-03-30](./contextPackAlgorithmPhase1Plan_2026-03-30.md) | 중요 / P1 — Jaccard dedup, markdown 경량화, import collapse, rawq 다해상도 같은 저리스크 알고리즘 개선 |
+| [conversationRetrievalPhase1Plan_2026-03-30](./conversationRetrievalPhase1Plan_2026-03-30.md) | 중요 / P1 — 프로젝트 범위 과거 대화 chunk를 회수하는 conversation retrieval 최소 실험 |
+| [conversationRetrievalChunkingPlan_2026-03-30](./conversationRetrievalChunkingPlan_2026-03-30.md) | 중요 / P1 — retrieval 결과를 message 단건에서 pair/chunk 단위로 끌어올리는 2차 개선 |
+| [conversationRetrievalRankingPolishPlan_2026-03-30](./conversationRetrievalRankingPolishPlan_2026-03-30.md) | 중요 / P1 — retrieval chunk를 ranking/dedup/overlap suppression으로 더 적고 관련성 높게 다듬는 3차 개선 |
+| [unifiedMemoryPolicyPhase1Plan_2026-03-30](./unifiedMemoryPolicyPhase1Plan_2026-03-30.md) | 중요 / P1 — working/structured/compressed/retrieval memory를 하나의 selection policy로 통합 |
+| [unifiedMemoryPolicyThresholdTuningPlan_2026-03-30](./unifiedMemoryPolicyThresholdTuningPlan_2026-03-30.md) | 중요 / P1 — retrieval/compressed memory cutoff를 실제 사용 패턴에 맞게 조정하는 정책 튜닝 |
+| [memoryPolicyTraceSurfacePlan_2026-03-30](./memoryPolicyTraceSurfacePlan_2026-03-30.md) | 중요 / P1 — memory layer 포함/스킵/threshold 결과를 Trace/Runtime surface에서 읽기 쉽게 노출 |
+| [memorySectionBudgetBreakdownPlan_2026-03-30](./memorySectionBudgetBreakdownPlan_2026-03-30.md) | 중요 / P1 — 각 ContextPack section이 실제 budget을 얼마나 먹는지 Trace/Runtime에서 읽게 하는 observability 보강 |
+| [topHeavySectionTuningPlan_2026-03-30](./topHeavySectionTuningPlan_2026-03-30.md) | 중요 / P1 — top budget consumer section 2~3개를 targeted tuning으로 줄이는 최적화 단계 |
+| [modeSpecificSectionHeuristicsPlan_2026-03-30](./modeSpecificSectionHeuristicsPlan_2026-03-30.md) | 중요 / P1 — Lite/Standard/Full/Auto를 section 해상도까지 다른 context assembly profile로 정교화 |
+| [autoModeHeuristicPolishPlan_2026-03-30](./autoModeHeuristicPolishPlan_2026-03-30.md) | 중요 / P1 — Auto가 Lite/Standard/Full 중 적절한 profile을 설명 가능하게 선택하도록 다듬는 단계 |
+| [projectFirstStartupUxPlan_2026-03-30](./projectFirstStartupUxPlan_2026-03-30.md) | 중요 / P1 — 프로젝트 선택부터 시작하는 최종 제품 진입 UX를 실제 startup flow로 옮기는 단계 |
+| [roundtableCompletionOrderPlan_2026-03-30](./roundtableCompletionOrderPlan_2026-03-30.md) | 중요 / P1 — Deliberative RT의 reduce 병목을 completion-order collection으로 제거 |
+| [roundtableBlindVerifierPhasePlan_2026-03-30](./roundtableBlindVerifierPhasePlan_2026-03-30.md) | 중요 / P1 — sycophancy 방지를 위해 특정 participant를 blind verifier로 격리하는 RT 확장 |
+| [roundtableParticipantRoleBlindUiPlan_2026-03-30](./roundtableParticipantRoleBlindUiPlan_2026-03-30.md) | 중요 / P1 — RT participant 설정 UI에서 role/blind/max token override를 실제로 다루게 하는 연결 단계 |
+| [roundtableParticipantSurfaceVisibilityPlan_2026-03-30](./roundtableParticipantSurfaceVisibilityPlan_2026-03-30.md) | 중요 / P1 — RT 실행/조회 표면에서 participant role/blind를 다시 읽을 수 있게 하는 가시화 단계 |
+| [roundtableRoleTerminologySeparationPlan_2026-03-30](./roundtableRoleTerminologySeparationPlan_2026-03-30.md) | 중요 / P1 — 프로젝트 프로필 역할과 RT 토론 역할을 분리해 `role` 혼동을 없애는 정리 단계 |
 | [agentDaemonRoadmapPlan](./agentDaemonRoadmapPlan.md) | Phase 1-2 완료 (background worker + job registry). Phase 3 daemon extraction 진행 예정 |
 | [contextBudgetScalingPlan](./contextBudgetScalingPlan.md) | background execution 안정화 후 베타에서 단계적 context budget 상향 실험 |
 | [planBasedFollowupPlan](./planBasedFollowupPlan.md) | PlansPanel Forward 버튼은 구현됨. subtask 단위 자동 dispatch는 미구현 |
@@ -198,6 +215,23 @@
 - [longTermMemoryPhase1CompressionPlan_2026-03-30](./longTermMemoryPhase1CompressionPlan_2026-03-30.md)
 - [compressedMemoryOperationalPolishPlan_2026-03-30](./compressedMemoryOperationalPolishPlan_2026-03-30.md)
 - [structuredMemorySourceStrengtheningPlan_2026-03-30](./structuredMemorySourceStrengtheningPlan_2026-03-30.md)
+- [contextPackAlgorithmPhase1Plan_2026-03-30](./contextPackAlgorithmPhase1Plan_2026-03-30.md)
+- [conversationRetrievalPhase1Plan_2026-03-30](./conversationRetrievalPhase1Plan_2026-03-30.md)
+- [conversationRetrievalChunkingPlan_2026-03-30](./conversationRetrievalChunkingPlan_2026-03-30.md)
+- [conversationRetrievalRankingPolishPlan_2026-03-30](./conversationRetrievalRankingPolishPlan_2026-03-30.md)
+- [unifiedMemoryPolicyPhase1Plan_2026-03-30](./unifiedMemoryPolicyPhase1Plan_2026-03-30.md)
+- [unifiedMemoryPolicyThresholdTuningPlan_2026-03-30](./unifiedMemoryPolicyThresholdTuningPlan_2026-03-30.md)
+- [memoryPolicyTraceSurfacePlan_2026-03-30](./memoryPolicyTraceSurfacePlan_2026-03-30.md)
+- [memorySectionBudgetBreakdownPlan_2026-03-30](./memorySectionBudgetBreakdownPlan_2026-03-30.md)
+- [topHeavySectionTuningPlan_2026-03-30](./topHeavySectionTuningPlan_2026-03-30.md)
+- [modeSpecificSectionHeuristicsPlan_2026-03-30](./modeSpecificSectionHeuristicsPlan_2026-03-30.md)
+- [autoModeHeuristicPolishPlan_2026-03-30](./autoModeHeuristicPolishPlan_2026-03-30.md)
+- [projectFirstStartupUxPlan_2026-03-30](./projectFirstStartupUxPlan_2026-03-30.md)
+- [roundtableCompletionOrderPlan_2026-03-30](./roundtableCompletionOrderPlan_2026-03-30.md)
+- [roundtableBlindVerifierPhasePlan_2026-03-30](./roundtableBlindVerifierPhasePlan_2026-03-30.md)
+- [roundtableParticipantRoleBlindUiPlan_2026-03-30](./roundtableParticipantRoleBlindUiPlan_2026-03-30.md)
+- [roundtableParticipantSurfaceVisibilityPlan_2026-03-30](./roundtableParticipantSurfaceVisibilityPlan_2026-03-30.md)
+- [roundtableRoleTerminologySeparationPlan_2026-03-30](./roundtableRoleTerminologySeparationPlan_2026-03-30.md)
 - [promptQualityAdoptionPlan_2026-03-30](./promptQualityAdoptionPlan_2026-03-30.md)
 - [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md)
 - [sidebarThreeSectionPlan](./sidebarThreeSectionPlan.md)

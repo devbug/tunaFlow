@@ -49,14 +49,12 @@ export function RoundtableControls({ rtMode, setRtMode, participants, activePart
                   ? "text-foreground/70 bg-accent font-medium"
                   : "text-muted-foreground/30 line-through"
               )}
-              title={`${p.engine ?? "claude"}${p.model ? ` · ${p.model}` : " · engine default"}`}
+              title={`${p.engine ?? "claude"}${p.model ? ` · ${p.model}` : ""}`}
             >
               <AgentAvatar engine={p.engine} size="sm" className="w-3 h-3" />
               {p.name}
-              {active && p.model && (
-                <span className="text-[7px] font-mono text-foreground/40">
-                  {p.model}
-                </span>
+              {active && p.role && (
+                <span className="text-[7px] text-primary/50">{p.role}</span>
               )}
             </button>
           );

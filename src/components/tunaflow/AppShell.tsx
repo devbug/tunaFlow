@@ -6,6 +6,7 @@ import { Sidebar } from "./Sidebar";
 import { CenterPanel } from "./CenterPanel";
 import { BranchThreadPanel } from "./BranchThreadPanel";
 import { RuntimeStatusBar } from "./RuntimeStatusBar";
+import { ProjectStartup } from "./ProjectStartup";
 // ResizeHandle removed — main area border serves as drag handle
 import { FileViewer } from "./chat/FileViewer";
 import { FileViewerContext } from "./chat/fileViewerContext";
@@ -48,10 +49,7 @@ export function AppShell() {
       const lastKey = await getSetting<string>("lastProjectKey", "");
       let proj = lastKey ? projects.find((p) => p.key === lastKey) : null;
       if (!proj) proj = projects[0];
-      if (!proj) {
-        await createProject({ key: "default", name: "Workspace", type: "chat", source: "configured" });
-        proj = useChatStore.getState().projects[0];
-      }
+      // No auto-create: if no projects, show ProjectStartup instead
       if (proj) {
         await selectProject(proj.key);
         // Restore last conversation
@@ -100,6 +98,11 @@ export function AppShell() {
   }), []);
 
   if (!loaded) return null;
+
+  // Project-first startup: show selector if no project is selected
+  if (!selectedProjectKey) {
+    return <ProjectStartup />;
+  }
 
   return (
     <FileViewerContext.Provider value={fileViewerCtx}>

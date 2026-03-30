@@ -3,20 +3,23 @@
 
 # tunaFlow
 
-Multi-agent orchestration IDE built with Tauri 2 + React + TypeScript + Rust + SQLite.
+AI Agent Orchestration Client (AOC) built with Tauri 2 + React + TypeScript + Rust + SQLite.
 
 ## Features
 
 - **Multi-Agent Chat** — Claude, Codex (OpenAI), Gemini (Google), OpenCode agents with real-time streaming
 - **Roundtable Discussion** — Multiple agents debate topics in Sequential or Deliberative (parallel) mode
 - **Branch & Adopt** — Fork conversations at any point, experiment independently, merge summaries back
-- **ContextPack** — Automatic system prompt assembly with mode/budget control, trace visibility, compressed memory, rawq code search, and explicit knowledge handoff
-- **Agent Profiles & Personas** — Profile-based engine/model/persona/default-skill selection with runtime identity framing
-- **Artifacts & Evaluation** — Promote responses into reusable artifacts, compare agents under `Test > Evaluation`, and inspect provenance
+- **Roundtable Discussion** — Sequential/Deliberative modes, completion-order collection, blind verifier, role-based output cap, per-participant identity injection
+- **ContextPack** — Unified Memory Policy (priority/overlap/fallback), mode-specific profiles (Lite/Standard/Full/Auto), compressed memory, FTS5 retrieval (chunk/ranking), rawq code search, context-hub knowledge handoff, section budget breakdown
+- **Agent Identity** — Profile/engine/persona 3-layer separation, message author attribution, RT per-participant identity
+- **Agent Profiles & Personas** — Profile-based engine/model/persona/default-skill selection
+- **Artifacts & Evaluation** — Promote responses into reusable artifacts, compare agents under `Test > Evaluation`, inspect provenance
 - **Plan & Track** — Create plans with subtasks, link artifacts, track progress per conversation/branch
 - **Search & Git Awareness** — Project-scoped message search, git branch/dirty visibility, guarded branch create/checkout
 - **Background Execution** — All agent runs execute in background threads; UI stays responsive
-- **Durable Job Registry** — Tracks running/completed/failed jobs and recovers from interrupted runs on restart
+- **Durable Job Registry** — Tracks running/completed/failed jobs, recovers on restart
+- **Project-First Startup** — Agent workflow only accessible after project selection
 
 ## Architecture
 
@@ -90,7 +93,7 @@ npx vitest run               # Frontend smoke/integration tests
 cd src-tauri && cargo test --lib  # Rust unit tests
 ```
 
-Currently Rust 45 + Frontend 55 = **100 tests** passing.
+Currently Rust 53 + Frontend 55 = **108 tests** passing.
 
 ## Project Structure
 

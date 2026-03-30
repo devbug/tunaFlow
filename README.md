@@ -3,20 +3,26 @@
 
 # tunaFlow
 
-Tauri 2 + React + TypeScript + Rust + SQLite로 만든 멀티에이전트 오케스트레이션 IDE.
+Tauri 2 + React + TypeScript + Rust + SQLite로 만든 멀티에이전트 오케스트레이션 클라이언트(AOC).
+
+> Of the agent, By the agent, For the agent
+
+사용자 편의만을 위한 채팅 앱이 아니라, 에이전트가 더 적은 마찰로 더 좋은 컨텍스트를 가지고 덜 낭비하며 작업하게 만드는 것을 우선하는 도구입니다.
 
 ## 주요 기능
 
 - **멀티에이전트 채팅** — Claude, Codex (OpenAI), Gemini (Google), OpenCode 에이전트를 실시간 스트리밍으로 실행
-- **Roundtable 토론** — 여러 에이전트가 Sequential 또는 Deliberative(병렬) 모드로 주제를 토론
+- **Roundtable 토론** — Sequential/Deliberative 모드, completion-order 수집, blind verifier, role-based output cap, 참가자별 identity 주입
 - **Branch & Adopt** — 대화를 원하는 시점에서 분기하고, 별도로 실험한 뒤 요약을 채택
-- **ContextPack** — 모드/예산 제어, trace 가시화, compressed memory, rawq 코드 검색, 명시적 knowledge handoff를 포함한 시스템 프롬프트 조립
-- **Agent Profiles & Personas** — profile 기반 engine/model/persona/default-skill 선택과 runtime identity framing
+- **ContextPack** — Unified Memory Policy(priority/overlap/fallback), mode-specific profiles(Lite/Standard/Full/Auto), compressed memory, FTS5 retrieval(chunk/ranking), rawq 코드 검색, context-hub knowledge handoff, section budget breakdown
+- **Agent Identity** — profile/engine/persona 3층 분리, message author attribution, RT 참가자별 identity 주입
+- **Agent Profiles & Personas** — profile 기반 engine/model/persona/default-skill 선택
 - **Artifacts & Evaluation** — 응답을 재사용 가능한 artifact로 승격하고, `Test > Evaluation`에서 에이전트 결과를 비교
 - **Plan & Track** — plan/subtask 생성, artifact 연결, conversation/branch 단위 진행 관리
 - **검색 & Git 인지 기능** — 프로젝트 범위 메시지 검색, git branch/dirty 상태 표시, guarded branch create/checkout
 - **백그라운드 실행** — 모든 에이전트 실행은 background thread에서 돌아가며 UI는 계속 반응
 - **Durable Job Registry** — 실행 중/완료/실패 작업을 추적하고 재시작 후 복구
+- **Project-First Startup** — 프로젝트 선택 후에만 agent workflow 진입
 
 ## 아키텍처
 
@@ -90,7 +96,7 @@ npx vitest run               # Frontend smoke/integration tests
 cd src-tauri && cargo test --lib  # Rust unit tests
 ```
 
-현재 Rust 45개 + Frontend 55개 = **100개 테스트** 통과.
+현재 Rust 53개 + Frontend 55개 = **108개 테스트** 통과.
 
 ## 프로젝트 구조
 

@@ -17,4 +17,5 @@
 - [contextHubSourcePolicy_2026-03-30](./contextHubSourcePolicy_2026-03-30.md)
 - [a2aPositioning_2026-03-30](./a2aPositioning_2026-03-30.md)
 - [promptAuthoringPolicy_2026-03-30](./promptAuthoringPolicy_2026-03-30.md)
+- [projectFirstEntryPolicy_2026-03-30](./projectFirstEntryPolicy_2026-03-30.md)
 - [workingRulesForAgents](./workingRulesForAgents.md)

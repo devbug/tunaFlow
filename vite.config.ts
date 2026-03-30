@@ -28,7 +28,7 @@ export default defineConfig({
         }
       : undefined,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      ignored: ["**/src-tauri/**", "**/docs/**", "**/README*.md", "**/CLAUDE.md", "**/*.plan.md"],
     },
   },
   // @ts-expect-error vitest config

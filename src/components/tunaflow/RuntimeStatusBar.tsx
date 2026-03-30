@@ -23,6 +23,7 @@ export function RuntimeStatusBar() {
   const [totalCost, setTotalCost] = useState(0);
   const [lastContextMode, setLastContextMode] = useState<string | null>(null);
   const [lastContextSections, setLastContextSections] = useState(0);
+  const [lastSkippedLayers, setLastSkippedLayers] = useState(0);
   const [traceOpen, setTraceOpen] = useState(false);
 
   const isRunning = runningThreadIds.length > 0;
@@ -51,8 +52,10 @@ export function RuntimeStatusBar() {
         if (withCtx) {
           setLastContextMode(withCtx.contextMode);
           try {
-            setLastContextSections((JSON.parse(withCtx.contextSections || "[]") as string[]).length);
-          } catch { setLastContextSections(0); }
+            const secs = JSON.parse(withCtx.contextSections || "[]") as string[];
+            setLastContextSections(secs.filter((s: string) => !s.includes(":skipped")).length);
+            setLastSkippedLayers(secs.filter((s: string) => s.includes(":skipped")).length);
+          } catch { setLastContextSections(0); setLastSkippedLayers(0); }
         } else {
           setLastContextMode(null);
           setLastContextSections(0);
@@ -94,6 +97,7 @@ export function RuntimeStatusBar() {
               <span className="text-muted-foreground/50">
                 {lastContextMode === "Standard" ? "Std" : lastContextMode}
                 {lastContextSections > 0 && <span className="text-muted-foreground/30"> · {lastContextSections}s</span>}
+                {lastSkippedLayers > 0 && <span className="text-amber-500/40"> -{lastSkippedLayers}</span>}
               </span>
             </>
           )}

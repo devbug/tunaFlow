@@ -1,5 +1,7 @@
 import { useRef, useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
+import type { Message } from "@/types";
 import { useChatStore } from "@/stores/chatStore";
 import { MessageItem } from "./MessageItem";
 import { RoundtableView } from "./RoundtableView";
@@ -100,6 +102,7 @@ export function ChatPanel() {
             onMemo={!activeBranchId ? (id) => createMemo(id, messages.find((m) => m.id === id)?.content ?? "") : undefined}
             onFollowup={(engine, content) => sendFollowup(engine, "message", content)}
             onSaveArtifact={(content) => setArtifactContent(content)}
+            onDelete={async (id) => { await invoke("delete_message_pair", { messageId: id }); const msgs = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId }); useChatStore.setState({ messages: msgs }); }}
           />
         ) : (
           <div className="py-3 space-y-0.5">

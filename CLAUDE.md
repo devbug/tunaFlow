@@ -7,7 +7,12 @@
 
 ## 1. 프로젝트 개요
 
-tunaFlow는 **다중 에이전트 오케스트레이션 IDE**이다. Tauri 2 + React + TypeScript + Rust + SQLite 기반.
+tunaFlow는 **다중 에이전트 오케스트레이션 클라이언트(AOC)**이다. Tauri 2 + React + TypeScript + Rust + SQLite 기반.
+
+> **"Of the agent, By the agent, For the agent"**
+> 도메인 지식을 기반으로 서비스를 구축하는 **인간지능 주도형 개발 어플리케이션**이다.
+> 사용자가 도메인 지식과 방향을 결정하고, 에이전트가 그 결정을 최적의 조건에서 실행한다.
+> 에이전트가 편해야 결과가 좋아진다는 철학 — ContextPack, identity, memory, retrieval 등 모든 설계는 "에이전트가 불필요한 토큰 낭비 없이, 정확한 맥락으로, 역할 혼동 없이 작업할 수 있는가"를 기준으로 판단한다.
 
 핵심 기능:
 - 프로젝트 단위로 Claude/Codex/Gemini/OpenCode 에이전트를 실행
@@ -83,27 +88,24 @@ tunaFlow/
 
 ### 4.1.1 레이아웃 구조 (Linear-inspired)
 ```
-┌──────────┬──────────────────────────────┐
-│ Sidebar  │ [Chat] [Plan] [Review] [Test]│ ← floating tab pills
-│ (darkest │    [CHAT] Main — 🔀br       │ ← centered path
-│  base)   │ ┌──────────────────────────┐ │
-│          │ │ content (rounded border) │ │ ← elevated
-│ 📁 Drop  │ │                          │ │
-│ Chats    │ │                          │ │
-│ Artifacts│ └──────────────────────────┘ │
-│ Memos    ├──────────────────────────────┤
-│ Skills   │ trace status │ rawq status   │ ← full-width footer
-│ Files    │                              │
-└──────────┴──────────────────────────────┘
+┌──────────┬─────────────────────────────────────┐
+│ Sidebar  │ [Chat] [Plan] [Artifacts] [Review]  │ ← 5-tab pills
+│ (darkest │ [Test]                              │
+│  base)   │    [CHAT] Main — 🔀br              │ ← centered path
+│          │ ┌─────────────────────────────────┐ │
+│ 📁 Drop  │ │ content (rounded border)        │ │
+│ Chats    │ │                                 │ │
+│ Artifacts│ └─────────────────────────────────┘ │
+│ Skills   ├─────────────────────────────────────┤
+│ Files    │ trace+memory │ context mode │ rawq  │ ← full-width footer
+│ ⚙ Set   │                                     │
+└──────────┴─────────────────────────────────────┘
 ```
-- Sidebar: 프로젝트 드롭다운 → 대화 트리 (Chat이 루트, "Chats" 섹션 헤더 없음)
-  - Branch 상태: ACTIVE/ADOPTED/ARCHIVED 배지 → 상태 dot으로 축소
-  - Skills/Files 섹션은 대화 트리 아래
-- CenterPanel: 5-tab (Chat/Plan/Artifacts/Review/Test), toolbar zone(투명) + content zone(bordered)
-  - toolbar 우측: Memo 아이콘(팝오버) + Search placeholder
-- 입력창: RT 퀵 버튼 (👥) — 엔진/모델 선택기 옆, checkpointId 없이 RT 생성
-- RuntimeStatusBar: 전체 폭 하단, trace(클릭→모달) + rawq 상태
-- ContextPanel: 제거됨
+- **Project-first startup**: 프로젝트 미선택 시 ProjectStartup 화면 → 선택 후 메인 진입
+- Sidebar: 프로젝트 드롭다운 → 대화 트리 (Chat이 루트) → status dot 인디케이터 → ⚙ Settings
+- CenterPanel: 5-tab (Chat/Plan/Artifacts/Review/Test), toolbar zone + content zone + SearchBox
+- RuntimeStatusBar: trace(active/skipped + context mode + memory) + rawq 상태 + cost
+- Settings: settings/ 폴더에 분리 (AgentsSection, PersonasSection, RuntimeSection)
 
 ### 4.2 Background execution
 - `start_*` 커맨드: DB 준비 후 즉시 반환, background thread에서 subprocess 실행

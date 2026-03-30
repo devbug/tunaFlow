@@ -6,7 +6,7 @@ use crate::db::{models::Message, DbState};
 use crate::errors::AppError;
 use crate::CancelRegistry;
 
-use super::prompt::{build_round_prompt, PromptSources};
+use super::prompt::{build_round_prompt_with_identity, PromptSources};
 use super::persist::persist_single;
 
 /// Real-time participant execution status — emitted at actual subprocess lifecycle points.
@@ -19,6 +19,8 @@ pub struct RtParticipantStatus {
     pub model: Option<String>,
     pub round: u32,
     pub status: String, // "running" | "done" | "error"
+    #[serde(default)]
+    pub blind: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -27,6 +29,56 @@ pub struct RoundtableParticipant {
     pub name: String,
     pub model: Option<String>,
     pub engine: Option<String>,
+    /// Blind verifier — receives only the topic, no prior/current transcript.
+    #[serde(default)]
+    pub blind: bool,
+    /// RT role — affects output cap and prompt directive.
+    /// "proposer" | "reviewer" | "verifier" | "synthesizer" | null (default)
+    #[serde(default)]
+    pub role: Option<String>,
+    /// Explicit output token cap. If not set, derived from role.
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+}
+
+/// Build identity string for a RT participant.
+fn participant_identity(p: &RoundtableParticipant) -> String {
+    let engine = p.engine.as_deref().unwrap_or("claude");
+    let mut lines = vec![format!("## Your Identity in this Roundtable\n\nYou are **{}** (engine: {}).", p.name, engine)];
+    if let Some(role) = &p.role {
+        lines.push(format!("Your role: {}.", role));
+    }
+    if p.blind {
+        lines.push("You are a blind verifier — you have NOT seen other participants' responses. Judge independently.".into());
+    }
+    lines.push("Do NOT claim to be a different agent. Do NOT use other participants' names as your own.".into());
+    lines.join("\n")
+}
+
+/// Get the effective output token cap for a participant based on role.
+fn effective_max_tokens(p: &RoundtableParticipant) -> Option<u32> {
+    if let Some(cap) = p.max_tokens {
+        return Some(cap);
+    }
+    // Role-based defaults
+    match p.role.as_deref() {
+        Some("proposer") => Some(1200),
+        Some("reviewer" | "critic") => Some(900),
+        Some("verifier" | "judge") => Some(800),
+        Some("synthesizer" | "lead") => Some(1500),
+        _ => None, // no cap for unspecified roles
+    }
+}
+
+/// Build output cap directive to prepend to prompt.
+fn output_cap_directive(max_tokens: Option<u32>) -> String {
+    match max_tokens {
+        Some(cap) => format!(
+            "[Output limit: Keep your response under approximately {} tokens. Be concise and focused.]\n\n",
+            cap
+        ),
+        None => String::new(),
+    }
 }
 
 pub struct ParticipantResult {
@@ -39,6 +91,7 @@ pub struct ParticipantResult {
     pub in_tokens: i64,
     pub out_tokens: i64,
     pub prompt_sources: String,
+    pub blind: bool,
 }
 
 /// Controls how participants see context within and across rounds.
@@ -56,7 +109,11 @@ pub fn run_participant(
     project_path: Option<String>,
 ) -> ParticipantResult {
     let engine_key = p.engine.as_deref().unwrap_or("claude");
-    eprintln!("[rt] running participant={} engine={} model={:?}", p.name, engine_key, p.model);
+    let max_tok = effective_max_tokens(p);
+    eprintln!("[rt] running participant={} engine={} role={:?} max_tokens={:?}", p.name, engine_key, p.role, max_tok);
+
+    // Prepend output cap directive if applicable
+    let prompt = format!("{}{}", output_cap_directive(max_tok), prompt);
 
     let run_input = claude::RunInput {
         prompt,
@@ -94,6 +151,7 @@ pub fn run_participant(
             in_tokens: out.input_tokens,
             out_tokens: out.output_tokens,
             prompt_sources: sources_json,
+            blind: p.blind,
         },
         Err(e) => ParticipantResult {
             name: p.name.clone(),
@@ -105,6 +163,7 @@ pub fn run_participant(
             in_tokens: 0,
             out_tokens: 0,
             prompt_sources: sources_json,
+            blind: p.blind,
         },
     }
 }
@@ -177,17 +236,23 @@ fn execute_sequential(
         let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
             conversation_id: conversation_id.to_string(),
             name: p.name.clone(), engine: engine_key.to_string(), model: p.model.clone(),
-            round: round_num, status: "running".into(),
+            round: round_num, status: "running".into(), blind: p.blind,
         });
 
-        // Build prompt with discussion context (prior rounds + current round peers)
-        let prompt = build_round_prompt(topic, transcript, &round_responses);
+        // Build prompt with participant identity
+        let identity = participant_identity(p);
+        let prompt = if p.blind {
+            eprintln!("[rt] blind verifier: {} — no transcript", p.name);
+            build_round_prompt_with_identity(topic, &[], &[], Some(&identity))
+        } else {
+            build_round_prompt_with_identity(topic, transcript, &round_responses, Some(&identity))
+        };
         let r = run_participant(p, prompt, sources_json, project_path.map(|s| s.to_string()));
 
         let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
             conversation_id: conversation_id.to_string(),
             name: r.name.clone(), engine: r.engine.clone(), model: r.model.clone(),
-            round: round_num, status: r.status.clone(),
+            round: round_num, status: r.status.clone(), blind: r.blind,
         });
 
         let msg = {
@@ -227,7 +292,7 @@ fn execute_parallel(
         let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
             conversation_id: conversation_id.to_string(),
             name: p.name.clone(), engine: engine_key.to_string(), model: p.model.clone(),
-            round: round_num, status: "running".into(),
+            round: round_num, status: "running".into(), blind: p.blind,
         });
     }
 
@@ -240,33 +305,49 @@ fn execute_parallel(
     };
     let sources_json = serde_json::to_string(&sources).unwrap_or_default();
 
-    // Build prompt with prior-round context (same for all — no current-round peers in deliberative)
-    let prompt = build_round_prompt(topic, transcript, &[]);
+    // Spawn all participants in parallel, collect results in completion-order via channel.
+    let (tx, rx) = std::sync::mpsc::channel::<ParticipantResult>();
+    let participant_count = participants.len();
 
-    // Spawn all participants in parallel
-    let handles: Vec<_> = participants.iter().map(|p| {
+    // Each participant gets their own identity + prompt
+    let transcript_owned: Vec<(String, String)> = transcript.to_vec();
+    let topic_owned = topic.to_string();
+
+    let _handles: Vec<_> = participants.iter().map(|p| {
         let p_clone = p.clone();
-        let pr = prompt.clone();
+        let identity = participant_identity(p);
+        let tr = transcript_owned.clone();
+        let tp = topic_owned.clone();
+        // Build per-participant prompt with identity
+        let pr = if p.blind {
+            eprintln!("[rt] blind verifier: {} — no transcript (deliberative)", p.name);
+            build_round_prompt_with_identity(&tp, &[], &[], Some(&identity))
+        } else {
+            build_round_prompt_with_identity(&tp, &tr, &[], Some(&identity))
+        };
         let sj = sources_json.clone();
         let pp = project_path.map(|s| s.to_string());
-        std::thread::spawn(move || run_participant(&p_clone, pr, sj, pp))
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let result = run_participant(&p_clone, pr, sj, pp);
+            let _ = tx.send(result);
+        })
     }).collect();
+    drop(tx); // Close sender so rx iterator terminates after all threads finish
 
-    // Collect results as threads finish (join order = participant order)
+    // Collect results in completion-order — first to finish is first to persist/emit
     let mut messages = Vec::new();
     let mut round_responses: Vec<(String, String)> = Vec::new();
+    let mut received = 0;
 
-    for handle in handles {
-        let r = handle.join().unwrap_or_else(|_| ParticipantResult {
-            name: "unknown".into(), engine: "unknown".into(), model: None,
-            content: "participant thread panicked".into(), status: "error".into(),
-            cost_usd: 0.0, in_tokens: 0, out_tokens: 0, prompt_sources: String::new(),
-        });
+    for r in rx {
+        received += 1;
+        eprintln!("[rt] deliberative result {}/{}: {} ({})", received, participant_count, r.name, r.status);
 
         let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
             conversation_id: conversation_id.to_string(),
             name: r.name.clone(), engine: r.engine.clone(), model: r.model.clone(),
-            round: round_num, status: r.status.clone(),
+            round: round_num, status: r.status.clone(), blind: r.blind,
         });
 
         let msg = {

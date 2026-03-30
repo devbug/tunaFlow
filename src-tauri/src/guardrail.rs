@@ -7,13 +7,17 @@
 pub const MAX_TOTAL_PROMPT: usize = 60_000;
 
 /// Per-section character limits for ContextPack sections.
+/// Priority layers (structured) get full budget; auxiliary layers get smaller caps.
 pub const MAX_SKILLS_SECTION: usize = 8_000;
 pub const MAX_RAWQ_SECTION: usize = 4_000;
-pub const MAX_CROSS_SESSION_SECTION: usize = 6_000;
-pub const MAX_CONTEXT_SECTION: usize = 8_000;
+pub const MAX_CROSS_SESSION_SECTION: usize = 4_000; // tuned down from 6k — often repetitive
+pub const MAX_CONTEXT_SECTION: usize = 6_000;       // tuned down from 8k — recent window is already compact
 pub const MAX_PLAN_SECTION: usize = 2_000;
 pub const MAX_FINDINGS_SECTION: usize = 3_000;
 pub const MAX_ARTIFACTS_SECTION: usize = 2_000;
+/// Dedicated caps for memory layers (don't reuse MAX_CONTEXT_SECTION)
+pub const MAX_RETRIEVAL_SECTION: usize = 4_000;      // past conversation chunks — focused, not large
+pub const MAX_COMPRESSED_MEMORY_SECTION: usize = 3_000; // summary of older messages — concise
 
 // ─── Execution defaults ──────────────────────────────────────────────────────
 

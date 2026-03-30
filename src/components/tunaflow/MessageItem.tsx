@@ -12,7 +12,7 @@ import { TypingIndicator, ProgressBlock, ProgressSummary } from "./message/Progr
 function MarkdownBody({ content, className }: { content: string; className?: string }) {
   return (
     <div className={cn("prose prose-sm prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&>hr:last-child]:hidden [&>hr]:border-sidebar-foreground/20 [&>hr]:my-3", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]} components={markdownComponents}>
         {content}
       </ReactMarkdown>
     </div>

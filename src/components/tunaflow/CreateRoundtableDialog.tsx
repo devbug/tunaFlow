@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { getSetting } from "@/lib/appStore";
 import { ROUNDTABLE_PARTICIPANTS } from "@/lib/constants";
-import { X, Users, Plus, Minus } from "lucide-react";
+import { X, Users, Plus, Minus, ShieldCheck } from "lucide-react";
 import type { RtMode, RoundtableParticipant, AgentProfile } from "@/types";
 import { AgentAvatar } from "./AgentAvatar";
 
@@ -52,12 +52,13 @@ export function CreateRoundtableDialog({ open, onClose, checkpointId }: CreateRo
     getSetting<AgentProfile[]>("agentProfiles", []).then((profiles) => {
       setAgentProfiles(profiles);
       if (profiles.length >= 2) {
-        // Use agent profiles as participants
-        setParticipants(profiles.map((p) => ({
-          name: p.label,
-          engine: p.engine,
-          model: p.model,
-        })));
+        // Use agent profiles — unique name per participant (engine or engine-N if duplicate)
+        const counts: Record<string, number> = {};
+        setParticipants(profiles.map((p) => {
+          counts[p.engine] = (counts[p.engine] ?? 0) + 1;
+          const name = counts[p.engine] > 1 ? `${p.engine}-${counts[p.engine]}` : p.engine;
+          return { name, engine: p.engine, model: p.model, blind: false };
+        }));
         setDisabledIdx(new Set());
       }
     });
@@ -76,8 +77,10 @@ export function CreateRoundtableDialog({ open, onClose, checkpointId }: CreateRo
   const updateEngine = (idx: number, engine: string) => {
     setParticipants((prev) => {
       const next = [...prev];
-      next[idx] = { ...next[idx], engine };
-      // Auto-select recommended model for new engine
+      // Generate unique name: count how many others already use this engine
+      const sameEngineCount = next.filter((p, i) => i !== idx && p.engine === engine).length;
+      const name = sameEngineCount > 0 ? `${engine}-${sameEngineCount + 1}` : engine;
+      next[idx] = { ...next[idx], engine, name };
       const rec = engineModels.find((m) => m.engine === engine && m.recommended);
       next[idx].model = rec?.id;
       return next;
@@ -93,14 +96,12 @@ export function CreateRoundtableDialog({ open, onClose, checkpointId }: CreateRo
   };
 
   const addParticipant = () => {
-    // Find a profile not already in participants
-    const usedNames = new Set(participants.map((p) => p.name));
-    const unused = agentProfiles.find((p) => !usedNames.has(p.label));
-    if (unused) {
-      setParticipants((prev) => [...prev, { name: unused.label, engine: unused.engine, model: unused.model }]);
-    } else {
-      setParticipants((prev) => [...prev, { name: `Agent ${prev.length + 1}`, engine: "claude" }]);
-    }
+    setParticipants((prev) => {
+      const engine = "claude";
+      const sameCount = prev.filter((p) => p.engine === engine).length;
+      const name = sameCount > 0 ? `${engine}-${sameCount + 1}` : engine;
+      return [...prev, { name, engine }];
+    });
   };
 
   const removeParticipant = (idx: number) => {
@@ -112,6 +113,22 @@ export function CreateRoundtableDialog({ open, onClose, checkpointId }: CreateRo
     setParticipants((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], name };
+      return next;
+    });
+  };
+
+  const updateRole = (idx: number, role: string) => {
+    setParticipants((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], role: role || undefined };
+      return next;
+    });
+  };
+
+  const toggleBlind = (idx: number) => {
+    setParticipants((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], blind: !next[idx].blind };
       return next;
     });
   };
@@ -225,32 +242,42 @@ export function CreateRoundtableDialog({ open, onClose, checkpointId }: CreateRo
             </div>
             <div className="space-y-2">
               {participants.map((p, idx) => {
-                const disabled = disabledIdx.has(idx);
                 const models = engineModels.filter((m) => m.engine === p.engine);
                 return (
-                  <div key={idx} className={cn("flex items-center gap-2 px-3 py-2 rounded-md border transition-colors",
-                    disabled ? "border-border/10 opacity-40" : "border-border/20 bg-white/[0.02]")}>
+                  <div key={idx} className="flex items-center gap-2 px-3 py-2 rounded-md border border-border/20 bg-white/[0.02]">
                     <AgentAvatar engine={p.engine} size="sm" />
-                    <input value={p.name} onChange={(e) => updateName(idx, e.target.value)}
-                      className="w-[80px] bg-transparent text-[11px] font-medium text-foreground outline-none border-b border-transparent focus:border-border/40" />
-                    {agentProfiles.some((ap) => ap.label === p.name) && (
-                      <span className="text-[8px] text-primary/40 shrink-0">profile</span>
-                    )}
+                    {/* Engine */}
                     <select value={p.engine ?? "claude"} onChange={(e) => updateEngine(idx, e.target.value)}
-                      className="bg-accent/50 rounded px-1.5 py-0.5 text-[10px] text-foreground/70 outline-none border border-border/20 focus:border-ring/40 cursor-pointer">
+                      className="bg-accent/50 rounded px-1.5 py-0.5 text-[11px] font-medium text-foreground/80 outline-none border border-border/20 focus:border-ring/40 cursor-pointer">
                       {ENGINES.map((eng) => <option key={eng} value={eng}>{eng}</option>)}
                     </select>
+                    {/* Model */}
                     <select value={p.model ?? ""} onChange={(e) => updateModel(idx, e.target.value)}
                       className={cn(
-                        "bg-accent/50 rounded px-1.5 py-0.5 text-[9px] outline-none border focus:border-ring/40 cursor-pointer max-w-[140px]",
+                        "bg-accent/50 rounded px-1.5 py-0.5 text-[10px] outline-none border focus:border-ring/40 cursor-pointer flex-1 min-w-0",
                         p.model ? "text-foreground/60 border-border/20" : "text-destructive/50 border-destructive/20"
                       )}>
                       <option value="">engine default</option>
                       {models.map((m) => <option key={m.id} value={m.id}>{m.recommended ? "★ " : ""}{m.label}</option>)}
                     </select>
-                    <span className="flex-1" />
+                    {/* Role */}
+                    <select value={p.role ?? ""} onChange={(e) => updateRole(idx, e.target.value)}
+                      className="bg-accent/50 rounded px-1 py-0.5 text-[9px] text-foreground/50 outline-none border border-border/20 focus:border-ring/40 cursor-pointer w-[80px]">
+                      <option value="">no role</option>
+                      <option value="proposer">proposer</option>
+                      <option value="reviewer">reviewer</option>
+                      <option value="verifier">verifier</option>
+                      <option value="synthesizer">synthesizer</option>
+                    </select>
+                    {/* Blind toggle */}
+                    <button onClick={() => toggleBlind(idx)} title={p.blind ? "Blind verifier (active)" : "Set as blind verifier"}
+                      className={cn("p-0.5 rounded transition-colors shrink-0",
+                        p.blind ? "text-amber-500 bg-amber-500/10" : "text-muted-foreground/20 hover:text-muted-foreground/50")}>
+                      <ShieldCheck className="w-3 h-3" />
+                    </button>
+                    {/* Remove */}
                     <button onClick={() => removeParticipant(idx)} title="Remove"
-                      className="p-0.5 rounded text-muted-foreground/30 hover:text-destructive transition-colors">
+                      className="p-0.5 rounded text-muted-foreground/30 hover:text-destructive transition-colors shrink-0">
                       <Minus className="w-3 h-3" />
                     </button>
                   </div>
