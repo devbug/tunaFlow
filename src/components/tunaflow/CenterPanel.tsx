@@ -214,7 +214,15 @@ export function CenterPanel() {
           {/* Search */}
           <SearchBox
             projectKey={useChatStore.getState().selectedProjectKey}
-            onSelectResult={(convId) => { selectConversation(convId); setActiveTab("chat"); }}
+            onSelectResult={(convId) => {
+              setActiveTab("chat");
+              if (convId.startsWith("branch:")) {
+                const branchId = convId.replace("branch:", "");
+                useChatStore.getState().openThread(branchId);
+              } else {
+                selectConversation(convId);
+              }
+            }}
           />
         </div>
       </div>
