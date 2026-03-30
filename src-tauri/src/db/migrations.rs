@@ -70,6 +70,9 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     if current < 15 {
         apply_v15(conn)?;
     }
+    if current < 16 {
+        apply_v16(conn)?;
+    }
     Ok(())
 }
 
@@ -282,6 +285,24 @@ fn apply_v14(conn: &Connection) -> Result<(), AppError> {
     }
 
     conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (14, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+/// Token/cost usage_status for trace_log + conversations
+fn apply_v16(conn: &Connection) -> Result<(), AppError> {
+    // trace_log: distinguish exact / unavailable / unknown
+    add_column_if_missing(conn, "trace_log", "usage_status", "TEXT DEFAULT 'exact'")?;
+    // conversations: same distinction for aggregated totals
+    add_column_if_missing(conn, "conversations", "usage_status", "TEXT DEFAULT 'exact'")?;
+
+    // Backfill: engines that don't provide usage data → 'unavailable'
+    conn.execute_batch("
+        UPDATE trace_log SET usage_status = 'unavailable'
+        WHERE (engine = 'opencode' OR (engine = 'gemini' AND input_tokens = 0 AND output_tokens = 0))
+          AND usage_status = 'exact';
+    ")?;
+
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (16, ?1)", [now_epoch()])?;
     Ok(())
 }
 

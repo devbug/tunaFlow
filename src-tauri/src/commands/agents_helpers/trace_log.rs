@@ -64,6 +64,16 @@ pub fn new_trace_id() -> String {
 
 /// Insert a trace_log record with full OTel-style metadata.
 /// Errors are silently swallowed so a logging failure never breaks the caller.
+/// Determine usage_status based on engine and token values.
+pub fn resolve_usage_status(engine: &str, input_tokens: i64, output_tokens: i64) -> &'static str {
+    match engine {
+        "opencode" => "unavailable",
+        "gemini" if input_tokens == 0 && output_tokens == 0 => "unavailable",
+        _ if input_tokens == 0 && output_tokens == 0 => "unknown",
+        _ => "exact",
+    }
+}
+
 pub fn insert_trace_log(
     conn: &rusqlite::Connection,
     conversation_id: &str,
@@ -73,11 +83,12 @@ pub fn insert_trace_log(
     recorded_at: i64,
     span: &SpanInfo,
 ) {
+    let usage_status = resolve_usage_status(span.engine, input_tokens, output_tokens);
     let _ = conn.execute(
         "INSERT INTO trace_log
          (conversation_id, input_tokens, output_tokens, cost_usd, recorded_at,
-          trace_id, span_id, parent_span_id, operation, engine, duration_ms, status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+          trace_id, span_id, parent_span_id, operation, engine, duration_ms, status, usage_status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             conversation_id,
             input_tokens,
@@ -91,6 +102,7 @@ pub fn insert_trace_log(
             span.engine,
             span.duration_ms,
             span.status,
+            usage_status,
         ],
     );
 }
@@ -106,18 +118,20 @@ pub fn insert_trace_log_with_context(
     span: &SpanInfo,
     ctx: &ContextPackMeta,
 ) {
+    let usage_status = resolve_usage_status(span.engine, input_tokens, output_tokens);
     let _ = conn.execute(
         "INSERT INTO trace_log
          (conversation_id, input_tokens, output_tokens, cost_usd, recorded_at,
           trace_id, span_id, parent_span_id, operation, engine, duration_ms, status,
-          context_mode, context_sections, context_length, context_hash, context_truncated)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+          context_mode, context_sections, context_length, context_hash, context_truncated, usage_status)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
         params![
             conversation_id, input_tokens, output_tokens, cost_usd, recorded_at,
             span.trace_id, span.span_id, span.parent_span_id,
             span.operation, span.engine, span.duration_ms, span.status,
             ctx.mode, ctx.sections_json(), ctx.length as i64, ctx.hash,
             if ctx.truncated { 1 } else { 0 },
+            usage_status,
         ],
     );
 }
