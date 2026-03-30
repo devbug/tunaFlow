@@ -10,6 +10,7 @@ import { ProjectStartup } from "./ProjectStartup";
 // ResizeHandle removed — main area border serves as drag handle
 import { FileViewer } from "./chat/FileViewer";
 import { FileViewerContext } from "./chat/fileViewerContext";
+import { Toaster } from "sonner";
 
 // ─── Panel width constraints ─────────────────────────────────────────────────
 const SIDEBAR_MIN = 220;
@@ -106,6 +107,7 @@ export function AppShell() {
 
   return (
     <FileViewerContext.Provider value={fileViewerCtx}>
+    <Toaster position="bottom-right" theme="dark" richColors closeButton />
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-sidebar text-foreground font-sans">
       {/* ── Body: sidebar + main ── */}
       <div className="flex flex-1 min-h-0">

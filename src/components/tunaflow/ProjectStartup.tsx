@@ -3,6 +3,7 @@ import { FolderOpen, Plus, Clock } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 import { setSetting } from "@/lib/appStore";
 
 export function ProjectStartup() {
@@ -23,25 +24,10 @@ export function ProjectStartup() {
         await loadProjects();
         await selectProject(key);
         setSetting("lastProjectKey", key);
-        // Show scaffold notification as first system message
-        try {
-          const convs = useChatStore.getState().conversations;
-          const mainConv = convs.find((c) => c.projectKey === key);
-          if (mainConv) {
-            await invoke("create_user_message", {
-              input: {
-                conversationId: mainConv.id,
-                content: `📁 Project initialized: ${name}\n\n` +
-                  `Created:\n` +
-                  `- \`CLAUDE.md\` — agent convention rules (edit to customize)\n` +
-                  `- \`docs/plans/\` — plan documents\n` +
-                  `- \`docs/reference/\` — reference documents\n` +
-                  `- \`docs/prompts/\` — execution prompts\n\n` +
-                  `Tip: Edit CLAUDE.md to add your project's tech stack, goals, and specific rules.`,
-              },
-            });
-          }
-        } catch { /* best-effort notification */ }
+        toast.success(`Project initialized: ${name}`, {
+          description: "Created CLAUDE.md + docs/ structure. Edit CLAUDE.md to customize agent rules.",
+          duration: 6000,
+        });
       }
     } catch { /* cancelled */ }
     finally { setAdding(false); }
