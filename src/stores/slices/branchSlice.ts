@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ENGINE_CONFIGS } from "./runtimeSlice";
+import { ENGINE_CONFIGS } from "@/lib/engineConfig";
 import type {
   SetState,
   GetState,

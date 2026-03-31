@@ -21,21 +21,10 @@ async function loadBudgetOverrides(): Promise<{ contextModeOverride?: string; co
   };
 }
 
-// ─── Engine configuration map ───────────────────────────────────────────────
-
-export interface EngineConfig {
-  command: string;
-  engineKey: string;
-  label: string;
-  hasChunkEvent: boolean;
-}
-
-export const ENGINE_CONFIGS: Record<string, EngineConfig> = {
-  claude:   { command: "start_claude_stream", engineKey: "claude-code", label: "Claude initializing...", hasChunkEvent: true },
-  codex:    { command: "start_codex_run",     engineKey: "codex",       label: "Codex starting...",      hasChunkEvent: true },
-  gemini:   { command: "start_gemini_stream", engineKey: "gemini",      label: "Gemini initializing...", hasChunkEvent: true },
-  opencode: { command: "start_opencode_run",  engineKey: "opencode",    label: "OpenCode starting...",   hasChunkEvent: false },
-};
+// ─── Engine configuration — canonical source: lib/engineConfig ──────────────
+import { ENGINE_CONFIGS } from "@/lib/engineConfig";
+export { ENGINE_CONFIGS };
+export type { EngineConfig } from "@/lib/engineConfig";
 
 // ─── Slice interface ────────────────────────────────────────────────────────
 
