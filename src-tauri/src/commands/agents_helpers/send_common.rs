@@ -223,18 +223,32 @@ pub fn load_context_data(
 
     let is_branch = conversation_id.starts_with("branch:");
 
-    // Query 1: has_active_plan (auto mode signal)
+    // Check conversation type (scratchpad inherits main chat context)
+    let conv_type: String = conn.query_row(
+        "SELECT COALESCE(type, 'main') FROM conversations WHERE id = ?1",
+        [conversation_id], |row| row.get(0),
+    ).unwrap_or_else(|_| "main".into());
+    let is_scratchpad = conv_type == "scratchpad";
+
+    // Query 1: has_active_plan (auto mode signal) — check main chat plan for scratchpads
+    let plan_lookup_conv = if is_scratchpad {
+        // Find main chat for this project
+        conn.query_row(
+            "SELECT c2.id FROM conversations c1
+             JOIN conversations c2 ON c2.project_key = c1.project_key AND c2.type = 'main'
+             WHERE c1.id = ?1 LIMIT 1",
+            [conversation_id], |row| row.get::<_, String>(0),
+        ).ok()
+    } else { None };
     let has_active_plan: bool = conn.query_row(
         "SELECT COUNT(*) > 0 FROM plans WHERE conversation_id = ?1 AND status = 'active'",
-        [conversation_id], |row| row.get(0),
+        [plan_lookup_conv.as_deref().unwrap_or(conversation_id)], |row| row.get(0),
     ).unwrap_or(false);
 
     // Query 2: current messages — budget-based dynamic window + per-agent last-message guarantee
-    // Load more messages than we'll use, then trim in assemble_prompt based on context_cap.
-    // 20 messages gives enough headroom for multi-agent conversations (4 agents × 5 turns).
     let current_messages = load_recent_messages_with_author(conn, conversation_id, 20);
 
-    // Query 3: parent messages (branch only)
+    // Query 3: parent messages (branch: parent conv, scratchpad: main chat)
     let parent_messages: Vec<(String, String, Option<String>, Option<String>)> = if is_branch {
         let parent_id: Option<String> = conn
             .query_row(
@@ -247,12 +261,20 @@ pub fn load_context_data(
         parent_id
             .map(|pid| load_recent_messages_with_author(conn, &pid, 4))
             .unwrap_or_default()
+    } else if is_scratchpad {
+        // Scratchpad inherits main chat context — load recent messages from main conversation
+        plan_lookup_conv.as_ref()
+            .map(|main_id| load_recent_messages_with_author(conn, main_id, 8))
+            .unwrap_or_default()
     } else {
         Vec::new()
     };
 
-    // Query 4-7: plan, findings, artifacts (via plan_conv_id)
-    let plan_conv_id = resolve_plan_conversation_id(conn, conversation_id);
+    // Query 4-7: plan, findings, artifacts (scratchpad: use main chat's plan)
+    let effective_conv_id = if is_scratchpad {
+        plan_lookup_conv.as_deref().unwrap_or(conversation_id)
+    } else { conversation_id };
+    let plan_conv_id = resolve_plan_conversation_id(conn, effective_conv_id);
     let plan_section = build_plan_section(conn, &plan_conv_id);
     let findings_section = build_findings_section(conn, &plan_conv_id);
     let artifacts_section = build_artifact_handoff_section(conn, &plan_conv_id);
@@ -278,8 +300,13 @@ pub fn load_context_data(
         Vec::new()
     };
 
-    // Query 10: compressed memory
-    let compressed_memory = load_compressed_memory(conn, conversation_id);
+    // Query 10: compressed memory (scratchpad: also check main chat memory)
+    let compressed_memory = load_compressed_memory(conn, conversation_id)
+        .or_else(|| {
+            if is_scratchpad {
+                plan_lookup_conv.as_deref().and_then(|main_id| load_compressed_memory(conn, main_id))
+            } else { None }
+        });
 
     // Query 11: cross-session data
     let cross_session_data: Vec<(String, Vec<(String, String)>)> = cross_session_ids
