@@ -14,7 +14,7 @@ interface SubtaskReviewViewProps {
 }
 
 export function SubtaskReviewView({ plan, onPlanUpdate }: SubtaskReviewViewProps) {
-  const { sendWithEngine } = useChatStore();
+  const { sendWithEngine, selectedConversationId, getConversationEngine } = useChatStore();
   const [subtasks, setSubtasks] = useState<PlanSubtask[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -29,6 +29,13 @@ export function SubtaskReviewView({ plan, onPlanUpdate }: SubtaskReviewViewProps
   }, [plan.id, plan.revision]);
 
   const isActionable = plan.phase === "subtask_review";
+
+  // Resolve main chat's agent engine (not hardcoded "claude")
+  const mainEngine = (() => {
+    if (!selectedConversationId) return "claude";
+    const saved = getConversationEngine(selectedConversationId);
+    return saved?.engine ?? "claude";
+  })();
 
   const handleApprove = async () => {
     if (!isActionable) return;
@@ -73,7 +80,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate }: SubtaskReviewViewProps
         `위 검토 의견을 반영하여 수정된 Plan을 \`<!-- tunaflow:plan-proposal -->\` 형식으로 제안하세요.`,
       ].join("\n");
 
-      await sendWithEngine("claude", prompt);
+      await sendWithEngine(mainEngine, prompt);
       await planApi.createPlanEvent(plan.id, "subtask_revision_requested", "user",
         `subtask ${subtaskIdx + 1}: ${opinion.slice(0, 100)}`);
     } catch { /* silent */ }
@@ -94,7 +101,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate }: SubtaskReviewViewProps
         `\`<!-- tunaflow:plan-proposal -->\` 형식으로 이 subtask의 details가 포함된 수정 Plan을 제안하세요.`,
       ].join("\n");
 
-      await sendWithEngine("claude", prompt);
+      await sendWithEngine(mainEngine, prompt);
       await planApi.createPlanEvent(plan.id, "detail_design_requested", "user",
         `subtask ${subtaskIdx + 1}`);
     } catch { /* silent */ }
@@ -176,7 +183,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate }: SubtaskReviewViewProps
                     "",
                     `\`<!-- tunaflow:plan-proposal -->\` 형식으로 모든 subtask에 details가 포함된 수정 Plan을 제안하세요.`,
                   ].join("\n");
-                  await sendWithEngine("claude", prompt);
+                  await sendWithEngine(mainEngine, prompt);
                   await planApi.createPlanEvent(plan.id, "detail_design_requested", "user", "all subtasks");
                 } catch { /* silent */ }
                 setBusy(false);

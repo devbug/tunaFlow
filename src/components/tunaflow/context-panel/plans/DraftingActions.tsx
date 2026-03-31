@@ -13,10 +13,15 @@ export function DraftingActions({
   subtasks: PlanSubtask[];
   onPlanUpdate: (update: Partial<Plan>) => void;
 }) {
-  const { sendWithEngine } = useChatStore();
+  const { sendWithEngine, selectedConversationId, getConversationEngine } = useChatStore();
   const [busy, setBusy] = useState(false);
   const hasEmptyDetails = subtasks.some((s) => !s.details?.trim());
   const hasSubtasks = subtasks.length > 0;
+  const mainEngine = (() => {
+    if (!selectedConversationId) return "claude";
+    const saved = getConversationEngine(selectedConversationId);
+    return saved?.engine ?? "claude";
+  })();
 
   const handleDetailDesign = async () => {
     setBusy(true);
@@ -36,7 +41,7 @@ export function DraftingActions({
         "",
         `\`<!-- tunaflow:plan-proposal -->\` 형식으로 상세 설계가 포함된 수정 Plan을 제안하세요.`,
       ].join("\n");
-      await sendWithEngine("claude", prompt);
+      await sendWithEngine(mainEngine, prompt);
       await planApi.createPlanEvent(plan.id, "detail_design_requested", "user");
     } catch { /* silent */ }
     setBusy(false);
