@@ -595,9 +595,11 @@ function MergeBranchButton({
           await invoke("delete_branch", { id: branchId }).catch(() => {});
           // Clear the branch link on the plan
           await planApi.linkPlanBranch(plan.id, branchType, null);
+          // Return to approval phase for re-review
+          await planApi.updatePlanPhase(plan.id, "approval");
           const update: Partial<Plan> = branchType === "review"
-            ? { reviewBranchId: undefined }
-            : { implementationBranchId: undefined };
+            ? { reviewBranchId: undefined, phase: "approval" as PlanPhase }
+            : { implementationBranchId: undefined, phase: "approval" as PlanPhase };
           onPlanUpdate(update);
 
           // Close thread drawer if this branch was open
