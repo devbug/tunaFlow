@@ -475,6 +475,9 @@ pub fn generate_plan_document(
     Ok(file_path.to_string_lossy().to_string())
 }
 
+/// Public accessor for slugify — used by ContextPack plan document loader
+pub fn slugify_pub(title: &str) -> String { slugify(title) }
+
 fn slugify(title: &str) -> String {
     let slug: String = title.chars()
         .map(|c| if c.is_alphanumeric() || ('\u{AC00}'..='\u{D7AF}').contains(&c) {
@@ -486,6 +489,146 @@ fn slugify(title: &str) -> String {
         .collect::<Vec<_>>()
         .join("-");
     if result.len() > 80 { result[..80].to_string() } else { result }
+}
+
+/// Generate a review report document.
+/// File: {project_path}/docs/plans/{slug}-review-r{round}.md
+#[tauri::command]
+pub fn generate_review_report(
+    plan_id: String,
+    project_path: String,
+    verdict: String,
+    findings: Vec<String>,
+    recommendations: Vec<String>,
+    reviewer_engines: Vec<String>,
+    test_output: Option<String>,
+    state: State<DbState>,
+) -> Result<String, AppError> {
+    let (plan, subtasks) = {
+        let conn = state.read.lock().map_err(|_| AppError::Lock)?;
+        let sql = format!("SELECT {} FROM plans WHERE id = ?1", PLAN_COLS);
+        let plan: Plan = conn.query_row(&sql, [&plan_id], map_plan)
+            .map_err(|_| AppError::NotFound(format!("plan {} not found", plan_id)))?;
+        let subtask_sql = format!("SELECT {} FROM plan_subtasks WHERE plan_id = ?1 ORDER BY idx ASC", SUBTASK_COLS);
+        let mut stmt = conn.prepare(&subtask_sql)?;
+        let subtasks: Vec<PlanSubtask> = stmt.query_map([&plan_id], map_subtask)?
+            .collect::<Result<Vec<_>, _>>()?;
+        (plan, subtasks)
+    };
+
+    // Determine round number from existing files
+    let slug = slugify(&plan.title);
+    let dir = Path::new(&project_path).join("docs").join("plans");
+    std::fs::create_dir_all(&dir).map_err(|e| AppError::Agent(format!("mkdir: {}", e)))?;
+    let mut round = 1;
+    while dir.join(format!("{}-review-r{}.md", slug, round)).exists() {
+        round += 1;
+    }
+
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+    let mut md = String::new();
+    md.push_str(&format!("# Review Report: {} — Round {}\n\n", plan.title, round));
+    md.push_str(&format!("> Verdict: {}\n", verdict));
+    md.push_str(&format!("> Reviewer: {}\n", reviewer_engines.join(", ")));
+    md.push_str(&format!("> Date: {}\n", now));
+    md.push_str(&format!("> Plan Revision: {}\n\n", plan.revision));
+    md.push_str("---\n\n");
+
+    md.push_str(&format!("## Verdict\n\n**{}**\n\n", verdict));
+
+    if !findings.is_empty() {
+        md.push_str("## Findings\n\n");
+        for (i, f) in findings.iter().enumerate() {
+            md.push_str(&format!("{}. {}\n", i + 1, f));
+        }
+        md.push('\n');
+    }
+
+    if !recommendations.is_empty() {
+        md.push_str("## Recommendations\n\n");
+        for (i, r) in recommendations.iter().enumerate() {
+            md.push_str(&format!("{}. {}\n", i + 1, r));
+        }
+        md.push('\n');
+    }
+
+    // Subtask verification table
+    md.push_str("## Subtask Verification\n\n");
+    md.push_str("| # | Subtask | Status |\n");
+    md.push_str("|---|---------|--------|\n");
+    for (i, st) in subtasks.iter().enumerate() {
+        let mark = if st.status == "done" { "✅" } else { "❌" };
+        md.push_str(&format!("| {} | {} | {} {} |\n", i + 1, st.title, mark, st.status));
+    }
+    md.push('\n');
+
+    if let Some(test) = &test_output {
+        md.push_str("## Test Results\n\n```\n");
+        let truncated = if test.len() > 2000 { &test[..2000] } else { test.as_str() };
+        md.push_str(truncated);
+        md.push_str("\n```\n\n");
+    }
+
+    let file_path = dir.join(format!("{}-review-r{}.md", slug, round));
+    std::fs::write(&file_path, &md).map_err(|e| AppError::Agent(format!("write: {}", e)))?;
+    Ok(file_path.to_string_lossy().to_string())
+}
+
+/// Generate an implementation result document.
+/// File: {project_path}/docs/plans/{slug}-result.md
+#[tauri::command]
+pub fn generate_result_report(
+    plan_id: String,
+    project_path: String,
+    summary: String,
+    subtask_results: Vec<String>,
+    known_issues: Vec<String>,
+    developer_engine: Option<String>,
+    branch_label: Option<String>,
+    state: State<DbState>,
+) -> Result<String, AppError> {
+    let plan = {
+        let conn = state.read.lock().map_err(|_| AppError::Lock)?;
+        let sql = format!("SELECT {} FROM plans WHERE id = ?1", PLAN_COLS);
+        conn.query_row(&sql, [&plan_id], map_plan)
+            .map_err(|_| AppError::NotFound(format!("plan {} not found", plan_id)))?
+    };
+
+    let slug = slugify(&plan.title);
+    let dir = Path::new(&project_path).join("docs").join("plans");
+    std::fs::create_dir_all(&dir).map_err(|e| AppError::Agent(format!("mkdir: {}", e)))?;
+
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+    let mut md = String::new();
+    md.push_str(&format!("# Implementation Result: {}\n\n", plan.title));
+    md.push_str(&format!("> Developer: {}\n", developer_engine.as_deref().unwrap_or("unknown")));
+    md.push_str(&format!("> Branch: {}\n", branch_label.as_deref().unwrap_or("N/A")));
+    md.push_str(&format!("> Date: {}\n", now));
+    md.push_str(&format!("> Plan Revision: {}\n\n", plan.revision));
+    md.push_str("---\n\n");
+
+    md.push_str("## Summary\n\n");
+    md.push_str(&summary);
+    md.push_str("\n\n");
+
+    if !subtask_results.is_empty() {
+        md.push_str("## Subtask Results\n\n");
+        for (i, r) in subtask_results.iter().enumerate() {
+            md.push_str(&format!("### {}. {}\n\n", i + 1, r));
+        }
+    }
+
+    if !known_issues.is_empty() {
+        md.push_str("## Known Issues\n\n");
+        for issue in &known_issues {
+            md.push_str(&format!("- {}\n", issue));
+        }
+        md.push('\n');
+    }
+
+    let file_path = dir.join(format!("{}-result.md", slug));
+    std::fs::write(&file_path, &md).map_err(|e| AppError::Agent(format!("write: {}", e)))?;
+    Ok(file_path.to_string_lossy().to_string())
 }
 
 fn build_plan_markdown(plan: &Plan, subtasks: &[PlanSubtask], events: &[PlanEvent]) -> String {

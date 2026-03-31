@@ -87,6 +87,30 @@ export async function generatePlanDocument(planId: string, projectPath: string):
   return invoke<string>("generate_plan_document", { planId, projectPath });
 }
 
+/** Generate review report. Returns file path. */
+export async function generateReviewReport(
+  planId: string, projectPath: string,
+  verdict: string, findings: string[], recommendations: string[],
+  reviewerEngines: string[], testOutput?: string,
+): Promise<string> {
+  return invoke<string>("generate_review_report", {
+    planId, projectPath, verdict, findings, recommendations,
+    reviewerEngines, testOutput: testOutput ?? null,
+  });
+}
+
+/** Generate implementation result report. Returns file path. */
+export async function generateResultReport(
+  planId: string, projectPath: string,
+  summary: string, subtaskResults: string[],
+  knownIssues: string[], developerEngine?: string, branchLabel?: string,
+): Promise<string> {
+  return invoke<string>("generate_result_report", {
+    planId, projectPath, summary, subtaskResults, knownIssues,
+    developerEngine: developerEngine ?? null, branchLabel: branchLabel ?? null,
+  });
+}
+
 export async function findPlanByBranch(branchId: string): Promise<Plan | null> {
   return invoke<Plan | null>("find_plan_by_branch", { branchId });
 }

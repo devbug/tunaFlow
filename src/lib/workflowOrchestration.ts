@@ -13,15 +13,75 @@ import type { ParsedImplPlan, ParsedReviewVerdict } from "./planProposalParser";
 
 // ─── Plan document helper ───────────────────────────────────────────────────
 
-/** Generate/update plan document in project directory. Fire-and-forget. */
-export async function syncPlanDocument(planId: string): Promise<void> {
+/** Resolve current project path. Returns null if unavailable. */
+async function getProjectPath(): Promise<string | null> {
   try {
     const { useChatStore } = await import("@/stores/chatStore");
     const projectKey = useChatStore.getState().selectedProjectKey;
-    if (!projectKey) return;
+    if (!projectKey) return null;
     const project = await invoke("get_project", { key: projectKey }) as { path?: string };
-    if (!project?.path) return;
-    await planApi.generatePlanDocument(planId, project.path);
+    return project?.path ?? null;
+  } catch { return null; }
+}
+
+/** Generate/update plan document in project directory. Fire-and-forget. */
+export async function syncPlanDocument(planId: string): Promise<void> {
+  try {
+    const pp = await getProjectPath();
+    if (!pp) return;
+    await planApi.generatePlanDocument(planId, pp);
+  } catch { /* fire-and-forget */ }
+}
+
+/** Generate review report document. Fire-and-forget. */
+export async function syncReviewReport(
+  planId: string,
+  verdict: ParsedReviewVerdict,
+  reviewerEngines: string[] = [],
+  testOutput?: string,
+): Promise<void> {
+  try {
+    const pp = await getProjectPath();
+    if (!pp) return;
+    await planApi.generateReviewReport(
+      planId, pp, verdict.verdict,
+      verdict.findings, verdict.recommendations,
+      reviewerEngines, testOutput,
+    );
+  } catch { /* fire-and-forget */ }
+}
+
+/** Generate implementation result report. Fire-and-forget. */
+export async function syncResultReport(
+  planId: string,
+  implMessages: Message[],
+  developerEngine?: string,
+  branchLabel?: string,
+): Promise<void> {
+  try {
+    const pp = await getProjectPath();
+    if (!pp) return;
+
+    // Compress impl messages into summary + per-subtask results
+    const assistantMsgs = implMessages.filter((m) => m.role === "assistant");
+    const summary = assistantMsgs.length > 0
+      ? assistantMsgs[assistantMsgs.length - 1].content.slice(0, 2000)
+      : "(No implementation output)";
+
+    // Extract subtask-done markers to build per-subtask results
+    const { scanCompletedSubtasks } = await import("./planProposalParser");
+    const completedNums = scanCompletedSubtasks(implMessages);
+    const subtaskResults = assistantMsgs
+      .slice(-10)
+      .map((m) => m.content.slice(0, 500))
+      .filter((c) => c.trim().length > 0);
+
+    const knownIssues: string[] = [];
+
+    await planApi.generateResultReport(
+      planId, pp, summary, subtaskResults, knownIssues,
+      developerEngine, branchLabel,
+    );
   } catch { /* fire-and-forget */ }
 }
 
@@ -155,6 +215,10 @@ export async function startReviewRT(
   await planApi.updatePlanPhase(plan.id, "review");
   await planApi.createPlanEvent(plan.id, "impl_completed", "developer");
 
+  // Generate implementation result report before review
+  syncResultReport(plan.id, implMessages, plan.developerEngine ?? undefined,
+    plan.implementationBranchId ? `Impl: ${plan.title}` : undefined);
+
   const engines = reviewerEngines ?? ["claude", "gemini"];
 
   // Create review branch with RT mode
@@ -227,6 +291,9 @@ export async function processReviewVerdict(
     // conditional — log event, user decides
     await planApi.createPlanEvent(plan.id, "review_failed", "reviewer", detail);
   }
+
+  // Generate review report document
+  syncReviewReport(plan.id, verdict);
 }
 
 // ─── Plan Revision (from Implementation Branch) ────────────────────────────

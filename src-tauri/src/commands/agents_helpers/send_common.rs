@@ -208,22 +208,48 @@ pub fn load_context_data(
     let plan_conv_id = resolve_plan_conversation_id(conn, effective_conv_id);
     let plan_section = build_plan_section(conn, &plan_conv_id);
 
-    // Load plan document file if active plan exists
+    // Load plan documents from filesystem (plan, result, review)
     let plan_document: Option<String> = if has_active_plan {
         if let Some(pp) = project_path {
-            // Find active plan title to build slug
-            let title: Option<String> = conn.query_row(
-                "SELECT title FROM plans WHERE conversation_id = ?1 AND status = 'active' LIMIT 1",
+            let plan_row = conn.query_row(
+                "SELECT title, phase FROM plans WHERE conversation_id = ?1 AND status = 'active' LIMIT 1",
                 [plan_lookup_conv.as_deref().unwrap_or(conversation_id)],
-                |row| row.get(0),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             ).ok();
-            title.and_then(|t| {
-                let slug: String = t.chars()
-                    .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
-                    .collect::<String>()
-                    .split('-').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-");
-                let doc_path = std::path::Path::new(pp).join("docs").join("plans").join(format!("{}.md", slug));
-                std::fs::read_to_string(&doc_path).ok()
+            plan_row.and_then(|(title, phase)| {
+                let slug = crate::commands::plans::slugify_pub(&title);
+                let plans_dir = std::path::Path::new(pp).join("docs").join("plans");
+                let mut combined = String::new();
+
+                // Plan document (always)
+                if let Ok(doc) = std::fs::read_to_string(plans_dir.join(format!("{}.md", slug))) {
+                    combined.push_str(&doc);
+                }
+
+                // Result report (review/rework phase — Reviewer needs implementation context)
+                if phase == "review" || phase == "rework" {
+                    if let Ok(doc) = std::fs::read_to_string(plans_dir.join(format!("{}-result.md", slug))) {
+                        combined.push_str("\n\n---\n\n");
+                        combined.push_str(&doc);
+                    }
+                }
+
+                // Latest review report (rework phase — Developer needs review feedback)
+                if phase == "rework" {
+                    // Find latest review-r{N}.md
+                    let mut round = 1;
+                    let mut latest_review = None;
+                    while plans_dir.join(format!("{}-review-r{}.md", slug, round)).exists() {
+                        latest_review = std::fs::read_to_string(plans_dir.join(format!("{}-review-r{}.md", slug, round))).ok();
+                        round += 1;
+                    }
+                    if let Some(doc) = latest_review {
+                        combined.push_str("\n\n---\n\n");
+                        combined.push_str(&doc);
+                    }
+                }
+
+                if combined.is_empty() { None } else { Some(combined) }
             })
         } else { None }
     } else { None };

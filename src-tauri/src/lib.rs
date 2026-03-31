@@ -211,6 +211,8 @@ pub fn run() {
             commands::plans::link_plan_branch,
             commands::plans::find_plan_by_branch,
             commands::plans::generate_plan_document,
+            commands::plans::generate_review_report,
+            commands::plans::generate_result_report,
             // Test Runner
             commands::test_runner::run_project_tests,
         ])
