@@ -14,6 +14,7 @@ pub mod memos;
 pub mod model_discovery;
 pub mod messages;
 pub mod plans;
+pub mod project_tools;
 pub mod projects;
 pub mod roundtable;
 pub mod roundtable_helpers;

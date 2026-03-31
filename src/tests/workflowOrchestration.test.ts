@@ -126,7 +126,8 @@ describe("requestPlanRevision", () => {
     await requestPlanRevision(mockPlan, msgs, "claude", sendFn);
 
     expect(sendFn).toHaveBeenCalledTimes(1);
-    const [engine, prompt, systemPrompt] = sendFn.mock.calls[0];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [engine, prompt, systemPrompt] = sendFn.mock.calls[0] as any;
     expect(engine).toBe("claude");
     expect(prompt).toContain("계획 수정 요청");
     expect(systemPrompt).toContain("Implementation Branch");

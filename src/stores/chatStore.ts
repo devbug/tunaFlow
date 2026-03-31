@@ -3,6 +3,7 @@ import type { ChatState } from "./slices/types";
 import { createProjectSlice } from "./slices/projectSlice";
 import { createConversationSlice } from "./slices/conversationSlice";
 import { createBranchSlice } from "./slices/branchSlice";
+import { createThreadSlice } from "./slices/threadSlice";
 import { createRuntimeSlice } from "./slices/runtimeSlice";
 import { createAssetSlice } from "./slices/assetSlice";
 import { createEngineModelSlice } from "./slices/engineModelSlice";
@@ -13,6 +14,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   ...createProjectSlice(set, get),
   ...createConversationSlice(set, get),
   ...createBranchSlice(set, get),
+  ...createThreadSlice(set, get),
   ...createRuntimeSlice(set, get),
   ...createAssetSlice(set, get),
   ...createEngineModelSlice(set, get),
