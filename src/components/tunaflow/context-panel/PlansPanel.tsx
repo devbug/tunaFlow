@@ -16,6 +16,7 @@ import {
 import type { ParsedReviewVerdict } from "@/lib/planProposalParser";
 import { splitPlanProposals, hasPlanProposal } from "@/lib/planProposalParser";
 import { SubtaskReviewView } from "./SubtaskReviewView";
+import { DevProgressView } from "./DevProgressView";
 
 // ─── Status configs ──────────────────────────────────────────────────────────
 
@@ -1005,6 +1006,10 @@ export function PlansPanel({ activeStage, onPhaseChanged }: PlansPanelProps) {
       {activeStage === "subtask" ? (
         filteredPlans.map((plan) => (
           <SubtaskReviewView key={plan.id} plan={plan} onPlanUpdate={handlePlanUpdated} />
+        ))
+      ) : activeStage === "dev" ? (
+        filteredPlans.map((plan) => (
+          <DevProgressView key={plan.id} plan={plan} onPlanUpdate={handlePlanUpdated} />
         ))
       ) : (
         filteredPlans.map((plan) => (

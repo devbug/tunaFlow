@@ -4,6 +4,7 @@ import {
   hasImplPlan, extractImplPlan,
   hasImplComplete,
   hasReviewVerdict, extractReviewVerdict,
+  extractCompletedSubtasks, scanCompletedSubtasks,
 } from "@/lib/planProposalParser";
 
 const SAMPLE = `Here is a plan:
@@ -111,6 +112,27 @@ describe("implCompleteParser", () => {
   it("detects impl-complete marker", () => {
     expect(hasImplComplete("done <!-- tunaflow:impl-complete --> yay")).toBe(true);
     expect(hasImplComplete("no marker")).toBe(false);
+  });
+});
+
+describe("subtaskDoneParser", () => {
+  it("extracts completed subtask numbers", () => {
+    const content = "Done step 1 <!-- tunaflow:subtask-done:1 --> and step 3 <!-- tunaflow:subtask-done:3 -->";
+    expect(extractCompletedSubtasks(content)).toEqual([1, 3]);
+  });
+
+  it("returns empty for no markers", () => {
+    expect(extractCompletedSubtasks("no markers here")).toEqual([]);
+  });
+
+  it("scans multiple messages", () => {
+    const msgs = [
+      { role: "assistant", content: "<!-- tunaflow:subtask-done:1 -->" },
+      { role: "user", content: "ok" },
+      { role: "assistant", content: "<!-- tunaflow:subtask-done:2 --> <!-- tunaflow:subtask-done:3 -->" },
+    ];
+    const done = scanCompletedSubtasks(msgs);
+    expect(done).toEqual(new Set([1, 2, 3]));
   });
 });
 

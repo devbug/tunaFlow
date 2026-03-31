@@ -112,7 +112,8 @@ export async function approveAndStartImplementation(
     `## 작업 규칙`,
     `1. subtask 순서대로 진행하세요.`,
     `2. 각 subtask의 상세 설계(details)를 따르세요.`,
-    `3. 전체 구현 완료 후 \`<!-- tunaflow:impl-complete -->\`를 포함하세요.`,
+    `3. 각 subtask 완료 시 \`<!-- tunaflow:subtask-done:N -->\`을 포함하세요 (N = subtask 번호).`,
+    `4. 전체 구현 완료 후 \`<!-- tunaflow:impl-complete -->\`를 포함하세요.`,
   ].join("\n");
 
   return { branch, shadowConvId, prompt };

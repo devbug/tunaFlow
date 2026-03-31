@@ -155,6 +155,31 @@ function parseBulletList(text: string): string[] {
   return items;
 }
 
+// ─── Subtask done marker ─────────────────────────────────────────────────────
+
+const SUBTASK_DONE_RE = /<!-- tunaflow:subtask-done:(\d+) -->/g;
+
+/** Extract completed subtask numbers from message content */
+export function extractCompletedSubtasks(content: string): number[] {
+  const results: number[] = [];
+  let m: RegExpExecArray | null;
+  const re = new RegExp(SUBTASK_DONE_RE.source, "g");
+  while ((m = re.exec(content)) !== null) {
+    results.push(parseInt(m[1], 10));
+  }
+  return results;
+}
+
+/** Scan multiple messages for all completed subtask numbers */
+export function scanCompletedSubtasks(messages: { role: string; content: string }[]): Set<number> {
+  const done = new Set<number>();
+  for (const msg of messages) {
+    if (msg.role !== "assistant") continue;
+    for (const n of extractCompletedSubtasks(msg.content)) done.add(n);
+  }
+  return done;
+}
+
 // ─── Implementation plan marker ─────────────────────────────────────────────
 
 export interface ParsedImplPlan {
