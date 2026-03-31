@@ -565,12 +565,15 @@ function ReviewVerdictCard({
 function MergeBranchButton({
   plan,
   branchId,
+  branchType,
   onPlanUpdate,
 }: {
   plan: Plan;
   branchId: string;
+  branchType: "review" | "implementation";
   onPlanUpdate: (update: Partial<Plan>) => void;
 }) {
+  const { closeThread, loadBranches } = useChatStore();
   const [busy, setBusy] = useState(false);
 
   const handleMerge = async () => {
@@ -586,8 +589,20 @@ function MergeBranchButton({
         if (proposalSeg && proposalSeg.type === "plan-proposal") {
           const p = proposalSeg.proposal;
           await planApi.replacePlanSubtasks(plan.id, p.subtasks.map((s) => ({ title: s.title, details: s.details })));
-          await planApi.createPlanEvent(plan.id, "review_merged", "user", `Merged from branch ${branchId}`);
-          onPlanUpdate({});
+          await planApi.createPlanEvent(plan.id, "review_merged", "user", `Merged from branch ${branchId} (rev.${plan.revision + 1})`);
+
+          // Archive the merged branch — it served its purpose
+          await invoke("delete_branch", { id: branchId }).catch(() => {});
+          // Clear the branch link on the plan
+          await planApi.linkPlanBranch(plan.id, branchType, null);
+          const update: Partial<Plan> = branchType === "review"
+            ? { reviewBranchId: undefined }
+            : { implementationBranchId: undefined };
+          onPlanUpdate(update);
+
+          // Close thread drawer if this branch was open
+          closeThread();
+          await loadBranches(plan.conversationId);
         }
       }
     } catch { /* silent */ }
@@ -803,7 +818,7 @@ function PlanCard({
                 <button onClick={() => openThread(plan.reviewBranchId!)} className="text-[9px] text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
                   <GitBranch className="w-2.5 h-2.5" />Review Branch 열기
                 </button>
-                <MergeBranchButton plan={plan} branchId={plan.reviewBranchId} onPlanUpdate={handlePlanUpdate} />
+                <MergeBranchButton plan={plan} branchId={plan.reviewBranchId} branchType="review" onPlanUpdate={handlePlanUpdate} />
               </div>
             )}
 
