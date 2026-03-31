@@ -206,6 +206,7 @@ pub fn run() {
             commands::plans::create_plan_event,
             commands::plans::list_plan_events,
             commands::plans::assign_plan_engines,
+            commands::plans::link_plan_branch,
             // Test Runner
             commands::test_runner::run_project_tests,
         ])

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ClipboardList, Check, RotateCcw, X } from "lucide-react";
+import { ClipboardList, Check, RotateCcw, X, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import type { ParsedPlanProposal } from "@/lib/planProposalParser";
@@ -11,8 +11,10 @@ interface PlanProposalCardProps {
 }
 
 export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardProps) {
-  const [status, setStatus] = useState<"idle" | "promoting" | "promoted" | "dismissed">("idle");
+  const [status, setStatus] = useState<"idle" | "promoting" | "promoted" | "dismissed" | "revising">("idle");
+  const [revisionInput, setRevisionInput] = useState("");
   const activeBranchId = useChatStore((s) => s.activeBranchId);
+  const sendWithEngine = useChatStore((s) => s.sendWithEngine);
 
   const handlePromote = async () => {
     setStatus("promoting");
@@ -124,28 +126,71 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
         )}
       </div>
 
+      {/* Revision input */}
+      {status === "revising" && (
+        <div className="px-4 py-2 border-t border-border/10 space-y-1.5">
+          <textarea
+            value={revisionInput}
+            onChange={(e) => setRevisionInput(e.target.value)}
+            placeholder="수정 요청 내용을 입력하세요..."
+            rows={2}
+            className="w-full bg-input rounded-md px-2.5 py-1.5 text-xs outline-none text-foreground placeholder:text-muted-foreground border border-border focus:border-ring/50 resize-none"
+            autoFocus
+          />
+          <div className="flex gap-1.5">
+            <button
+              onClick={async () => {
+                if (!revisionInput.trim()) return;
+                const feedback = `[Plan 수정 요청: ${proposal.title}]\n\n${revisionInput.trim()}\n\n위 피드백을 반영하여 Plan을 수정하고 \`<!-- tunaflow:plan-proposal -->\` 형식으로 다시 제안하세요.`;
+                setStatus("idle");
+                setRevisionInput("");
+                await sendWithEngine("claude", feedback);
+              }}
+              className="px-2.5 py-1 rounded-md text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+            >
+              전송
+            </button>
+            <button
+              onClick={() => { setStatus("idle"); setRevisionInput(""); }}
+              className="px-2.5 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Actions */}
-      <div className="flex items-center gap-2 px-4 py-2 border-t border-border/10 bg-white/[0.02]">
-        <button
-          onClick={handlePromote}
-          disabled={status === "promoting"}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors",
-            "bg-primary/10 text-primary hover:bg-primary/20",
-            status === "promoting" && "opacity-50 cursor-wait",
-          )}
-        >
-          <Check className="w-3 h-3" />
-          {status === "promoting" ? "승격 중..." : "Plan으로 승격"}
-        </button>
-        <button
-          onClick={() => setStatus("dismissed")}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
-        >
-          <X className="w-3 h-3" />
-          무시
-        </button>
-      </div>
+      {status !== "revising" && (
+        <div className="flex items-center gap-2 px-4 py-2 border-t border-border/10 bg-white/[0.02]">
+          <button
+            onClick={handlePromote}
+            disabled={status === "promoting"}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors",
+              "bg-primary/10 text-primary hover:bg-primary/20",
+              status === "promoting" && "opacity-50 cursor-wait",
+            )}
+          >
+            <Check className="w-3 h-3" />
+            {status === "promoting" ? "승격 중..." : "Plan으로 승격"}
+          </button>
+          <button
+            onClick={() => setStatus("revising")}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
+          >
+            <RotateCcw className="w-3 h-3" />
+            수정 요청
+          </button>
+          <button
+            onClick={() => setStatus("dismissed")}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
+          >
+            <X className="w-3 h-3" />
+            무시
+          </button>
+        </div>
+      )}
     </div>
   );
 }

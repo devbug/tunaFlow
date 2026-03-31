@@ -361,6 +361,26 @@ pub fn list_plan_events(
     Ok(rows)
 }
 
+/// Link a branch to a plan (implementation or review).
+#[tauri::command]
+pub fn link_plan_branch(
+    id: String,
+    branch_type: String,  // "implementation" or "review"
+    branch_id: Option<String>,
+    state: State<DbState>,
+) -> Result<(), AppError> {
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    let now = now_epoch_ms();
+    let col = match branch_type.as_str() {
+        "implementation" => "implementation_branch_id",
+        "review" => "review_branch_id",
+        _ => return Err(AppError::NotFound(format!("Unknown branch type: {}", branch_type))),
+    };
+    let sql = format!("UPDATE plans SET {} = ?1, updated_at = ?2 WHERE id = ?3", col);
+    conn.execute(&sql, params![branch_id, now, id])?;
+    Ok(())
+}
+
 /// Assign engines to a plan (architect, developer, reviewers).
 #[tauri::command]
 pub fn assign_plan_engines(

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Plan, PlanEvent, PlanPhase, PlanSubtask, CreatePlanInput } from "@/types";
+import type { Plan, PlanEvent, PlanPhase, PlanSubtask, SubtaskInput, CreatePlanInput } from "@/types";
 
 export async function listPlansByConversation(conversationId: string): Promise<Plan[]> {
   return invoke<Plan[]>("list_plans_by_conversation", { conversationId });
@@ -61,4 +61,23 @@ export async function assignPlanEngines(
     developerEngine: engines.developer ?? null,
     reviewerEngines: engines.reviewers ? JSON.stringify(engines.reviewers) : null,
   });
+}
+
+export async function linkPlanBranch(
+  id: string,
+  branchType: "implementation" | "review",
+  branchId: string | null,
+): Promise<void> {
+  return invoke("link_plan_branch", { id, branchType, branchId });
+}
+
+export async function replacePlanSubtasks(
+  planId: string,
+  subtasks: SubtaskInput[],
+): Promise<PlanSubtask[]> {
+  return invoke<PlanSubtask[]>("replace_plan_subtasks", { planId, subtasks });
+}
+
+export async function getPlan(id: string): Promise<Plan> {
+  return invoke<Plan>("get_plan", { id });
 }

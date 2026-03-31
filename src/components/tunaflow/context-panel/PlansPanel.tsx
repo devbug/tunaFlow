@@ -1,10 +1,21 @@
 import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { ChevronDown, ChevronRight, Plus, ClipboardList, X, GitBranch, Forward, Check, Pause, Search, Clock } from "lucide-react";
-import type { Plan, PlanEvent, PlanPhase, PlanSubtask, PlanStatus, SubtaskStatus, SubtaskInput } from "@/types";
+import { ChevronDown, ChevronRight, Plus, ClipboardList, X, GitBranch, Forward, Check, Pause, Search, Clock, Play, FileText, AlertTriangle, Merge } from "lucide-react";
+import type { Plan, PlanEvent, PlanPhase, PlanSubtask, PlanStatus, SubtaskStatus, SubtaskInput, Message } from "@/types";
 import { AgentAvatar } from "../AgentAvatar";
 import * as planApi from "@/lib/api/plans";
+import {
+  approveAndStartImplementation,
+  startReviewBranch,
+  approveImplPlan,
+  startReviewRT,
+  processReviewVerdict,
+  scanMessagesForMarkers,
+} from "@/lib/workflowOrchestration";
+import type { ParsedImplPlan, ParsedReviewVerdict } from "@/lib/planProposalParser";
+import { splitPlanProposals, hasPlanProposal } from "@/lib/planProposalParser";
 
 // ─── Status configs ──────────────────────────────────────────────────────────
 
@@ -343,58 +354,282 @@ function EventTimeline({ events }: { events: PlanEvent[] }) {
 
 function ApprovalGate({
   plan,
-  onPhaseChange,
+  onPlanUpdate,
 }: {
   plan: Plan;
-  onPhaseChange: (id: string, phase: PlanPhase, eventType: string) => void;
+  onPlanUpdate: (update: Partial<Plan>) => void;
 }) {
+  const { openThread, loadBranches } = useChatStore();
+  const [mode, setMode] = useState<"idle" | "review-input" | "engine-select" | "busy">("idle");
+  const [feedback, setFeedback] = useState("");
+  const [devEngine, setDevEngine] = useState("claude");
+
+  const handleApprove = async () => {
+    setMode("busy");
+    try {
+      const { branch } = await approveAndStartImplementation(plan, devEngine);
+      onPlanUpdate({ phase: "implementation", status: "active" as PlanStatus, implementationBranchId: branch.id });
+      await loadBranches(plan.conversationId);
+      await openThread(branch.id);
+    } catch { setMode("idle"); }
+  };
+
+  const handleReviewRequest = async () => {
+    if (!feedback.trim()) return;
+    setMode("busy");
+    try {
+      const { branch } = await startReviewBranch(plan, feedback.trim());
+      onPlanUpdate({ reviewBranchId: branch.id });
+      await loadBranches(plan.conversationId);
+      await openThread(branch.id);
+      setFeedback("");
+    } catch { setMode("idle"); }
+  };
+
+  const handleHold = async () => {
+    setMode("busy");
+    try {
+      await planApi.createPlanEvent(plan.id, "held", "user");
+      setMode("idle");
+    } catch { setMode("idle"); }
+  };
+
+  if (mode === "review-input") {
+    return (
+      <div className="mt-2 pt-2 border-t border-border/20 space-y-1.5">
+        <textarea
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+          placeholder="검토 의견을 입력하세요..."
+          rows={2}
+          className={`${INPUT_CLS} resize-none`}
+          autoFocus
+        />
+        <div className="flex gap-1.5">
+          <button onClick={handleReviewRequest} disabled={!feedback.trim()} className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 transition-colors">검토 Branch 생성</button>
+          <button onClick={() => setMode("idle")} className="px-2.5 py-1 rounded-md text-[10px] text-muted-foreground hover:text-foreground transition-colors">취소</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === "engine-select") {
+    return (
+      <div className="mt-2 pt-2 border-t border-border/20 space-y-1.5">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">Developer 엔진:</span>
+          <select value={devEngine} onChange={(e) => setDevEngine(e.target.value)} className="text-[10px] bg-input border border-border rounded px-1.5 py-0.5 outline-none">
+            {OWNER_OPTIONS.map((e) => <option key={e} value={e}>{e}</option>)}
+          </select>
+        </div>
+        <div className="flex gap-1.5">
+          <button onClick={handleApprove} className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 transition-colors">승인 + 구현 시작</button>
+          <button onClick={() => setMode("idle")} className="px-2.5 py-1 rounded-md text-[10px] text-muted-foreground hover:text-foreground transition-colors">취소</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/20">
-      <button
-        onClick={() => onPhaseChange(plan.id, "implementation", "approved")}
-        className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 transition-colors"
-      >
-        <Check className="w-3 h-3" />
-        승인
+      <button onClick={() => setMode("engine-select")} disabled={mode === "busy"} className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">
+        <Check className="w-3 h-3" />승인
       </button>
-      <button
-        onClick={() => onPhaseChange(plan.id, "approval", "held")}
-        className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-accent text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <Pause className="w-3 h-3" />
-        보류
+      <button onClick={handleHold} disabled={mode === "busy"} className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors">
+        <Pause className="w-3 h-3" />보류
       </button>
-      <button
-        onClick={() => onPhaseChange(plan.id, "approval", "review_requested")}
-        className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-      >
-        <Search className="w-3 h-3" />
-        검토 요청
+      <button onClick={() => setMode("review-input")} disabled={mode === "busy"} className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors">
+        <Search className="w-3 h-3" />검토 요청
       </button>
     </div>
+  );
+}
+
+// ─── ImplPlanCard ───────────────────────────────────────────────────────────
+
+function ImplPlanCard({
+  implPlan,
+  plan,
+  shadowConvId,
+  onPlanUpdate,
+}: {
+  implPlan: ParsedImplPlan;
+  plan: Plan;
+  shadowConvId: string;
+  onPlanUpdate: (update: Partial<Plan>) => void;
+}) {
+  const { openThread } = useChatStore();
+  const [busy, setBusy] = useState(false);
+
+  const handleApproveImpl = async () => {
+    setBusy(true);
+    try {
+      await approveImplPlan(plan, shadowConvId);
+      // Open the implementation branch to send the agent command
+      if (plan.implementationBranchId) await openThread(plan.implementationBranchId);
+    } catch { /* silent */ }
+    setBusy(false);
+  };
+
+  return (
+    <div className="mt-2 rounded-md border border-primary/20 bg-primary/5 p-2.5 space-y-1.5">
+      <div className="flex items-center gap-1.5 text-[10px] font-medium text-primary">
+        <FileText className="w-3 h-3" />실행 계획 보고
+      </div>
+      {implPlan.files.length > 0 && (
+        <div className="space-y-0.5">
+          <span className="text-[9px] text-muted-foreground/60">Files:</span>
+          {implPlan.files.map((f, i) => (
+            <div key={i} className="text-[10px] text-foreground/80 pl-2">
+              <code className="text-[9px] bg-accent/40 px-1 rounded">{f.path}</code> → {f.action}
+            </div>
+          ))}
+        </div>
+      )}
+      {implPlan.risks.length > 0 && (
+        <div className="flex items-start gap-1 text-[10px] text-status-rejected/70">
+          <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+          <span>{implPlan.risks.join("; ")}</span>
+        </div>
+      )}
+      <div className="flex gap-1.5 pt-1">
+        <button onClick={handleApproveImpl} disabled={busy} className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">
+          <Play className="w-3 h-3" />구현 시작
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── ReviewVerdictCard ──────────────────────────────────────────────────────
+
+function ReviewVerdictCard({
+  verdict,
+  plan,
+  onPlanUpdate,
+}: {
+  verdict: ParsedReviewVerdict;
+  plan: Plan;
+  onPlanUpdate: (update: Partial<Plan>) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const handleProcess = async () => {
+    setBusy(true);
+    try {
+      await processReviewVerdict(plan, verdict);
+      if (verdict.verdict === "pass") {
+        onPlanUpdate({ phase: "done", status: "done" as PlanStatus });
+      } else if (verdict.verdict === "fail") {
+        onPlanUpdate({ phase: "rework" });
+      }
+    } catch { /* silent */ }
+    setBusy(false);
+  };
+
+  const verdictColors = {
+    pass: "text-status-approved border-status-approved/30 bg-status-approved/5",
+    fail: "text-status-rejected border-status-rejected/30 bg-status-rejected/5",
+    conditional: "text-agent-gemini border-agent-gemini/30 bg-agent-gemini/5",
+  };
+
+  return (
+    <div className={cn("mt-2 rounded-md border p-2.5 space-y-1.5", verdictColors[verdict.verdict])}>
+      <div className="text-[10px] font-medium uppercase">Review Verdict: {verdict.verdict}</div>
+      {verdict.findings.length > 0 && (
+        <ul className="space-y-0.5 text-[10px]">
+          {verdict.findings.map((f, i) => <li key={i} className="pl-2">- {f}</li>)}
+        </ul>
+      )}
+      {verdict.recommendations.length > 0 && (
+        <div className="text-[9px] text-muted-foreground/60">
+          Recommendations: {verdict.recommendations.join("; ")}
+        </div>
+      )}
+      {verdict.verdict !== "conditional" ? (
+        <button onClick={handleProcess} disabled={busy} className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-card/80 hover:bg-card transition-colors disabled:opacity-50">
+          {verdict.verdict === "pass" ? "완료 처리" : "Rework 전환"}
+        </button>
+      ) : (
+        <div className="flex gap-1.5">
+          <button onClick={async () => { setBusy(true); await processReviewVerdict(plan, { ...verdict, verdict: "pass" }); onPlanUpdate({ phase: "done", status: "done" as PlanStatus }); setBusy(false); }} disabled={busy} className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">승인</button>
+          <button onClick={async () => { setBusy(true); await processReviewVerdict(plan, { ...verdict, verdict: "fail" }); onPlanUpdate({ phase: "rework" }); setBusy(false); }} disabled={busy} className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-rejected/10 text-status-rejected hover:bg-status-rejected/20 disabled:opacity-50 transition-colors">Rework</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── MergeBranchButton ──────────────────────────────────────────────────────
+
+function MergeBranchButton({
+  plan,
+  branchId,
+  onPlanUpdate,
+}: {
+  plan: Plan;
+  branchId: string;
+  onPlanUpdate: (update: Partial<Plan>) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const handleMerge = async () => {
+    setBusy(true);
+    try {
+      // Load branch messages, find last plan-proposal
+      const shadowConvId = `branch:${branchId}`;
+      const msgs = await invoke<Message[]>("list_messages", { conversationId: shadowConvId });
+      const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant" && hasPlanProposal(m.content));
+      if (lastAssistant) {
+        const segments = splitPlanProposals(lastAssistant.content);
+        const proposalSeg = segments.find((s) => s.type === "plan-proposal");
+        if (proposalSeg && proposalSeg.type === "plan-proposal") {
+          const p = proposalSeg.proposal;
+          await planApi.replacePlanSubtasks(plan.id, p.subtasks.map((s) => ({ title: s.title, details: s.details })));
+          await planApi.createPlanEvent(plan.id, "review_merged", "user", `Merged from branch ${branchId}`);
+          onPlanUpdate({});
+        }
+      }
+    } catch { /* silent */ }
+    setBusy(false);
+  };
+
+  return (
+    <button onClick={handleMerge} disabled={busy} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium text-primary/70 hover:text-primary hover:bg-primary/10 disabled:opacity-50 transition-colors">
+      <Merge className="w-3 h-3" />{busy ? "병합 중..." : "Plan에 병합"}
+    </button>
   );
 }
 
 // ─── PlanCard ────────────────────────────────────────────────────────────────
 
 function PlanCard({
-  plan,
+  plan: initialPlan,
   onStatusChange,
-  onPhaseChange,
+  onPlanUpdated,
   defaultExpanded = false,
 }: {
   plan: Plan;
   onStatusChange: (id: string, status: PlanStatus) => void;
-  onPhaseChange: (id: string, phase: PlanPhase, eventType: string) => void;
+  onPlanUpdated: (planId: string, update: Partial<Plan>) => void;
   defaultExpanded?: boolean;
 }) {
-  const { sendFollowup, setHandoffSource, branches, openThread } = useChatStore();
+  const { sendFollowup, setHandoffSource, branches, openThread, loadBranches } = useChatStore();
+  const [plan, setPlan] = useState(initialPlan);
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [subtasks, setSubtasks] = useState<PlanSubtask[] | null>(null);
   const [events, setEvents] = useState<PlanEvent[]>([]);
   const [loading, setLoading] = useState(false);
+  const [implPlan, setImplPlan] = useState<ParsedImplPlan | null>(null);
+  const [reviewVerdict, setReviewVerdict] = useState<ParsedReviewVerdict | null>(null);
+  const [implComplete, setImplComplete] = useState(false);
   const statusCfg = PLAN_STATUS_CFG[plan.status];
   const phaseCfg = PLAN_PHASE_CFG[plan.phase] ?? PLAN_PHASE_CFG.drafting;
+
+  const handlePlanUpdate = (update: Partial<Plan>) => {
+    setPlan((prev) => ({ ...prev, ...update }));
+    onPlanUpdated(plan.id, update);
+  };
 
   // Build plan content for handoff — reused by both forward buttons and handoffSource
   const buildPlanContent = (tasks: PlanSubtask[] | null) => {
@@ -416,6 +651,25 @@ function PlanCard({
         tasks = t;
         setSubtasks(tasks);
         setEvents(e);
+
+        // Scan branch messages for workflow markers
+        if (plan.implementationBranchId && (plan.phase === "implementation" || plan.phase === "review")) {
+          try {
+            const shadowConvId = `branch:${plan.implementationBranchId}`;
+            const msgs = await invoke<Message[]>("list_messages", { conversationId: shadowConvId });
+            const markers = scanMessagesForMarkers(msgs);
+            if (markers.implPlan) setImplPlan(markers.implPlan);
+            if (markers.implComplete) setImplComplete(true);
+          } catch { /* branch may not exist yet */ }
+        }
+        if (plan.reviewBranchId && plan.phase === "review") {
+          try {
+            const shadowConvId = `branch:${plan.reviewBranchId}`;
+            const msgs = await invoke<Message[]>("list_messages", { conversationId: shadowConvId });
+            const markers = scanMessagesForMarkers(msgs);
+            if (markers.reviewVerdict) setReviewVerdict(markers.reviewVerdict);
+          } catch { /* branch may not exist yet */ }
+        }
       } catch {
         tasks = [];
         setSubtasks([]);
@@ -531,12 +785,89 @@ function PlanCard({
               );
             })}
           </div>
-          {/* Approval gate — shown for plans in approval phase */}
-          {plan.phase === "approval" && (
-            <div className="pl-5">
-              <ApprovalGate plan={plan} onPhaseChange={onPhaseChange} />
-            </div>
-          )}
+          {/* Phase-specific sections */}
+          <div className="pl-5">
+            {/* Approval gate */}
+            {plan.phase === "approval" && (
+              <ApprovalGate plan={plan} onPlanUpdate={handlePlanUpdate} />
+            )}
+
+            {/* Review branch merge button */}
+            {plan.phase === "approval" && plan.reviewBranchId && (
+              <div className="mt-1.5 flex items-center gap-2">
+                <button onClick={() => openThread(plan.reviewBranchId!)} className="text-[9px] text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
+                  <GitBranch className="w-2.5 h-2.5" />Review Branch 열기
+                </button>
+                <MergeBranchButton plan={plan} branchId={plan.reviewBranchId} onPlanUpdate={handlePlanUpdate} />
+              </div>
+            )}
+
+            {/* Implementation phase — impl-plan display */}
+            {plan.phase === "implementation" && plan.implementationBranchId && (
+              <>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <button onClick={() => openThread(plan.implementationBranchId!)} className="text-[9px] text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
+                    <GitBranch className="w-2.5 h-2.5" />Implementation Branch 열기
+                  </button>
+                </div>
+                {implPlan && !implComplete && (
+                  <ImplPlanCard implPlan={implPlan} plan={plan} shadowConvId={`branch:${plan.implementationBranchId}`} onPlanUpdate={handlePlanUpdate} />
+                )}
+                {implComplete && (
+                  <div className="mt-2 rounded-md border border-status-approved/30 bg-status-approved/5 p-2 text-[10px] text-status-approved flex items-center gap-1.5">
+                    <Check className="w-3 h-3" />구현 완료 — Review 단계로 전환 가능
+                    <button
+                      onClick={async () => {
+                        const implShadow = `branch:${plan.implementationBranchId}`;
+                        const msgs = await invoke<Message[]>("list_messages", { conversationId: implShadow });
+                        const { branch } = await startReviewRT(plan, msgs);
+                        handlePlanUpdate({ phase: "review", reviewBranchId: branch.id });
+                        await loadBranches(plan.conversationId);
+                        await openThread(branch.id);
+                      }}
+                      className="ml-auto px-2 py-0.5 rounded text-[9px] font-medium bg-status-approved/20 hover:bg-status-approved/30 transition-colors"
+                    >
+                      Review RT 시작
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Review phase — verdict display */}
+            {plan.phase === "review" && (
+              <>
+                {plan.reviewBranchId && (
+                  <div className="mt-1.5">
+                    <button onClick={() => openThread(plan.reviewBranchId!)} className="text-[9px] text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
+                      <GitBranch className="w-2.5 h-2.5" />Review Branch 열기
+                    </button>
+                  </div>
+                )}
+                {reviewVerdict && (
+                  <ReviewVerdictCard verdict={reviewVerdict} plan={plan} onPlanUpdate={handlePlanUpdate} />
+                )}
+              </>
+            )}
+
+            {/* Rework phase — back to implementation */}
+            {plan.phase === "rework" && plan.implementationBranchId && (
+              <div className="mt-2 rounded-md border border-status-rejected/30 bg-status-rejected/5 p-2 text-[10px] text-status-rejected">
+                <p className="mb-1.5">Rework 필요 — Review findings를 반영하세요.</p>
+                <button
+                  onClick={async () => {
+                    await planApi.updatePlanPhase(plan.id, "implementation");
+                    await planApi.createPlanEvent(plan.id, "rework_requested", "user");
+                    handlePlanUpdate({ phase: "implementation" });
+                    await openThread(plan.implementationBranchId!);
+                  }}
+                  className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                >
+                  Implementation Branch로 돌아가기
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Plan forward — send plan context to an agent */}
           <div className="flex items-center gap-1.5 pl-5 pt-1.5 mt-1 border-t border-border/20">
@@ -597,20 +928,8 @@ export function PlansPanel() {
     }
   };
 
-  const handlePhaseChange = async (planId: string, phase: PlanPhase, eventType: string) => {
-    try {
-      await planApi.updatePlanPhase(planId, phase);
-      await planApi.createPlanEvent(planId, eventType, "user");
-      // If approved → also set status to active
-      if (eventType === "approved") {
-        await planApi.updatePlanStatus(planId, "active");
-        setPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, phase, status: "active" as PlanStatus } : p)));
-      } else {
-        setPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, phase } : p)));
-      }
-    } catch {
-      // silent
-    }
+  const handlePlanUpdated = (planId: string, update: Partial<Plan>) => {
+    setPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, ...update } : p)));
   };
 
   const handleCreated = (newPlan: Plan) => {
@@ -637,7 +956,7 @@ export function PlansPanel() {
           key={plan.id}
           plan={plan}
           onStatusChange={handlePlanStatus}
-          onPhaseChange={handlePhaseChange}
+          onPlanUpdated={handlePlanUpdated}
           defaultExpanded={plan.id === expandedNewId}
         />
       ))}

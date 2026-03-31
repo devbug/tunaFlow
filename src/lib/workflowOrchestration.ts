@@ -1,0 +1,260 @@
+/**
+ * Workflow orchestration utilities.
+ *
+ * Connects plan phase transitions to branch creation, agent invocation,
+ * and marker-based auto-transitions.
+ */
+
+import { invoke } from "@tauri-apps/api/core";
+import type { Branch, Plan, Message, RoundtableParticipant } from "@/types";
+import * as planApi from "./api/plans";
+import { extractImplPlan, hasImplComplete, hasReviewVerdict, extractReviewVerdict } from "./planProposalParser";
+import type { ParsedImplPlan, ParsedReviewVerdict } from "./planProposalParser";
+
+// ─── Branch helpers ─────────────────────────────────────────────────────────
+
+interface CreateBranchResult {
+  branch: Branch;
+  shadowConvId: string;
+}
+
+async function createAndLinkBranch(
+  plan: Plan,
+  branchType: "implementation" | "review",
+  label: string,
+  mode: "chat" | "roundtable" = "chat",
+): Promise<CreateBranchResult> {
+  const input = {
+    conversationId: plan.conversationId,
+    label,
+    mode,
+    parentBranchId: plan.branchId ?? undefined,
+  };
+  const branch = await invoke<Branch>("create_branch", { input });
+  const shadowConvId = await invoke<string>("open_branch_stream", { branchId: branch.id });
+
+  // Link branch to plan
+  await planApi.linkPlanBranch(plan.id, branchType, branch.id);
+
+  return { branch, shadowConvId };
+}
+
+// ─── Plan content builder ───────────────────────────────────────────────────
+
+async function buildPlanContext(plan: Plan): Promise<string> {
+  const subtasks = await planApi.listSubtasks(plan.id);
+  const subtaskList = subtasks
+    .map((st, i) => `${i + 1}. ${st.title}${st.details ? ` — ${st.details}` : ""}`)
+    .join("\n");
+
+  return [
+    `## Plan: ${plan.title}`,
+    plan.description ? `\n### Description\n${plan.description}` : "",
+    plan.expectedOutcome ? `\n### Expected Outcome\n${plan.expectedOutcome}` : "",
+    `\n### Subtasks\n${subtaskList || "(none)"}`,
+  ].filter(Boolean).join("\n");
+}
+
+// ─── Phase C: Review Branch ─────────────────────────────────────────────────
+
+export async function startReviewBranch(
+  plan: Plan,
+  feedback: string,
+): Promise<CreateBranchResult> {
+  const { branch, shadowConvId } = await createAndLinkBranch(
+    plan, "review", `Review: ${plan.title}`, "chat",
+  );
+  await planApi.createPlanEvent(plan.id, "review_requested", "user", feedback);
+
+  // Build review prompt with plan context + user feedback
+  const planContext = await buildPlanContext(plan);
+  const prompt = [
+    `이 Plan에 대한 검토가 요청되었습니다.`,
+    "",
+    planContext,
+    "",
+    `### 사용자 의견`,
+    feedback,
+    "",
+    `Plan을 분석하고, 수정이 필요하면 \`<!-- tunaflow:plan-proposal -->\` 형식으로 수정된 Plan을 제안하세요.`,
+  ].join("\n");
+
+  // Create user message in the branch shadow conversation
+  await invoke("create_user_message", { input: { conversationId: shadowConvId, content: prompt } });
+
+  return { branch, shadowConvId };
+}
+
+// ─── Phase C→D: Approve → Implementation Branch ─────────────────────────────
+
+export async function approveAndStartImplementation(
+  plan: Plan,
+  developerEngine: string = "claude",
+): Promise<CreateBranchResult> {
+  // Phase transition
+  await planApi.updatePlanPhase(plan.id, "implementation");
+  await planApi.updatePlanStatus(plan.id, "active");
+  await planApi.createPlanEvent(plan.id, "approved", "user");
+  await planApi.assignPlanEngines(plan.id, { developer: developerEngine });
+
+  // Create implementation branch
+  const { branch, shadowConvId } = await createAndLinkBranch(
+    plan, "implementation", `Impl: ${plan.title}`, "chat",
+  );
+
+  // Build developer prompt (pre-implementation report)
+  const planContext = await buildPlanContext(plan);
+  const prompt = [
+    `당신은 Developer입니다. 아래 Plan을 구현해야 합니다.`,
+    "",
+    planContext,
+    "",
+    `코드를 작성하기 전에 먼저 실행 계획을 보고하세요:`,
+    `1. 수정/생성할 파일 목록`,
+    `2. 각 파일의 변경 내용 요약`,
+    `3. 의존성 변경 여부`,
+    `4. 예상 위험/주의사항`,
+    "",
+    `\`<!-- tunaflow:impl-plan -->\` 형식으로 보고하세요.`,
+    `아직 코드를 작성하지 마세요.`,
+  ].join("\n");
+
+  await invoke("create_user_message", { input: { conversationId: shadowConvId, content: prompt } });
+
+  return { branch, shadowConvId };
+}
+
+// ─── Phase D: Approve impl-plan → Start implementation ──────────────────────
+
+export async function approveImplPlan(
+  plan: Plan,
+  shadowConvId: string,
+): Promise<void> {
+  await planApi.createPlanEvent(plan.id, "impl_approved", "user");
+
+  // Send "go ahead" message
+  await invoke("create_user_message", {
+    input: {
+      conversationId: shadowConvId,
+      content: "실행 계획이 승인되었습니다. 구현을 시작하세요. 완료되면 `<!-- tunaflow:impl-complete -->`를 포함하세요.",
+    },
+  });
+}
+
+// ─── Phase D→E: impl-complete → Start Review RT ─────────────────────────────
+
+export async function startReviewRT(
+  plan: Plan,
+  implMessages: Message[],
+  testOutput?: string,
+  reviewerEngines?: string[],
+): Promise<CreateBranchResult> {
+  // Phase transition
+  await planApi.updatePlanPhase(plan.id, "review");
+  await planApi.createPlanEvent(plan.id, "impl_completed", "developer");
+
+  const engines = reviewerEngines ?? ["claude", "gemini"];
+
+  // Create review branch with RT mode
+  const { branch, shadowConvId } = await createAndLinkBranch(
+    plan, "review", `Review RT: ${plan.title}`, "roundtable",
+  );
+
+  // Build review prompt
+  const planContext = await buildPlanContext(plan);
+  const implSummary = implMessages
+    .filter((m) => m.role === "assistant")
+    .map((m) => m.content.slice(0, 2000))
+    .join("\n---\n");
+
+  const prompt = [
+    `당신은 코드 리뷰어입니다.`,
+    "",
+    `## Plan (원래 요구사항)`,
+    planContext,
+    "",
+    `## Implementation (Developer 구현 결과)`,
+    implSummary.slice(0, 6000),
+    "",
+    testOutput ? `## 테스트 결과\n${testOutput.slice(0, 3000)}\n` : "",
+    `## 리뷰 기준`,
+    `1. Plan의 모든 subtask가 구현되었는가?`,
+    `2. 코드 품질 (버그, 보안, 성능)`,
+    `3. 테스트 커버리지`,
+    "",
+    `\`<!-- tunaflow:review-verdict -->\` 형식으로 판정하세요.`,
+    `verdict: pass | fail | conditional`,
+  ].filter(Boolean).join("\n");
+
+  // Save RT config for the review branch
+  const participants: RoundtableParticipant[] = engines.map((eng, i) => ({
+    name: `Reviewer-${String.fromCharCode(65 + i)}`,
+    engine: eng,
+    role: "reviewer" as const,
+  }));
+
+  const rtConfig = JSON.stringify({ participants, mode: "sequential" });
+  await invoke("save_rt_config", { conversationId: shadowConvId, config: rtConfig });
+
+  // Create user message with the review prompt
+  await invoke("create_user_message", { input: { conversationId: shadowConvId, content: prompt } });
+
+  return { branch, shadowConvId };
+}
+
+// ─── Phase E: Process review verdict ────────────────────────────────────────
+
+export async function processReviewVerdict(
+  plan: Plan,
+  verdict: ParsedReviewVerdict,
+): Promise<void> {
+  const detail = JSON.stringify({
+    verdict: verdict.verdict,
+    findings: verdict.findings,
+    recommendations: verdict.recommendations,
+  });
+
+  if (verdict.verdict === "pass") {
+    await planApi.updatePlanPhase(plan.id, "done");
+    await planApi.updatePlanStatus(plan.id, "done");
+    await planApi.createPlanEvent(plan.id, "review_passed", "reviewer", detail);
+  } else if (verdict.verdict === "fail") {
+    await planApi.updatePlanPhase(plan.id, "rework");
+    await planApi.createPlanEvent(plan.id, "review_failed", "reviewer", detail);
+  } else {
+    // conditional — log event, user decides
+    await planApi.createPlanEvent(plan.id, "review_failed", "reviewer", detail);
+  }
+}
+
+// ─── Message scanning ───────────────────────────────────────────────────────
+
+/**
+ * Scan branch messages for workflow markers and return detected signals.
+ */
+export function scanMessagesForMarkers(messages: Message[]): {
+  implPlan: ParsedImplPlan | null;
+  implComplete: boolean;
+  reviewVerdict: ParsedReviewVerdict | null;
+} {
+  let implPlan: ParsedImplPlan | null = null;
+  let implComplete = false;
+  let reviewVerdict: ParsedReviewVerdict | null = null;
+
+  for (const msg of messages) {
+    if (msg.role !== "assistant") continue;
+    if (!implPlan) {
+      const plan = extractImplPlan(msg.content);
+      if (plan) implPlan = plan;
+    }
+    if (!implComplete && hasImplComplete(msg.content)) {
+      implComplete = true;
+    }
+    if (!reviewVerdict && hasReviewVerdict(msg.content)) {
+      const v = extractReviewVerdict(msg.content);
+      if (v) reviewVerdict = v;
+    }
+  }
+
+  return { implPlan, implComplete, reviewVerdict };
+}
