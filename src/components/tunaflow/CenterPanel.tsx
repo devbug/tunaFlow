@@ -2,29 +2,36 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { MessageSquare, ClipboardList, FileSearch, TestTube, FileText, GitBranch, Users, Loader2, Search, StickyNote } from "lucide-react";
+import { MessageSquare, ClipboardList, CheckCircle, Code2, FileSearch, Gavel, GitBranch, Users, Loader2, Search, StickyNote } from "lucide-react";
+import type { PlanPhase } from "@/types";
 
 import { ChatPanel } from "./ChatPanel";
 import { PlansPanel } from "./context-panel/PlansPanel";
 import { HarnessSummary } from "./context-panel/HarnessSummary";
-import { ReviewPanel } from "./context-panel/ReviewPanel";
-import { TestPanel } from "./context-panel/TestPanel";
-import { ArtifactsPanel } from "./context-panel/ArtifactsPanel";
 import { InlineRename } from "./InlineRename";
 
-type CenterTab = "chat" | "plan" | "artifacts" | "review" | "test";
+type CenterTab = "chat" | "plan" | "approved" | "dev" | "review" | "decision";
 
 const TABS: { id: CenterTab; label: string; icon: React.ReactNode }[] = [
-  { id: "chat", label: "Chat", icon: <MessageSquare className="w-3.5 h-3.5" /> },
-  { id: "plan", label: "Plan", icon: <ClipboardList className="w-3.5 h-3.5" /> },
-  { id: "artifacts", label: "Artifacts", icon: <FileText className="w-3.5 h-3.5" /> },
-  { id: "review", label: "Review", icon: <FileSearch className="w-3.5 h-3.5" /> },
-  { id: "test", label: "Test", icon: <TestTube className="w-3.5 h-3.5" /> },
+  { id: "chat",     label: "Chat",     icon: <MessageSquare className="w-3.5 h-3.5" /> },
+  { id: "plan",     label: "Plan",     icon: <ClipboardList className="w-3.5 h-3.5" /> },
+  { id: "approved", label: "Approved", icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  { id: "dev",      label: "Dev",      icon: <Code2 className="w-3.5 h-3.5" /> },
+  { id: "review",   label: "Review",   icon: <FileSearch className="w-3.5 h-3.5" /> },
+  { id: "decision", label: "Decision", icon: <Gavel className="w-3.5 h-3.5" /> },
 ];
+
+/** Map each tab to the PlanPhase values it displays */
+const TAB_PHASE_MAP: Record<Exclude<CenterTab, "chat">, { phases: PlanPhase[]; statusFallback?: string[]; empty: string }> = {
+  plan:     { phases: ["drafting"],                    empty: "Chat 탭에서 Architect와 대화하여 Plan을 생성하세요." },
+  approved: { phases: ["approval"],                    empty: "승인 대기 중인 Plan이 없습니다." },
+  dev:      { phases: ["implementation", "rework"],    empty: "구현 중인 Plan이 없습니다." },
+  review:   { phases: ["review"],                      empty: "리뷰 중인 Plan이 없습니다." },
+  decision: { phases: ["done"], statusFallback: ["abandoned"], empty: "완료된 Plan이 없습니다." },
+};
 
 export function CenterPanel() {
   const [activeTab, setActiveTab] = useState<CenterTab>("chat");
-  const artifacts = useChatStore((s) => s.artifacts);
   const selectedConversationId = useChatStore((s) => s.selectedConversationId);
   const conversations = useChatStore((s) => s.conversations);
   const branches = useChatStore((s) => s.branches);
@@ -47,8 +54,12 @@ export function CenterPanel() {
   const deleteMemo = useChatStore((s) => s.deleteMemo);
   const selectConversation = useChatStore((s) => s.selectConversation);
 
-  const reviewCount = artifacts.filter((a) => a.type === "review-findings" || a.type === "architect-decision").length;
-  const testCount = artifacts.filter((a) => a.type === "test-report").length;
+  // Phase change → auto-switch tab
+  const handlePhaseChanged = (_planId: string, newPhase: PlanPhase) => {
+    const targetTab = (Object.entries(TAB_PHASE_MAP) as [CenterTab, typeof TAB_PHASE_MAP[keyof typeof TAB_PHASE_MAP]][])
+      .find(([, cfg]) => cfg.phases.includes(newPhase));
+    if (targetTab) setActiveTab(targetTab[0]);
+  };
 
   // Memo popover
   const [memoOpen, setMemoOpen] = useState(false);
@@ -81,21 +92,6 @@ export function CenterPanel() {
             >
               {tab.icon}
               {tab.label}
-              {tab.id === "artifacts" && artifacts.length > 0 && (
-                <span className="text-[8px] bg-primary/10 text-primary/70 px-1 rounded">
-                  {artifacts.length}
-                </span>
-              )}
-              {tab.id === "review" && reviewCount > 0 && (
-                <span className="text-[8px] bg-status-draft/10 text-status-draft/70 px-1 rounded">
-                  {reviewCount}
-                </span>
-              )}
-              {tab.id === "test" && testCount > 0 && (
-                <span className="text-[8px] bg-agent-codex/10 text-agent-codex/70 px-1 rounded">
-                  {testCount}
-                </span>
-              )}
             </button>
           ))}
         </div>
@@ -231,41 +227,22 @@ export function CenterPanel() {
       <div className="flex-1 min-h-0 rounded-xl border-[0.5px] border-border bg-background overflow-hidden flex flex-col mx-2 mb-2">
         {activeTab === "chat" && <ChatPanel />}
 
-        {activeTab === "artifacts" && (
-          <div className="flex-1 overflow-y-auto p-5">
-            <div className="max-w-4xl mx-auto">
-              <ArtifactsPanel />
+        {activeTab !== "chat" && (() => {
+          const cfg = TAB_PHASE_MAP[activeTab];
+          return (
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="max-w-4xl mx-auto">
+                {activeTab === "plan" && canonicalConvId && <HarnessSummary conversationId={canonicalConvId} />}
+                <PlansPanel
+                  phaseFilter={cfg.phases}
+                  statusFilter={cfg.statusFallback as any}
+                  emptyMessage={cfg.empty}
+                  onPhaseChanged={handlePhaseChanged}
+                />
+              </div>
             </div>
-          </div>
-        )}
-
-        {activeTab === "plan" && (
-          <div className="flex-1 overflow-y-auto p-5">
-            <div className="max-w-4xl mx-auto">
-              {canonicalConvId && <HarnessSummary conversationId={canonicalConvId} />}
-              <h3 className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-3">Plans</h3>
-              <PlansPanel />
-            </div>
-          </div>
-        )}
-
-        {activeTab === "review" && (
-          <div className="flex-1 overflow-y-auto p-5">
-            <div className="max-w-4xl mx-auto">
-              <h3 className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-3">Review</h3>
-              <ReviewPanel />
-            </div>
-          </div>
-        )}
-
-        {activeTab === "test" && (
-          <div className="flex-1 overflow-y-auto p-5">
-            <div className="max-w-4xl mx-auto">
-              <h3 className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-3">Test</h3>
-              <TestPanel />
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
       </div>
     </div>
