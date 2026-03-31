@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
@@ -918,26 +918,71 @@ function PlanCard({
   );
 }
 
+// ─── Phase subtabs ──────────────────────────────────────────────────────────
+
+const PHASE_TABS = [
+  { key: "plan",     label: "PLAN",     phases: ["drafting"] as PlanPhase[] },
+  { key: "approved", label: "APPROVED", phases: ["approval"] as PlanPhase[] },
+  { key: "dev",      label: "DEV",      phases: ["implementation", "rework"] as PlanPhase[] },
+  { key: "review",   label: "REVIEW",   phases: ["review"] as PlanPhase[] },
+  { key: "done",     label: "DONE",     phases: ["done"] as PlanPhase[] },
+] as const;
+
+type PhaseTabKey = typeof PHASE_TABS[number]["key"];
+
+/** Check if a plan belongs to a tab (phase match + status-based fallback for abandoned) */
+function planMatchesTab(plan: Plan, tab: typeof PHASE_TABS[number]): boolean {
+  if (tab.key === "done" && plan.status === "abandoned") return true;
+  return tab.phases.includes(plan.phase);
+}
+
 // ─── PlansPanel (main export) ────────────────────────────────────────────────
 
 export function PlansPanel() {
   const { selectedConversationId, activeBranchId, parentConversationId } = useChatStore();
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [showForm, setShowForm] = useState(false);
-  const [expandedNewId, setExpandedNewId] = useState<string | null>(null);
+  const [activePhaseTab, setActivePhaseTab] = useState<PhaseTabKey>("plan");
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // In branch stream: selectedConversationId = "branch:xxx", canonical = parentConversationId
   const canonicalConvId = activeBranchId && parentConversationId
     ? parentConversationId
     : selectedConversationId;
 
-  useEffect(() => {
+  const loadPlans = () => {
     if (!canonicalConvId) return;
     planApi.listPlansByConversation(canonicalConvId)
       .then(setPlans)
       .catch(() => setPlans([]));
-    setShowForm(false);
+  };
+
+  // Initial load + reload on conversation switch
+  useEffect(() => {
+    loadPlans();
   }, [canonicalConvId]);
+
+  // Reload plans when Plan tab becomes visible (IntersectionObserver)
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) loadPlans(); },
+      { threshold: 0.1 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [canonicalConvId]);
+
+  // Auto-switch to tab containing newest plan when plans change
+  useEffect(() => {
+    if (plans.length === 0) return;
+    const newest = plans[0]; // plans are sorted by created_at DESC
+    const currentTab = PHASE_TABS.find((t) => t.key === activePhaseTab)!;
+    if (!planMatchesTab(newest, currentTab)) {
+      const targetTab = PHASE_TABS.find((t) => planMatchesTab(newest, t));
+      if (targetTab) setActivePhaseTab(targetTab.key);
+    }
+  }, [plans.length]);
 
   const handlePlanStatus = async (planId: string, status: PlanStatus) => {
     try {
@@ -950,55 +995,65 @@ export function PlansPanel() {
 
   const handlePlanUpdated = (planId: string, update: Partial<Plan>) => {
     setPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, ...update } : p)));
-  };
-
-  const handleCreated = (newPlan: Plan) => {
-    setPlans((prev) => [newPlan, ...prev]);
-    setShowForm(false);
-    setExpandedNewId(newPlan.id);
+    // Auto-switch to target phase tab
+    if (update.phase) {
+      const targetTab = PHASE_TABS.find((t) => t.phases.includes(update.phase!));
+      if (targetTab) setActivePhaseTab(targetTab.key);
+    }
   };
 
   if (!canonicalConvId) {
     return <p className="text-xs text-muted-foreground px-2">No conversation selected.</p>;
   }
 
+  const activeTab = PHASE_TABS.find((t) => t.key === activePhaseTab)!;
+  const filteredPlans = plans.filter((p) => planMatchesTab(p, activeTab));
+
   return (
-    <div className="space-y-2">
-      {plans.length === 0 && !showForm && (
+    <div ref={containerRef} className="space-y-2">
+      {/* Phase subtabs */}
+      <div className="flex items-center gap-0.5 border-b border-border/30 pb-1">
+        {PHASE_TABS.map((tab) => {
+          const count = plans.filter((p) => planMatchesTab(p, tab)).length;
+          const isActive = activePhaseTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActivePhaseTab(tab.key)}
+              className={cn(
+                "px-2 py-1 rounded-t text-[10px] font-medium transition-colors",
+                isActive
+                  ? "text-foreground bg-accent border-b-2 border-primary"
+                  : "text-muted-foreground/50 hover:text-muted-foreground"
+              )}
+            >
+              {tab.label}
+              {count > 0 && <span className="ml-1 text-[9px] opacity-50">({count})</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Filtered plan cards */}
+      {filteredPlans.length === 0 && (
         <div className="text-center py-4">
           <ClipboardList className="w-5 h-5 text-muted-foreground/40 mx-auto mb-2" />
-          <p className="text-xs text-muted-foreground">No plans yet.</p>
+          <p className="text-xs text-muted-foreground">
+            {activePhaseTab === "plan"
+              ? "Chat 탭에서 Architect와 대화하여 Plan을 생성하세요."
+              : `${activeTab.label} 단계의 Plan이 없습니다.`}
+          </p>
         </div>
       )}
 
-      {plans.map((plan) => (
+      {filteredPlans.map((plan) => (
         <PlanCard
           key={plan.id}
           plan={plan}
           onStatusChange={handlePlanStatus}
           onPlanUpdated={handlePlanUpdated}
-          defaultExpanded={plan.id === expandedNewId}
         />
       ))}
-
-      {showForm && (
-        <CreatePlanForm
-          conversationId={canonicalConvId}
-          activeBranchId={activeBranchId}
-          onCreated={handleCreated}
-          onCancel={() => setShowForm(false)}
-        />
-      )}
-
-      {!showForm && (
-        <button
-          onClick={() => setShowForm(true)}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          New plan
-        </button>
-      )}
     </div>
   );
 }
