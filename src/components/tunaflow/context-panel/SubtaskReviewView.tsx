@@ -79,6 +79,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
         planContext,
         "",
         `위 검토 의견을 반영하여 수정된 Plan을 \`<!-- tunaflow:plan-proposal -->\` 형식으로 제안하세요.`,
+        `**중요: 수정 대상이 아닌 subtask도 모두 포함하세요. 누락된 subtask는 삭제됩니다.**`,
       ].join("\n");
 
       await sendWithEngine(mainEngine, prompt);
@@ -94,13 +95,20 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
     setBusy(true);
     try {
       const st = subtasks[subtaskIdx];
+      const list = subtasks.map((s, i) =>
+        `${i + 1}. ${s.title}${s.details ? ` — ${s.details}` : ""}`
+      ).join("\n");
       const prompt = [
         `[작업 지시서 작성 요청] "${plan.title}" Subtask ${subtaskIdx + 1}: "${st.title}"`,
         "",
         `이 subtask의 상세 작업 지시서(how)를 작성해주세요.`,
         `수정/생성할 파일, 접근 방법, 주의사항을 포함하세요.`,
         "",
-        `\`<!-- tunaflow:plan-proposal -->\` 형식으로 이 subtask의 details가 포함된 수정 Plan을 제안하세요.`,
+        `### 현재 전체 Subtasks`,
+        list,
+        "",
+        `\`<!-- tunaflow:plan-proposal -->\` 형식으로 수정 Plan을 제안하세요.`,
+        `**중요: 모든 subtask를 포함하세요. 누락된 subtask는 삭제됩니다.**`,
       ].join("\n");
 
       await sendWithEngine(mainEngine, prompt);

@@ -63,6 +63,14 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
   const autoMerge = async (targetPlan: Plan) => {
     setStatus("promoting");
     try {
+      // Safety check: don't replace if proposal has far fewer subtasks than existing
+      const existingSubtasks = await planApi.listSubtasks(targetPlan.id);
+      if (existingSubtasks.length > 2 && proposal.subtasks.length < existingSubtasks.length / 2) {
+        console.warn(`[auto-merge] Blocked: proposal has ${proposal.subtasks.length} subtasks but existing has ${existingSubtasks.length}. Falling back to manual.`);
+        setStatus("idle");
+        return;
+      }
+
       await planApi.replacePlanSubtasks(targetPlan.id, proposal.subtasks.map((s) => ({
         title: s.title,
         details: s.details,
