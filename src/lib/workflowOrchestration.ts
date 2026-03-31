@@ -243,9 +243,9 @@ export async function requestPlanRevision(
   branchMessages: Message[],
   architectEngine: string = "claude",
 ): Promise<void> {
-  // Compress branch conversation into a summary
+  // Compress branch conversation into a context-only summary (not shown to user)
   const branchSummary = branchMessages
-    .slice(-20) // last 20 messages max
+    .slice(-20)
     .map((m) => {
       const role = m.role === "assistant"
         ? `assistant${m.persona ? `:${m.persona}` : ""}${m.engine ? ` (${m.engine})` : ""}`
@@ -257,31 +257,40 @@ export async function requestPlanRevision(
     })
     .join("\n\n");
 
-  // Build plan context
   const planContext = await buildPlanContext(plan);
 
-  // Build revision prompt for the Architect
-  const prompt = [
-    `## 계획 수정 요청`,
-    "",
-    `Implementation Branch에서 아래 논의가 있었습니다. 기존 Plan을 검토하고 수정된 Plan을 제안해주세요.`,
+  // System prompt: full context for the Architect (not visible in chat)
+  const systemPrompt = [
+    `당신은 Architect입니다. Implementation Branch에서 계획 수정 요청이 왔습니다.`,
+    `아래 정보를 기반으로 수정된 Plan을 \`<!-- tunaflow:plan-proposal -->\` 형식으로 제안하세요.`,
+    `변경 이유를 간단히 설명하고, 기존 subtask 중 유지/수정/삭제할 항목을 명확히 구분하세요.`,
     "",
     `### 기존 Plan`,
     planContext,
     "",
     `### Implementation Branch 논의 내용`,
     branchSummary.slice(0, 6000),
-    "",
-    `위 논의를 반영하여 수정된 Plan을 \`<!-- tunaflow:plan-proposal -->\` 형식으로 제안하세요.`,
-    `변경 이유를 간단히 설명하고, 기존 subtask 중 유지/수정/삭제할 항목을 명확히 구분하세요.`,
   ].join("\n");
 
-  // Send to main conversation (Architect's domain)
-  const { useChatStore } = await import("@/stores/chatStore");
-  const { sendWithEngine } = useChatStore.getState();
-  await sendWithEngine(architectEngine, prompt);
+  // User-visible message: short summary only
+  const prompt = `[계획 수정 요청] "${plan.title}" (rev.${plan.revision}) — Implementation Branch 논의를 반영하여 Plan 수정을 요청합니다.`;
 
-  // Record event
+  // Send to main conversation — clear persona so Architect role isn't overridden by Dev persona
+  const { useChatStore } = await import("@/stores/chatStore");
+  const store = useChatStore.getState();
+
+  // Temporarily save and clear persona to prevent Dev persona leaking into main chat
+  const savedFragment = store.personaFragment;
+  const savedLabel = store.personaLabel;
+  useChatStore.setState({ personaFragment: null, personaLabel: null });
+
+  try {
+    await store.sendWithEngine(architectEngine, prompt, undefined, systemPrompt);
+  } finally {
+    // Restore persona (user may still be in Dev branch)
+    useChatStore.setState({ personaFragment: savedFragment, personaLabel: savedLabel });
+  }
+
   await planApi.createPlanEvent(plan.id, "revision_requested", "user", `from implementation branch, architect=${architectEngine}`);
 }
 
