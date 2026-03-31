@@ -918,22 +918,30 @@ function PlanCard({
   );
 }
 
-// ─── PlansPanel (main export) ────────────────────────────────────────────────
+// ─── Phase subtabs ──────────────────────────────────────────────────────────
 
-interface PlansPanelProps {
-  /** Phase filter — show only plans matching these phases. Omit to show all. */
-  phaseFilter?: PlanPhase[];
-  /** Also include plans with these statuses (e.g. "abandoned" in Decision tab) */
-  statusFilter?: PlanStatus[];
-  /** Empty state message */
-  emptyMessage?: string;
-  /** Callback when a plan's phase changes — parent can switch tabs */
-  onPhaseChanged?: (planId: string, newPhase: PlanPhase) => void;
+const PHASE_TABS = [
+  { key: "plan",     label: "PLAN",     phases: ["drafting"] as PlanPhase[] },
+  { key: "approved", label: "APPROVED", phases: ["approval"] as PlanPhase[] },
+  { key: "dev",      label: "DEV",      phases: ["implementation", "rework"] as PlanPhase[] },
+  { key: "review",   label: "REVIEW",   phases: ["review"] as PlanPhase[] },
+  { key: "done",     label: "DONE",     phases: ["done"] as PlanPhase[] },
+] as const;
+
+type PhaseTabKey = typeof PHASE_TABS[number]["key"];
+
+/** Check if a plan belongs to a tab (phase match + status-based fallback for abandoned) */
+function planMatchesTab(plan: Plan, tab: typeof PHASE_TABS[number]): boolean {
+  if (tab.key === "done" && plan.status === "abandoned") return true;
+  return tab.phases.includes(plan.phase);
 }
 
-export function PlansPanel({ phaseFilter, statusFilter, emptyMessage, onPhaseChanged }: PlansPanelProps) {
+// ─── PlansPanel (main export) ────────────────────────────────────────────────
+
+export function PlansPanel() {
   const { selectedConversationId, activeBranchId, parentConversationId } = useChatStore();
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [activePhaseTab, setActivePhaseTab] = useState<PhaseTabKey>("plan");
   const containerRef = useRef<HTMLDivElement>(null);
 
   // In branch stream: selectedConversationId = "branch:xxx", canonical = parentConversationId
@@ -948,9 +956,12 @@ export function PlansPanel({ phaseFilter, statusFilter, emptyMessage, onPhaseCha
       .catch(() => setPlans([]));
   };
 
-  useEffect(() => { loadPlans(); }, [canonicalConvId]);
+  // Initial load + reload on conversation switch
+  useEffect(() => {
+    loadPlans();
+  }, [canonicalConvId]);
 
-  // Reload when tab becomes visible
+  // Reload plans when Plan tab becomes visible (IntersectionObserver)
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -962,17 +973,32 @@ export function PlansPanel({ phaseFilter, statusFilter, emptyMessage, onPhaseCha
     return () => observer.disconnect();
   }, [canonicalConvId]);
 
+  // Auto-switch to tab containing newest plan when plans change
+  useEffect(() => {
+    if (plans.length === 0) return;
+    const newest = plans[0]; // plans are sorted by created_at DESC
+    const currentTab = PHASE_TABS.find((t) => t.key === activePhaseTab)!;
+    if (!planMatchesTab(newest, currentTab)) {
+      const targetTab = PHASE_TABS.find((t) => planMatchesTab(newest, t));
+      if (targetTab) setActivePhaseTab(targetTab.key);
+    }
+  }, [plans.length]);
+
   const handlePlanStatus = async (planId: string, status: PlanStatus) => {
     try {
       await planApi.updatePlanStatus(planId, status);
       setPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, status } : p)));
-    } catch { /* silent */ }
+    } catch {
+      // silent
+    }
   };
 
   const handlePlanUpdated = (planId: string, update: Partial<Plan>) => {
     setPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, ...update } : p)));
-    if (update.phase && onPhaseChanged) {
-      onPhaseChanged(planId, update.phase);
+    // Auto-switch to target phase tab
+    if (update.phase) {
+      const targetTab = PHASE_TABS.find((t) => t.phases.includes(update.phase!));
+      if (targetTab) setActivePhaseTab(targetTab.key);
     }
   };
 
@@ -980,17 +1006,42 @@ export function PlansPanel({ phaseFilter, statusFilter, emptyMessage, onPhaseCha
     return <p className="text-xs text-muted-foreground px-2">No conversation selected.</p>;
   }
 
-  const filteredPlans = phaseFilter
-    ? plans.filter((p) => phaseFilter.includes(p.phase) || (statusFilter?.includes(p.status)))
-    : plans;
+  const activeTab = PHASE_TABS.find((t) => t.key === activePhaseTab)!;
+  const filteredPlans = plans.filter((p) => planMatchesTab(p, activeTab));
 
   return (
     <div ref={containerRef} className="space-y-2">
+      {/* Phase subtabs */}
+      <div className="flex items-center gap-0.5 border-b border-border/30 pb-1">
+        {PHASE_TABS.map((tab) => {
+          const count = plans.filter((p) => planMatchesTab(p, tab)).length;
+          const isActive = activePhaseTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActivePhaseTab(tab.key)}
+              className={cn(
+                "px-2 py-1 rounded-t text-[10px] font-medium transition-colors",
+                isActive
+                  ? "text-foreground bg-accent border-b-2 border-primary"
+                  : "text-muted-foreground/50 hover:text-muted-foreground"
+              )}
+            >
+              {tab.label}
+              {count > 0 && <span className="ml-1 text-[9px] opacity-50">({count})</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Filtered plan cards */}
       {filteredPlans.length === 0 && (
         <div className="text-center py-4">
           <ClipboardList className="w-5 h-5 text-muted-foreground/40 mx-auto mb-2" />
           <p className="text-xs text-muted-foreground">
-            {emptyMessage ?? "No plans yet."}
+            {activePhaseTab === "plan"
+              ? "Chat 탭에서 Architect와 대화하여 Plan을 생성하세요."
+              : `${activeTab.label} 단계의 Plan이 없습니다.`}
           </p>
         </div>
       )}
