@@ -191,11 +191,20 @@ tunaFlow/
 - **Phase 4-2 sonner**: toast 알림 도입 (scaffold 알림)
 
 ### ✅ 해결됨 (세션 5: 오케스트레이션 워크플로우 파이프라인)
-- **Phase A**: DB v18 migration (plans 확장 + plan_events), Rust 모델/commands, TS 타입/API
-- **Phase B**: `<!-- tunaflow:plan-proposal -->` 마커 파서 + PlanProposalCard (채팅 내 인라인 제안 → 승격)
-- **Phase C**: PlansPanel 3-way approval gate (승인/보류/검토) + event timeline
-- **Phase D**: impl-plan, impl-complete, review-verdict 마커 파서 (3종)
-- **Phase E**: `run_project_tests` Tauri command (cargo/vitest 자동 감지 + 결과 파싱) + frontend API
+- **Phase A**: DB v18 migration (plans 확장 + plan_events + plan 6개 컬럼), Rust 모델/commands 5개, TS 타입/API
+- **Phase B**: `<!-- tunaflow:plan-proposal -->` 마커 파서 + PlanProposalCard (승격/수정요청/무시 3버튼)
+  - 수정 요청: 피드백 입력 → 에이전트에게 재제안 요청 전송
+- **Phase C**: ApprovalGate (승인→엔진 선택→Implementation Branch 자동 생성 / 검토 요청→의견 입력→Review Branch 자동 생성 / 보류)
+  - Review Branch에서 plan-proposal 마커 감지 → "Plan에 병합" 버튼 → `replace_plan_subtasks()` 호출
+  - Event timeline (plan_events) 표시
+- **Phase D**: 승인 시 Implementation Branch 자동 생성 + Developer pre-implementation report 프롬프트 자동 전송
+  - `<!-- tunaflow:impl-plan -->` 마커 → PlanCard 내 ImplPlanCard (파일/의존성/위험 표시 + "구현 시작" 게이트)
+  - `<!-- tunaflow:impl-complete -->` 마커 감지 → "Review RT 시작" 버튼
+- **Phase E**: `run_project_tests` Tauri command (cargo/vitest 자동 감지 + 결과 파싱)
+  - Review RT 자동 실행 (2-agent, plan context + impl summary + test 결과 포함)
+  - `<!-- tunaflow:review-verdict -->` 마커 감지 → ReviewVerdictCard (pass→done / fail→rework / conditional→사용자 판단)
+  - Rework 루프: phase=rework → Implementation Branch로 복귀
+- **인프라**: `link_plan_branch` command, `workflowOrchestration.ts` 유틸, ImplPlanCard/ReviewVerdictCard/MergeBranchButton 컴포넌트
 - Rust 60 unit tests, Frontend 66 tests (파서 테스트 포함)
 
 ### 기타 알려진 이슈
@@ -415,9 +424,10 @@ tunaFlow/
 - Cross-conversation retrieval — 다중 대화 프로젝트에서 chunk 회수 확인
 
 ### ✅ 완료: 오케스트레이션 워크플로우 파이프라인 (Phase A-E)
-- **Phase A-E 전체 완료** — DB v18, 마커 파서 4종, PlanProposalCard, Approval Gate, Test Runner
+- **Phase A-E 전체 완료** — DB v18, 마커 파서 4종, PlanProposalCard, Approval Gate, Test Runner, 전체 자동화
+- Chat→Plan 승격→Approval(3-way)→Implementation Branch(Developer 자동 호출)→Review RT(2-agent)→Verdict→Done/Rework 루프
 - 전체 설계: `docs/plans/orchestratedWorkflowPipelinePlan.md`
-- 후속: 실사용 검증 (end-to-end 시나리오), Review RT 자동 실행 연동
+- 후속: 실사용 검증 (end-to-end 시나리오)
 
 ### P1: 의존성 마이그레이션 (Phase 4 잔여)
 - **Phase 4-3: react-virtuoso** — ChatPanel 가상 스크롤. 프롬프트: `docs/prompts/2026-03-31/dependency_migration_phase4_remaining_prompt.md`
