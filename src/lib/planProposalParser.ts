@@ -1,8 +1,11 @@
 /**
- * Plan proposal marker parser.
+ * tunaFlow marker parser.
  *
- * Detects `<!-- tunaflow:plan-proposal -->` ... `<!-- /tunaflow:plan-proposal -->`
- * blocks in assistant message content and extracts structured plan data.
+ * Detects structured markers in assistant message content:
+ * - `<!-- tunaflow:plan-proposal -->` — Plan proposal for promotion
+ * - `<!-- tunaflow:impl-plan -->` — Developer implementation plan report
+ * - `<!-- tunaflow:impl-complete -->` — Implementation completion signal
+ * - `<!-- tunaflow:review-verdict -->` — Reviewer verdict
  */
 
 export interface ParsedPlanProposal {
@@ -150,4 +153,107 @@ function parseBulletList(text: string): string[] {
     items.push(m[1].trim());
   }
   return items;
+}
+
+// ─── Implementation plan marker ─────────────────────────────────────────────
+
+export interface ParsedImplPlan {
+  files: { path: string; action: string }[];
+  dependencies: string[];
+  risks: string[];
+  raw: string;
+}
+
+const IMPL_PLAN_OPEN = "<!-- tunaflow:impl-plan -->";
+const IMPL_PLAN_CLOSE = "<!-- /tunaflow:impl-plan -->";
+
+export function hasImplPlan(content: string): boolean {
+  return content.includes(IMPL_PLAN_OPEN);
+}
+
+export function extractImplPlan(content: string): ParsedImplPlan | null {
+  const openIdx = content.indexOf(IMPL_PLAN_OPEN);
+  if (openIdx === -1) return null;
+  const bodyStart = openIdx + IMPL_PLAN_OPEN.length;
+  const closeIdx = content.indexOf(IMPL_PLAN_CLOSE, bodyStart);
+  if (closeIdx === -1) return null;
+  const raw = content.slice(bodyStart, closeIdx).trim();
+
+  const files: { path: string; action: string }[] = [];
+  const dependencies: string[] = [];
+  const risks: string[] = [];
+
+  const sections = splitSections(raw);
+  for (const [header, body] of sections) {
+    const h = header.toLowerCase();
+    if (h.includes("file")) {
+      // Parse "• src/api/rest.ts → remove" style
+      const re = /^[-•*]\s+`?([^\s`→]+)`?\s*→?\s*(.*)?$/gm;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(body)) !== null) {
+        files.push({ path: m[1].trim(), action: (m[2] || "modify").trim() });
+      }
+    } else if (h.includes("dependenc")) {
+      dependencies.push(...parseBulletList(body));
+    } else if (h.includes("risk") || h.includes("warning") || h.includes("caution")) {
+      risks.push(...parseBulletList(body));
+    }
+  }
+
+  return { files, dependencies, risks, raw };
+}
+
+// ─── Implementation complete marker ─────────────────────────────────────────
+
+const IMPL_COMPLETE_MARKER = "<!-- tunaflow:impl-complete -->";
+
+export function hasImplComplete(content: string): boolean {
+  return content.includes(IMPL_COMPLETE_MARKER);
+}
+
+// ─── Review verdict marker ──────────────────────────────────────────────────
+
+export type ReviewVerdict = "pass" | "fail" | "conditional";
+
+export interface ParsedReviewVerdict {
+  verdict: ReviewVerdict;
+  findings: string[];
+  recommendations: string[];
+  raw: string;
+}
+
+const REVIEW_OPEN = "<!-- tunaflow:review-verdict -->";
+const REVIEW_CLOSE = "<!-- /tunaflow:review-verdict -->";
+
+export function hasReviewVerdict(content: string): boolean {
+  return content.includes(REVIEW_OPEN);
+}
+
+export function extractReviewVerdict(content: string): ParsedReviewVerdict | null {
+  const openIdx = content.indexOf(REVIEW_OPEN);
+  if (openIdx === -1) return null;
+  const bodyStart = openIdx + REVIEW_OPEN.length;
+  const closeIdx = content.indexOf(REVIEW_CLOSE, bodyStart);
+  if (closeIdx === -1) return null;
+  const raw = content.slice(bodyStart, closeIdx).trim();
+
+  let verdict: ReviewVerdict = "conditional";
+  const verdictMatch = raw.match(/^verdict:\s*(pass|fail|conditional)/im);
+  if (verdictMatch) verdict = verdictMatch[1] as ReviewVerdict;
+
+  const findings: string[] = [];
+  const recommendations: string[] = [];
+
+  let section: "none" | "findings" | "recommendations" = "none";
+  for (const line of raw.split("\n")) {
+    if (/^findings:/i.test(line)) { section = "findings"; continue; }
+    if (/^recommendations:/i.test(line)) { section = "recommendations"; continue; }
+    const bulletMatch = line.match(/^[-*]\s+(.+)/);
+    if (bulletMatch) {
+      if (section === "findings") findings.push(bulletMatch[1].trim());
+      else if (section === "recommendations") recommendations.push(bulletMatch[1].trim());
+    }
+  }
+
+  return { verdict, findings, recommendations, raw };
 }

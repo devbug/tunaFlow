@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { splitPlanProposals, hasPlanProposal } from "@/lib/planProposalParser";
+import {
+  splitPlanProposals, hasPlanProposal,
+  hasImplPlan, extractImplPlan,
+  hasImplComplete,
+  hasReviewVerdict, extractReviewVerdict,
+} from "@/lib/planProposalParser";
 
 const SAMPLE = `Here is a plan:
 
@@ -69,5 +74,73 @@ describe("planProposalParser", () => {
     expect(segments).toHaveLength(2);
     expect(segments[0].type).toBe("markdown");
     expect(segments[1].type).toBe("markdown");
+  });
+});
+
+describe("implPlanParser", () => {
+  const IMPL = `
+<!-- tunaflow:impl-plan -->
+### Files to modify
+- \`src/api/rest.ts\` → remove
+- \`src/api/graphql.ts\` → create
+
+### Dependencies
+- Add graphql package
+
+### Risks
+- Breaking change to clients
+<!-- /tunaflow:impl-plan -->`;
+
+  it("detects impl-plan marker", () => {
+    expect(hasImplPlan(IMPL)).toBe(true);
+    expect(hasImplPlan("no marker")).toBe(false);
+  });
+
+  it("extracts impl plan data", () => {
+    const plan = extractImplPlan(IMPL);
+    expect(plan).not.toBeNull();
+    expect(plan!.files).toHaveLength(2);
+    expect(plan!.files[0].path).toBe("src/api/rest.ts");
+    expect(plan!.files[0].action).toBe("remove");
+    expect(plan!.dependencies).toHaveLength(1);
+    expect(plan!.risks).toHaveLength(1);
+  });
+});
+
+describe("implCompleteParser", () => {
+  it("detects impl-complete marker", () => {
+    expect(hasImplComplete("done <!-- tunaflow:impl-complete --> yay")).toBe(true);
+    expect(hasImplComplete("no marker")).toBe(false);
+  });
+});
+
+describe("reviewVerdictParser", () => {
+  const REVIEW = `
+<!-- tunaflow:review-verdict -->
+verdict: pass
+findings:
+- All subtasks implemented
+- Tests pass
+recommendations:
+- Add integration test
+<!-- /tunaflow:review-verdict -->`;
+
+  it("detects review-verdict marker", () => {
+    expect(hasReviewVerdict(REVIEW)).toBe(true);
+    expect(hasReviewVerdict("no marker")).toBe(false);
+  });
+
+  it("extracts verdict data", () => {
+    const v = extractReviewVerdict(REVIEW);
+    expect(v).not.toBeNull();
+    expect(v!.verdict).toBe("pass");
+    expect(v!.findings).toHaveLength(2);
+    expect(v!.recommendations).toHaveLength(1);
+  });
+
+  it("defaults to conditional for unknown verdict", () => {
+    const v = extractReviewVerdict("<!-- tunaflow:review-verdict -->\nsome text\n<!-- /tunaflow:review-verdict -->");
+    expect(v).not.toBeNull();
+    expect(v!.verdict).toBe("conditional");
   });
 });
