@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ClipboardList, Check, RotateCcw, X, Merge } from "lucide-react";
+import { ClipboardList, Check, RotateCcw, Merge } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import type { ParsedPlanProposal } from "@/lib/planProposalParser";
-import type { Plan } from "@/types";
+import type { Plan, PlanEvent } from "@/types";
 import * as planApi from "@/lib/api/plans";
 
 interface PlanProposalCardProps {
@@ -13,22 +13,71 @@ interface PlanProposalCardProps {
 }
 
 export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardProps) {
-  const [status, setStatus] = useState<"idle" | "promoting" | "promoted" | "merged" | "dismissed" | "revising">("idle");
+  const [status, setStatus] = useState<"loading" | "idle" | "promoting" | "promoted" | "merged" | "revising">("loading");
   const [revisionInput, setRevisionInput] = useState("");
-  const [existingPlans, setExistingPlans] = useState<Plan[]>([]);
+  const [revisionTarget, setRevisionTarget] = useState<Plan | null>(null);
   const activeBranchId = useChatStore((s) => s.activeBranchId);
   const sendWithEngine = useChatStore((s) => s.sendWithEngine);
   const closeThread = useChatStore((s) => s.closeThread);
   const loadBranches = useChatStore((s) => s.loadBranches);
+  const autoMergeAttempted = useRef(false);
 
-  // Check for existing plans in this conversation that could be updated
+  // On mount: check if this is a revision response → auto-merge
   useEffect(() => {
+    if (autoMergeAttempted.current) return;
+    autoMergeAttempted.current = true;
+
     const canonicalId = conversationId.startsWith("branch:") ? undefined : conversationId;
-    if (!canonicalId) return;
-    planApi.listPlansByConversation(canonicalId)
-      .then((plans) => setExistingPlans(plans.filter((p) => p.status !== "abandoned" && p.status !== "done")))
-      .catch(() => {});
+    if (!canonicalId) { setStatus("idle"); return; }
+
+    planApi.listPlansByConversation(canonicalId).then(async (plans) => {
+      const activePlans = plans.filter((p) => p.status !== "abandoned" && p.status !== "done");
+      if (activePlans.length === 0) { setStatus("idle"); return; }
+
+      // Find a plan that has a pending revision_requested event (= this is a revision response)
+      for (const plan of activePlans) {
+        const events = await planApi.listPlanEvents(plan.id);
+        const hasRevisionRequest = events.some((e: PlanEvent) => e.eventType === "revision_requested");
+        // Check the last event isn't already a merge (avoid double-merge on re-render)
+        const lastEvent = events[events.length - 1];
+        const alreadyMerged = lastEvent?.eventType === "review_merged";
+
+        if (hasRevisionRequest && !alreadyMerged) {
+          setRevisionTarget(plan);
+          // Auto-merge
+          await autoMerge(plan);
+          return;
+        }
+      }
+
+      // No revision request found — this is a fresh proposal
+      setStatus("idle");
+    }).catch(() => setStatus("idle"));
   }, [conversationId]);
+
+  const autoMerge = async (targetPlan: Plan) => {
+    setStatus("promoting");
+    try {
+      await planApi.replacePlanSubtasks(targetPlan.id, proposal.subtasks.map((s) => ({
+        title: s.title,
+        details: s.details,
+      })));
+      await planApi.createPlanEvent(targetPlan.id, "review_merged", "system", `Auto-merged revision (rev.${targetPlan.revision + 1})`);
+
+      // Archive old implementation branch
+      if (targetPlan.implementationBranchId) {
+        await invoke("delete_branch", { id: targetPlan.implementationBranchId }).catch(() => {});
+        await planApi.linkPlanBranch(targetPlan.id, "implementation", null);
+        closeThread();
+        await loadBranches(targetPlan.conversationId);
+      }
+
+      await planApi.updatePlanPhase(targetPlan.id, "approval");
+      setStatus("merged");
+    } catch {
+      setStatus("idle"); // Fallback to manual UI
+    }
+  };
 
   const handlePromote = async () => {
     setStatus("promoting");
@@ -39,54 +88,26 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
         title: proposal.title,
         description: proposal.description || undefined,
         expectedOutcome: proposal.expectedOutcome || undefined,
-        subtasks: proposal.subtasks.map((s) => ({
-          title: s.title,
-          details: s.details,
-        })),
+        subtasks: proposal.subtasks.map((s) => ({ title: s.title, details: s.details })),
       });
-      // Transition to approval phase + log event
       await planApi.updatePlanPhase(plan.id, "approval");
-      await planApi.createPlanEvent(plan.id, "promoted", "user", `Promoted from chat`);
+      await planApi.createPlanEvent(plan.id, "promoted", "user", "Promoted from chat");
       setStatus("promoted");
     } catch {
       setStatus("idle");
     }
   };
 
-  const handleMergeInto = async (targetPlan: Plan) => {
-    setStatus("promoting");
-    try {
-      // Replace subtasks (revision auto-increments in backend)
-      await planApi.replacePlanSubtasks(targetPlan.id, proposal.subtasks.map((s) => ({
-        title: s.title,
-        details: s.details,
-      })));
-      await planApi.createPlanEvent(targetPlan.id, "review_merged", "user", `Plan revised from chat (rev.${targetPlan.revision + 1})`);
+  // ─── Status-based renders ──────────────────────────────────────────────────
 
-      // Archive old implementation branch if it exists
-      if (targetPlan.implementationBranchId) {
-        await invoke("delete_branch", { id: targetPlan.implementationBranchId }).catch(() => {});
-        await planApi.linkPlanBranch(targetPlan.id, "implementation", null);
-        closeThread();
-        await loadBranches(targetPlan.conversationId);
-      }
-
-      // Reset phase to approval for re-review
-      await planApi.updatePlanPhase(targetPlan.id, "approval");
-
-      setStatus("merged");
-    } catch {
-      setStatus("idle");
-    }
-  };
-
-  if (status === "dismissed") return null;
+  if (status === "loading") return null;
 
   if (status === "merged") {
+    const rev = revisionTarget ? revisionTarget.revision + 1 : "?";
     return (
       <div className="my-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-xs text-primary flex items-center gap-2">
         <Merge className="w-3.5 h-3.5" />
-        <span>Plan &quot;{proposal.title}&quot; — 기존 Plan에 병합됨 (재승인 필요)</span>
+        <span>Plan &quot;{proposal.title}&quot; rev.{rev} — 수정 반영 완료 (재승인 필요)</span>
       </div>
     );
   }
@@ -99,6 +120,8 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
       </div>
     );
   }
+
+  // ─── Full card (fresh proposal only) ──────────────────────────────────────
 
   return (
     <div className="my-2 rounded-lg border border-primary/20 bg-card/60 overflow-hidden">
@@ -210,38 +233,9 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
         </div>
       )}
 
-      {/* Actions */}
+      {/* Actions — fresh proposal only (revision responses auto-merge above) */}
       {status !== "revising" && (
-        <div className="flex items-center gap-2 px-4 py-2 border-t border-border/10 bg-white/[0.02] flex-wrap">
-          {/* Merge into existing plan — shown when matching plans exist */}
-          {existingPlans.length > 0 && (
-            existingPlans.length === 1 ? (
-              <button
-                onClick={() => handleMergeInto(existingPlans[0])}
-                disabled={status === "promoting"}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors",
-                  "bg-amber-500/10 text-amber-600 hover:bg-amber-500/20",
-                  status === "promoting" && "opacity-50 cursor-wait",
-                )}
-              >
-                <Merge className="w-3 h-3" />
-                기존 Plan에 병합
-              </button>
-            ) : (
-              existingPlans.slice(0, 3).map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => handleMergeInto(p)}
-                  disabled={status === "promoting"}
-                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-amber-600/80 hover:bg-amber-500/10 transition-colors"
-                >
-                  <Merge className="w-3 h-3" />
-                  {p.title.slice(0, 20)}에 병합
-                </button>
-              ))
-            )
-          )}
+        <div className="flex items-center gap-2 px-4 py-2 border-t border-border/10 bg-white/[0.02]">
           <button
             onClick={handlePromote}
             disabled={status === "promoting"}
@@ -252,7 +246,7 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
             )}
           >
             <Check className="w-3 h-3" />
-            {status === "promoting" ? "처리 중..." : "새 Plan 생성"}
+            {status === "promoting" ? "처리 중..." : "Plan으로 승격"}
           </button>
           <button
             onClick={() => setStatus("revising")}
@@ -260,13 +254,6 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
           >
             <RotateCcw className="w-3 h-3" />
             수정 요청
-          </button>
-          <button
-            onClick={() => setStatus("dismissed")}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
-          >
-            <X className="w-3 h-3" />
-            무시
           </button>
         </div>
       )}
