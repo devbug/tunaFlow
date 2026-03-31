@@ -4824,6 +4824,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "lazy_static",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",

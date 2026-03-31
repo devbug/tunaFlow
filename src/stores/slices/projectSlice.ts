@@ -82,6 +82,11 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
       return;
     }
 
+    // Ensure workflow agent templates exist (non-blocking, fire-and-forget)
+    invoke<Project>("get_project", { key }).then((p) => {
+      if (p.path) invoke("ensure_project_workflow_templates", { projectPath: p.path }).catch(() => {});
+    }).catch(() => {});
+
     // rawq: non-blocking — check status, then start background index if needed
     invoke<Project>("get_project", { key }).then(async (project) => {
       if (!project.path) {

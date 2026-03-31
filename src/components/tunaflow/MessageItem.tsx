@@ -12,6 +12,12 @@ import { TypingIndicator } from "./message/ProgressSurface";
 import { hasPlanProposal, splitPlanProposals } from "@/lib/planProposalParser";
 
 const PROSE_CLS = "prose prose-sm prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&>hr:last-child]:hidden [&>hr]:border-sidebar-foreground/20 [&>hr]:my-3";
+
+/** Detect if user message content contains markdown that benefits from rich rendering. */
+function hasMarkdownSignal(content: string): boolean {
+  if (content.length < 100) return false;
+  return /^#{1,3} |```|\n- |\n\d+\. |<!-- tunaflow:|\*\*[^*]+\*\*/m.test(content);
+}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const REMARK_PLUGINS: any[] = [[remarkGfm, { singleTilde: false }]];
 
@@ -95,7 +101,11 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
 
         {/* Body */}
         <div className={cn("text-foreground/90 leading-relaxed", isCompact ? "text-xs" : "text-[13px]")}>
-          {isUser ? (
+          {isUser && hasMarkdownSignal(message.content) ? (
+            <div className={cn("bg-white/[0.035] rounded-lg px-3 py-2 inline-block", isCompact && "line-clamp-3")}>
+              <MarkdownBody content={message.content} conversationId={message.conversationId} />
+            </div>
+          ) : isUser ? (
             <p className={cn("bg-white/[0.035] rounded-lg px-3 py-2 inline-block", isCompact && "line-clamp-3")}>{message.content}</p>
           ) : isStreaming && !message.content ? (
             <TypingIndicator />

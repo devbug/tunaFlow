@@ -227,7 +227,65 @@ export async function processReviewVerdict(
   }
 }
 
-// ─── Message scanning ───────────────────────────────────────────────────────
+// ─── Plan Revision (from Implementation Branch) ────────────────────────────
+
+/**
+ * Request plan revision from the Architect.
+ *
+ * Compresses the Implementation Branch conversation and sends it to the
+ * main conversation's Architect agent, asking for a revised plan-proposal.
+ *
+ * Flow: Developer Branch → compress conversation → Architect reviews →
+ *       produces revised plan-proposal → user merges via MergeBranchButton.
+ */
+export async function requestPlanRevision(
+  plan: Plan,
+  branchMessages: Message[],
+  architectEngine: string = "claude",
+): Promise<void> {
+  // Compress branch conversation into a summary
+  const branchSummary = branchMessages
+    .slice(-20) // last 20 messages max
+    .map((m) => {
+      const role = m.role === "assistant"
+        ? `assistant${m.persona ? `:${m.persona}` : ""}${m.engine ? ` (${m.engine})` : ""}`
+        : m.role;
+      const content = m.content.length > 800
+        ? m.content.slice(0, 800) + "…"
+        : m.content;
+      return `[${role}] ${content}`;
+    })
+    .join("\n\n");
+
+  // Build plan context
+  const planContext = await buildPlanContext(plan);
+
+  // Build revision prompt for the Architect
+  const prompt = [
+    `## 계획 수정 요청`,
+    "",
+    `Implementation Branch에서 아래 논의가 있었습니다. 기존 Plan을 검토하고 수정된 Plan을 제안해주세요.`,
+    "",
+    `### 기존 Plan`,
+    planContext,
+    "",
+    `### Implementation Branch 논의 내용`,
+    branchSummary.slice(0, 6000),
+    "",
+    `위 논의를 반영하여 수정된 Plan을 \`<!-- tunaflow:plan-proposal -->\` 형식으로 제안하세요.`,
+    `변경 이유를 간단히 설명하고, 기존 subtask 중 유지/수정/삭제할 항목을 명확히 구분하세요.`,
+  ].join("\n");
+
+  // Send to main conversation (Architect's domain)
+  const { useChatStore } = await import("@/stores/chatStore");
+  const { sendWithEngine } = useChatStore.getState();
+  await sendWithEngine(architectEngine, prompt);
+
+  // Record event
+  await planApi.createPlanEvent(plan.id, "revision_requested", "user", `from implementation branch, architect=${architectEngine}`);
+}
+
+// ─── Message scanning ──────────────────────────────────────────────��────────
 
 /**
  * Scan branch messages for workflow markers and return detected signals.

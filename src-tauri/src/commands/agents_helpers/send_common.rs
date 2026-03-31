@@ -8,6 +8,13 @@ use crate::errors::AppError;
 
 use super::trace_log::{insert_trace_log, insert_trace_log_with_context, new_span_id, new_trace_id, SpanInfo, ContextPackMeta};
 
+/// Tier 0: Minimal tunaFlow platform instructions injected into every prompt.
+/// Teaches agents about the workflow pipeline without bloating context (~200 chars).
+const PLATFORM_TIER0: &str = "\
+You are an agent in tunaFlow, a multi-agent orchestration platform.\n\
+When a plan is needed, propose it using <!-- tunaflow:plan-proposal --> markers.\n\
+Role-specific instructions are in docs/agents/{architect,developer,reviewer}.md if available.";
+
 /// Build a combined identity + persona fragment for prompt assembly.
 ///
 /// The identity framing block ensures agents consistently identify themselves
@@ -455,6 +462,10 @@ pub fn assemble_prompt(
         sections.push(format!("Project: {}", p));
         included_sections.push("project".into());
     }
+
+    // Tier 0: tunaFlow platform instructions (always injected, minimal footprint)
+    sections.push(PLATFORM_TIER0.to_string());
+    included_sections.push("platform".into());
 
     // Identity + Persona section
     {

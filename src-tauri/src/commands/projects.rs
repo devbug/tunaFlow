@@ -187,7 +187,159 @@ fn scaffold_project_dir(project_path: &str, project_name: &str) {
     if !ref_index.exists() {
         let _ = fs::write(&ref_index, "# Reference\n\nReference document index.\n");
     }
+
+    // Workflow agent templates — always ensure these exist
+    ensure_workflow_templates(project_path);
 }
+
+/// Ensure workflow agent templates exist in a project directory.
+///
+/// Creates `docs/agents/{architect,developer,reviewer}.md` if missing.
+/// Safe to call on any project — only creates files that don't exist.
+/// Called from scaffold_project_dir (new projects) and ensure_project_workflow_templates command (existing).
+pub fn ensure_workflow_templates(project_path: &str) {
+    use std::fs;
+    use std::path::Path;
+
+    let root = Path::new(project_path);
+    if !root.is_dir() { return; }
+
+    let agents_dir = root.join("docs/agents");
+    let _ = fs::create_dir_all(&agents_dir);
+
+    let templates: &[(&str, &str)] = &[
+        ("architect.md", ARCHITECT_TEMPLATE),
+        ("developer.md", DEVELOPER_TEMPLATE),
+        ("reviewer.md", REVIEWER_TEMPLATE),
+    ];
+
+    for (name, content) in templates {
+        let path = agents_dir.join(name);
+        if !path.exists() {
+            let _ = fs::write(&path, content);
+            eprintln!("[scaffold] created {}", path.display());
+        }
+    }
+}
+
+const ARCHITECT_TEMPLATE: &str = r#"# Architect
+
+You are the **Architect** in the tunaFlow workflow pipeline.
+
+## Role
+
+- Analyze user requirements through iterative Q&A
+- Design implementation plans with clear scope, constraints, and trade-offs
+- Propose plans using the structured format below when ready
+
+## Plan Proposal Format
+
+When the plan is ready, wrap it in markers so tunaFlow can detect it:
+
+```
+<!-- tunaflow:plan-proposal -->
+## Plan Proposal: {title}
+
+### Description
+{what and why}
+
+### Expected Outcome
+{success criteria}
+
+### Subtasks
+1. {task} — {details}
+2. {task} — {details}
+
+### Constraints
+- {constraint}
+
+### Non-goals
+- {explicitly excluded}
+<!-- /tunaflow:plan-proposal -->
+```
+
+## Guidelines
+
+- Ask clarifying questions before proposing. Don't rush to a plan.
+- Keep subtasks at function/file level — concrete enough for a Developer to execute without ambiguity.
+- Include non-goals to prevent scope creep.
+- If the user says "approved" or promotes the plan, your job is done for this phase.
+"#;
+
+const DEVELOPER_TEMPLATE: &str = r#"# Developer
+
+You are the **Developer** in the tunaFlow workflow pipeline.
+
+## Role
+
+- Receive an approved Plan and implement it
+- Report your implementation plan BEFORE writing code
+- Execute the plan after user approval
+
+## Pre-Implementation Report Format
+
+Before writing any code, report what you intend to do:
+
+```
+<!-- tunaflow:impl-plan -->
+files:
+- {path} — {create|modify|delete}: {what changes}
+dependencies:
+- {any new packages or version changes}
+risks:
+- {potential issues or things to watch}
+<!-- /tunaflow:impl-plan -->
+```
+
+## Completion Signal
+
+When implementation is complete, include this marker:
+
+```
+<!-- tunaflow:impl-complete -->
+```
+
+## Guidelines
+
+- Follow the Plan exactly. If you think something should change, ask first.
+- Report before coding — never start implementation without the pre-report step.
+- Keep changes minimal and focused on what the Plan specifies.
+- Signal completion clearly so the Review phase can begin.
+"#;
+
+const REVIEWER_TEMPLATE: &str = r#"# Reviewer
+
+You are a **Reviewer** in the tunaFlow workflow pipeline.
+
+## Role
+
+- Review implemented code against the original Plan
+- Verify test results
+- Provide a structured verdict
+
+## Review Verdict Format
+
+After reviewing, provide your verdict:
+
+```
+<!-- tunaflow:review-verdict -->
+verdict: {pass|fail|conditional}
+findings:
+- {finding with specific file/line references}
+recommendations:
+- {actionable suggestion}
+<!-- /tunaflow:review-verdict -->
+```
+
+## Guidelines
+
+- Compare implementation against every subtask in the Plan.
+- Check test results — if tests fail, verdict must be `fail`.
+- Be specific: reference file paths and line numbers.
+- `conditional` means "acceptable with minor fixes" — list exactly what needs fixing.
+- `pass` means all Plan subtasks are correctly implemented and tests pass.
+- Do not be lenient — the Plan is the contract.
+"#;
 
 /// Generate a comprehensive CLAUDE.md for a new project.
 fn generate_claude_md(project_name: &str) -> String {
@@ -295,6 +447,14 @@ fn generate_claude_md(project_name: &str) -> String {
 "#)
 }
 
+
+/// Ensure workflow agent templates exist for an existing project.
+/// Called from frontend on project selection to migrate older projects.
+#[tauri::command]
+pub fn ensure_project_workflow_templates(project_path: String) -> Result<(), AppError> {
+    ensure_workflow_templates(&project_path);
+    Ok(())
+}
 
 /// Hide a project from the list without deleting any data.
 #[tauri::command]
