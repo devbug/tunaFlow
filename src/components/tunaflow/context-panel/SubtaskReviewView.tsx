@@ -144,7 +144,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate }: SubtaskReviewViewProps
 
       {/* Actions */}
       {isActionable && (
-        <div className="flex items-center gap-2 pt-2 border-t border-border/30">
+        <div className="flex items-center gap-2 pt-2 border-t border-border/30 flex-wrap">
           <button onClick={handleApprove} disabled={busy}
             className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">
             <Check className="w-3.5 h-3.5" />승인 → Approved
@@ -153,6 +153,41 @@ export function SubtaskReviewView({ plan, onPlanUpdate }: SubtaskReviewViewProps
             className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors">
             <ArrowLeft className="w-3.5 h-3.5" />Plan 수정
           </button>
+          {/* Debug: 전체 작업지시서 일괄 요청 — details 없는 subtask가 있을 때만 */}
+          {subtasks.some((s) => !s.details?.trim()) && (
+            <button
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const list = subtasks.map((s, i) =>
+                    `${i + 1}. ${s.title}${s.details ? ` — ${s.details}` : " — (미작성)"}`
+                  ).join("\n");
+                  const prompt = [
+                    `[전체 작업지시서 작성 요청] "${plan.title}"`,
+                    "",
+                    `아래 Plan의 **모든 subtask**에 상세 작업 지시서(how)를 작성해주세요.`,
+                    `각 subtask별로: 수정/생성할 파일, 접근 방법, 주의사항을 details에 포함하세요.`,
+                    "",
+                    `## Plan: ${plan.title}`,
+                    plan.description ?? "",
+                    "",
+                    `### Subtasks`,
+                    list,
+                    "",
+                    `\`<!-- tunaflow:plan-proposal -->\` 형식으로 모든 subtask에 details가 포함된 수정 Plan을 제안하세요.`,
+                  ].join("\n");
+                  await sendWithEngine("claude", prompt);
+                  await planApi.createPlanEvent(plan.id, "detail_design_requested", "user", "all subtasks");
+                } catch { /* silent */ }
+                setBusy(false);
+              }}
+              disabled={busy}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-muted text-muted-foreground/60 hover:text-muted-foreground border border-dashed border-border/40 disabled:opacity-40 transition-colors"
+              title="디버깅용 — 모든 subtask의 작업지시서를 일괄 요청"
+            >
+              <PenLine className="w-3 h-3" />전체 작업지시서 (debug)
+            </button>
+          )}
         </div>
       )}
 
