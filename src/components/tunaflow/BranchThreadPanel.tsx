@@ -235,7 +235,10 @@ export function BranchThreadPanel() {
                   setRevisionMode("busy");
                   try {
                     const msgs = threadMessages.length > 0 ? threadMessages : await invoke<Message[]>("list_messages", { conversationId: threadBranchConvId! });
-                    await requestPlanRevision(linkedPlan!, msgs, revisionEngine);
+                    const { sendWithEngine } = useChatStore.getState();
+                    await requestPlanRevision(linkedPlan!, msgs, revisionEngine, async (eng, prompt, sys) => {
+                      await sendWithEngine(eng, prompt, undefined, sys);
+                    });
                   } catch (e) { console.error("[revision]", e); }
                   setRevisionMode("idle");
                 }}

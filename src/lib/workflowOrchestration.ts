@@ -230,6 +230,7 @@ export async function requestPlanRevision(
   plan: Plan,
   branchMessages: Message[],
   architectEngine: string = "claude",
+  sendToArchitect: (engine: string, prompt: string, systemPrompt?: string) => Promise<void> = async () => {},
 ): Promise<void> {
   // Compress branch conversation into a context-only summary (not shown to user)
   const branchSummary = branchMessages
@@ -263,21 +264,8 @@ export async function requestPlanRevision(
   // User-visible message: short summary only
   const prompt = `[계획 수정 요청] "${plan.title}" (rev.${plan.revision}) — Implementation Branch 논의를 반영하여 Plan 수정을 요청합니다.`;
 
-  // Send to main conversation — clear persona so Architect role isn't overridden by Dev persona
-  const { useChatStore } = await import("@/stores/chatStore");
-  const store = useChatStore.getState();
-
-  // Temporarily save and clear persona to prevent Dev persona leaking into main chat
-  const savedFragment = store.personaFragment;
-  const savedLabel = store.personaLabel;
-  useChatStore.setState({ personaFragment: null, personaLabel: null });
-
-  try {
-    await store.sendWithEngine(architectEngine, prompt, undefined, systemPrompt);
-  } finally {
-    // Restore persona (user may still be in Dev branch)
-    useChatStore.setState({ personaFragment: savedFragment, personaLabel: savedLabel });
-  }
+  // Send via injected callback (caller handles persona management)
+  await sendToArchitect(architectEngine, prompt, systemPrompt);
 
   await planApi.createPlanEvent(plan.id, "revision_requested", "user", `from implementation branch, architect=${architectEngine}`);
 }
