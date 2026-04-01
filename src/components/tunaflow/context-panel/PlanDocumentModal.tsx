@@ -1,9 +1,14 @@
 import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { X, Clock, ClipboardList, ChevronDown, ChevronRight, User, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useChatStore } from "@/stores/chatStore";
 import type { Plan, PlanEvent, PlanSubtask } from "@/types";
 import * as planApi from "@/lib/api/plans";
 import { PLAN_PHASE_CFG, SUBTASK_STATUS_CFG } from "./plans/constants";
+import { markdownComponents } from "../chat/MarkdownComponents";
 
 interface PlanDocumentModalProps {
   plan: Plan;
@@ -15,6 +20,8 @@ export function PlanDocumentModal({ plan, onClose }: PlanDocumentModalProps) {
   const [events, setEvents] = useState<PlanEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedSubtask, setExpandedSubtask] = useState<string | null>(null);
+  const [planFileContent, setPlanFileContent] = useState<string | null>(null);
+  const [taskFileContents, setTaskFileContents] = useState<Record<number, string>>({});
 
   useEffect(() => {
     setLoading(true);
@@ -25,6 +32,36 @@ export function PlanDocumentModal({ plan, onClose }: PlanDocumentModalProps) {
       setSubtasks(sts);
       setEvents(evs);
     }).catch(() => {}).finally(() => setLoading(false));
+
+    // Try to load plan document from filesystem
+    (async () => {
+      try {
+        const projectKey = useChatStore.getState().selectedProjectKey;
+        if (!projectKey) return;
+        const project = await invoke("get_project", { key: projectKey }) as { path?: string };
+        if (!project?.path) return;
+
+        const slug = plan.title.replace(/[^\w가-힣-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 80);
+        const planPath = `${project.path}/docs/plans/${slug}.md`;
+
+        // Read main plan file
+        try {
+          const content = await invoke<{ content: string }>("read_text_file", { filePath: planPath, projectPath: project.path });
+          setPlanFileContent(content.content);
+        } catch { /* file doesn't exist yet */ }
+
+        // Read task files
+        const tasks: Record<number, string> = {};
+        for (let i = 1; i <= 50; i++) {
+          const taskPath = `${project.path}/docs/plans/${slug}-task-${String(i).padStart(2, "0")}.md`;
+          try {
+            const content = await invoke<{ content: string }>("read_text_file", { filePath: taskPath, projectPath: project.path });
+            tasks[i] = content.content;
+          } catch { break; } // stop at first missing file
+        }
+        setTaskFileContents(tasks);
+      } catch { /* silent */ }
+    })();
   }, [plan.id]);
 
   const phaseCfg = PLAN_PHASE_CFG[plan.phase];
@@ -40,8 +77,11 @@ export function PlanDocumentModal({ plan, onClose }: PlanDocumentModalProps) {
         <div className="flex items-center gap-2 px-5 py-3 border-b border-border/40 shrink-0">
           <ClipboardList className="w-4 h-4 text-primary/60" />
           <span className="text-sm font-medium text-foreground flex-1">{plan.title}</span>
-          {plan.revision > 0 && (
+          {(plan.versionMajor > 1 || plan.versionMinor > 0) && (
             <span className="text-[9px] font-mono text-muted-foreground/50 px-1.5 rounded bg-accent/50">v{plan.versionMajor}.{plan.versionMinor}</span>
+          )}
+          {planFileContent && (
+            <span className="text-[8px] text-status-approved/50">파일 기반</span>
           )}
           <span className={cn("text-[9px] font-semibold px-1.5 py-0.5 rounded-full border", phaseCfg.cls)}>
             {phaseCfg.label}
@@ -57,20 +97,28 @@ export function PlanDocumentModal({ plan, onClose }: PlanDocumentModalProps) {
             <p className="text-xs text-muted-foreground">Loading...</p>
           ) : (
             <>
-              {/* Description */}
-              {plan.description && (
-                <div>
-                  <h4 className="text-[10px] text-muted-foreground/60 uppercase tracking-wide mb-1">Description</h4>
-                  <p className="text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap">{plan.description}</p>
+              {/* Plan file content — rendered as markdown if available */}
+              {planFileContent ? (
+                <div className="prose prose-sm prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                  <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]} components={markdownComponents}>
+                    {planFileContent}
+                  </ReactMarkdown>
                 </div>
-              )}
-
-              {/* Expected Outcome */}
-              {plan.expectedOutcome && (
-                <div>
-                  <h4 className="text-[10px] text-muted-foreground/60 uppercase tracking-wide mb-1">Expected Outcome</h4>
-                  <p className="text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap">{plan.expectedOutcome}</p>
-                </div>
+              ) : (
+                <>
+                  {plan.description && (
+                    <div>
+                      <h4 className="text-[10px] text-muted-foreground/60 uppercase tracking-wide mb-1">Description</h4>
+                      <p className="text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap">{plan.description}</p>
+                    </div>
+                  )}
+                  {plan.expectedOutcome && (
+                    <div>
+                      <h4 className="text-[10px] text-muted-foreground/60 uppercase tracking-wide mb-1">Expected Outcome</h4>
+                      <p className="text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap">{plan.expectedOutcome}</p>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Subtasks — clickable to expand work instruction */}
@@ -124,7 +172,13 @@ export function PlanDocumentModal({ plan, onClose }: PlanDocumentModalProps) {
                                 <FileText className="w-3 h-3 text-primary/50" />
                                 <span className="text-[9px] text-muted-foreground/60 uppercase tracking-wide">작업 지시서</span>
                               </div>
-                              {hasDetails ? (
+                              {taskFileContents[i + 1] ? (
+                                <div className="rounded bg-card/80 border border-border/30 px-3 py-2 prose prose-sm prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                                  <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]} components={markdownComponents}>
+                                    {taskFileContents[i + 1]}
+                                  </ReactMarkdown>
+                                </div>
+                              ) : hasDetails ? (
                                 <div className="rounded bg-card/80 border border-border/30 px-3 py-2">
                                   <p className="text-[11px] text-foreground/80 leading-relaxed whitespace-pre-wrap">{st.details}</p>
                                 </div>
