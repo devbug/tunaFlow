@@ -473,8 +473,11 @@ pub fn generate_plan_document(
     std::fs::create_dir_all(&dir)
         .map_err(|e| AppError::Agent(format!("Failed to create dir: {}", e)))?;
     let file_path = dir.join(format!("{}.md", slug));
-    std::fs::write(&file_path, &md)
-        .map_err(|e| AppError::Agent(format!("Failed to write plan doc: {}", e)))?;
+    // Skip if file already exists (Architect may have written it directly)
+    if !file_path.exists() {
+        std::fs::write(&file_path, &md)
+            .map_err(|e| AppError::Agent(format!("Failed to write plan doc: {}", e)))?;
+    }
 
     Ok(file_path.to_string_lossy().to_string())
 }
