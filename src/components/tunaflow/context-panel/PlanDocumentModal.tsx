@@ -99,7 +99,7 @@ export function PlanDocumentModal({ plan, onClose }: PlanDocumentModalProps) {
             <>
               {/* Plan file content — rendered as markdown if available */}
               {planFileContent ? (
-                <div className="prose prose-sm prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                <div className="prose prose-invert max-w-none text-[11px] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_h1]:text-[13px] [&_h2]:text-[12px] [&_h3]:text-[11px] [&_h1]:mt-3 [&_h2]:mt-2 [&_h3]:mt-1.5 [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0.5 [&_code]:text-[10px]">
                   <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]} components={markdownComponents}>
                     {planFileContent}
                   </ReactMarkdown>
@@ -173,7 +173,7 @@ export function PlanDocumentModal({ plan, onClose }: PlanDocumentModalProps) {
                                 <span className="text-[9px] text-muted-foreground/60 uppercase tracking-wide">작업 지시서</span>
                               </div>
                               {taskFileContents[i + 1] ? (
-                                <div className="rounded bg-card/80 border border-border/30 px-3 py-2 prose prose-sm prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                                <div className="rounded bg-card/80 border border-border/30 px-3 py-2 prose prose-invert max-w-none text-[11px] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_h1]:text-[13px] [&_h2]:text-[12px] [&_h3]:text-[11px] [&_h1]:mt-3 [&_h2]:mt-2 [&_h3]:mt-1.5 [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0.5 [&_code]:text-[10px]">
                                   <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]} components={markdownComponents}>
                                     {taskFileContents[i + 1]}
                                   </ReactMarkdown>
