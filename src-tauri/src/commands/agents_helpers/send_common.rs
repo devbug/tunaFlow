@@ -96,6 +96,9 @@ pub struct ContextData {
     // Thread inheritance
     pub thread_inheritance: Option<String>,
 
+    // Agent role document (docs/agents/{role}.md content)
+    pub agent_role_doc: Option<String>,
+
     // Pass-through (no DB needed)
     pub active_skills: Vec<String>,
     pub cross_session_ids: Vec<String>,
@@ -297,6 +300,19 @@ pub fn load_context_data(
         })
         .collect();
 
+    // Load agent role document from project docs/agents/
+    let agent_role_doc: Option<String> = project_path.and_then(|pp| {
+        let agents_dir = std::path::Path::new(pp).join("docs").join("agents");
+        if !agents_dir.is_dir() { return None; }
+
+        // Try to determine role from persona fragment or identity
+        // Default: architect for main chat, developer for branch
+        let role = if is_branch { "developer" } else { "architect" };
+
+        let role_file = agents_dir.join(format!("{}.md", role));
+        std::fs::read_to_string(&role_file).ok()
+    });
+
     // Query 12: thread inheritance
     let thread_inheritance = if is_branch {
         build_thread_inheritance_section(conn, conversation_id)
@@ -320,6 +336,7 @@ pub fn load_context_data(
         compressed_memory,
         cross_session_data,
         thread_inheritance,
+        agent_role_doc,
         active_skills: active_skills.to_vec(),
         cross_session_ids: cross_session_ids.to_vec(),
         persona_fragment: persona_fragment.map(|s| s.to_string()),
@@ -438,6 +455,12 @@ pub fn assemble_prompt(
     // Tier 0: tunaFlow platform instructions (always injected, minimal footprint)
     sections.push(PLATFORM_TIER0.to_string());
     included_sections.push("platform".into());
+
+    // Agent role document (docs/agents/{role}.md) — injected right after platform
+    if let Some(role_doc) = &data.agent_role_doc {
+        sections.push(format!("## Agent Role Instructions\n\n{}", role_doc));
+        included_sections.push("agent-role".into());
+    }
 
     // Identity + Persona section
     {
@@ -1071,6 +1094,7 @@ mod tests {
             compressed_memory: None,
             cross_session_data: vec![],
             thread_inheritance: None,
+            agent_role_doc: None,
             active_skills: vec![],
             cross_session_ids: vec![],
             persona_fragment: None,
