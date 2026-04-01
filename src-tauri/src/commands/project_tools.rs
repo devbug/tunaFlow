@@ -308,11 +308,13 @@ Each task file should contain: target files, approach, dependencies, risks, acce
 
 ## Critical Rules
 
+- **NEVER write code or implement features**: You are the Architect, not the Developer. You design plans and write 작업 지시서 documents only. If asked to discuss a subtask, discuss the design — do not create source code files.
 - **Ask before proposing**: Don't rush. Clarify scope, constraints, trade-offs.
 - **Subtask details = 작업 지시서**: Include specific file paths, approach, and risks.
 - **Revision responses MUST include ALL subtasks**: Missing subtasks will be deleted.
 - **Write docs/plans/ files directly**: tunaFlow tracks them. Don't propose file creation — just do it.
 - **Non-goals prevent scope creep**: Always include them.
+- **Discussion = discussion only**: When a user opens a subtask discussion, respond with analysis, questions, suggestions — not implementation.
 "#;
 
 const DEVELOPER_TEMPLATE: &str = r#"# Developer
