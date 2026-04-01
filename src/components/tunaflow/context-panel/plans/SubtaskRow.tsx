@@ -2,7 +2,8 @@ import { cn } from "@/lib/utils";
 import { Forward, GitBranch } from "lucide-react";
 import type { PlanSubtask, SubtaskStatus } from "@/types";
 import { AgentAvatar } from "../../AgentAvatar";
-import { SUBTASK_STATUS_CFG, OWNER_OPTIONS } from "./constants";
+import { useChatStore } from "@/stores/chatStore";
+import { SUBTASK_STATUS_CFG } from "./constants";
 
 export function SubtaskRow({
   subtask,
@@ -21,6 +22,7 @@ export function SubtaskRow({
   linkedBranch?: { id: string; label: string; customLabel?: string; status: string } | null;
   onOpenThread?: (branchId: string) => void;
 }) {
+  const profiles = useChatStore((s) => s.agentProfiles);
   const cfg = SUBTASK_STATUS_CFG[subtask.status];
   const owner = subtask.ownerAgent;
 
@@ -78,7 +80,7 @@ export function SubtaskRow({
             title="Assign owner"
           >
             <option value="">unassigned</option>
-            {OWNER_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+            {profiles.map((p) => <option key={p.id} value={p.label}>{p.label}</option>)}
           </select>
           {subtask.lastUpdatedBy && (
             <span className="text-[8px] text-muted-foreground/40">by: {subtask.lastUpdatedBy}</span>
@@ -97,13 +99,13 @@ export function SubtaskRow({
                 </button>
               )}
               {/* Manual forward to any engine */}
-              {OWNER_OPTIONS.filter((e) => e !== owner).slice(0, 2).map((eng) => (
-                <button key={eng}
-                  onClick={() => onForwardSubtask(eng, buildPayload())}
+              {profiles.filter((p) => p.label !== owner).slice(0, 2).map((p) => (
+                <button key={p.id}
+                  onClick={() => onForwardSubtask(p.engine, buildPayload())}
                   className="text-[7px] text-muted-foreground/40 hover:text-primary/60 hover:underline transition-colors"
-                  title={`Forward task to ${eng}`}
+                  title={`Forward task to ${p.label}`}
                 >
-                  → {eng}
+                  → {p.label}
                 </button>
               ))}
             </>

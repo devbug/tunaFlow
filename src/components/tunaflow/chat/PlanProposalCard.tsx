@@ -112,7 +112,7 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
         expectedOutcome: proposal.expectedOutcome || undefined,
         subtasks: proposal.subtasks.map((s) => ({ title: s.title, details: s.details })),
       });
-      await planApi.updatePlanPhase(plan.id, "approval");
+      // Plan starts at drafting — user must go through Plan → Subtask → Approved
       await planApi.createPlanEvent(plan.id, "promoted", "user", "Promoted from chat");
       syncPlanDocument(plan.id);
       setStatus("promoted");
