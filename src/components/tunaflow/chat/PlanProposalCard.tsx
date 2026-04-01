@@ -41,7 +41,11 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
         const hasRevisionRequest = events.some((e: PlanEvent) =>
           e.eventType === "revision_requested" ||
           e.eventType === "subtask_revision_requested" ||
-          e.eventType === "detail_design_requested"
+          e.eventType === "detail_design_requested" ||
+          e.eventType === "plan_full_revision_requested"
+        );
+        const isFullRevision = events.some((e: PlanEvent) =>
+          e.eventType === "plan_full_revision_requested"
         );
         // Check the last event isn't already a merge (avoid double-merge on re-render)
         const lastEvent = events[events.length - 1];
@@ -49,8 +53,8 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
 
         if (hasRevisionRequest && !alreadyMerged) {
           setRevisionTarget(plan);
-          // Auto-merge
-          await autoMerge(plan);
+          // Auto-merge (major++ for full revision, minor++ for subtask revision)
+          await autoMerge(plan, isFullRevision);
           return;
         }
       }
@@ -60,7 +64,7 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
     }).catch(() => setStatus("idle"));
   }, [conversationId]);
 
-  const autoMerge = async (targetPlan: Plan) => {
+  const autoMerge = async (targetPlan: Plan, isMajorRevision: boolean = false) => {
     setStatus("promoting");
     try {
       // Safety check: don't replace if proposal has far fewer subtasks than existing
@@ -75,7 +79,11 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
         title: s.title,
         details: s.details,
       })));
-      await planApi.createPlanEvent(targetPlan.id, "review_merged", "system", `Auto-merged revision (rev.${targetPlan.revision + 1})`);
+      await planApi.createPlanEvent(targetPlan.id, "review_merged", "system",
+        isMajorRevision ? `Full plan revision (major)` : `Auto-merged revision (minor)`);
+      if (isMajorRevision) {
+        await planApi.bumpPlanMajorVersion(targetPlan.id);
+      }
       syncPlanDocument(targetPlan.id);
 
       // Archive old implementation branch

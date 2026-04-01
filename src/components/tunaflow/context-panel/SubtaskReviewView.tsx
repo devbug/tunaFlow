@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { Check, RotateCcw, ClipboardList, FileText, ArrowLeft, ChevronDown, ChevronRight, PenLine } from "lucide-react";
-import type { Plan, PlanPhase, PlanSubtask } from "@/types";
+import type { Plan, PlanPhase, PlanSubtask, Branch } from "@/types";
 import * as planApi from "@/lib/api/plans";
 import { syncPlanDocument } from "@/lib/workflowOrchestration";
 import { PlanDocumentModal } from "./PlanDocumentModal";
@@ -15,7 +16,8 @@ interface SubtaskReviewViewProps {
 }
 
 export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: SubtaskReviewViewProps) {
-  const { sendWithEngine, selectedConversationId, getConversationEngine } = useChatStore();
+  const { sendWithEngine, selectedConversationId, getConversationEngine,
+    createBranch, openThread, sendThreadMessage, saveConversationEngine, loadBranches } = useChatStore();
   const [subtasks, setSubtasks] = useState<PlanSubtask[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -50,13 +52,33 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
     setBusy(false);
   };
 
-  const handleBackToPlan = async () => {
+  const handleFullRevision = async () => {
     if (!isActionable) return;
     setBusy(true);
     try {
       await planApi.updatePlanPhase(plan.id, "drafting");
-      await planApi.createPlanEvent(plan.id, "reverted_to_drafting", "user");
+      await planApi.createPlanEvent(plan.id, "plan_full_revision_requested", "user");
       onPlanUpdate(plan.id, { phase: "drafting" as PlanPhase });
+
+      // Send context to main chat Architect
+      const list = subtasks.map((s, i) =>
+        `${i + 1}. ${s.title}${s.details ? ` — ${s.details}` : ""}`
+      ).join("\n");
+      const prompt = [
+        `[전체 Plan 수정 요청] "${plan.title}" v${plan.versionMajor}.${plan.versionMinor}`,
+        "",
+        `Subtask 검토 결과 전체 Plan의 구조적 수정이 필요합니다.`,
+        `기존 Plan을 검토하고 변경이 필요한 부분을 업데이트하세요.`,
+        "",
+        `### 현재 Subtasks`,
+        list,
+        "",
+        `\`<!-- tunaflow:plan-proposal -->\` 형식으로 수정된 전체 Plan을 제안하세요.`,
+        `**모든 subtask를 포함하세요. 누락된 subtask는 삭제됩니다.**`,
+      ].join("\n");
+
+      await sendWithEngine(mainEngine, prompt);
+      onSwitchToChat?.();
     } catch { /* silent */ }
     setBusy(false);
   };
@@ -65,27 +87,41 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
     if (!isActionable) return;
     setBusy(true);
     try {
+      const st = subtasks[subtaskIdx];
       const list = subtasks.map((s, i) =>
         `${i + 1}. ${s.title}${s.details ? ` — ${s.details}` : ""}`
       ).join("\n");
 
+      // Create a branch for this subtask revision discussion
+      const branchLabel = `Subtask ${subtaskIdx + 1}: ${st.title.slice(0, 30)}`;
+      const input = { conversationId: plan.conversationId, label: branchLabel, mode: "chat" };
+      const branch = await invoke<Branch>("create_branch", { input });
+      const shadowConvId = await invoke<string>("open_branch_stream", { branchId: branch.id });
+
+      // Save same agent as main chat
+      saveConversationEngine(shadowConvId, { profileId: null, engine: mainEngine });
+
+      await loadBranches(plan.conversationId);
+      await openThread(branch.id);
+
+      // Send revision prompt in the branch
       const planContext = `## Plan: ${plan.title}\n${plan.description ?? ""}\n\n### Subtasks\n${list}`;
       const prompt = [
-        `[Subtask 검토 — 수정 요청] "${plan.title}" Subtask ${subtaskIdx + 1}`,
+        `[Subtask ${subtaskIdx + 1} 수정 요청] "${st.title}"`,
         "",
         `### 검토 의견`,
         opinion,
         "",
         planContext,
         "",
-        `위 검토 의견을 반영하여 수정된 Plan을 \`<!-- tunaflow:plan-proposal -->\` 형식으로 제안하세요.`,
-        `**중요: 수정 대상이 아닌 subtask도 모두 포함하세요. 누락된 subtask는 삭제됩니다.**`,
+        `위 검토 의견을 반영하여 Subtask ${subtaskIdx + 1}의 작업 지시서를 수정하세요.`,
+        `docs/plans/ 에 해당 subtask의 task 파일을 직접 수정하세요.`,
+        `수정 완료 후 변경 내용을 요약해주세요.`,
       ].join("\n");
 
-      await sendWithEngine(mainEngine, prompt);
+      await sendThreadMessage(prompt, mainEngine);
       await planApi.createPlanEvent(plan.id, "subtask_revision_requested", "user",
         `subtask ${subtaskIdx + 1}: ${opinion.slice(0, 100)}`);
-      onSwitchToChat?.();
     } catch { /* silent */ }
     setBusy(false);
   };
@@ -95,26 +131,29 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
     setBusy(true);
     try {
       const st = subtasks[subtaskIdx];
-      const list = subtasks.map((s, i) =>
-        `${i + 1}. ${s.title}${s.details ? ` — ${s.details}` : ""}`
-      ).join("\n");
+
+      // Create a branch for this subtask detail writing
+      const branchLabel = `작업지시 작성: ${st.title.slice(0, 30)}`;
+      const input = { conversationId: plan.conversationId, label: branchLabel, mode: "chat" };
+      const branch = await invoke<Branch>("create_branch", { input });
+      const shadowConvId = await invoke<string>("open_branch_stream", { branchId: branch.id });
+
+      saveConversationEngine(shadowConvId, { profileId: null, engine: mainEngine });
+
+      await loadBranches(plan.conversationId);
+      await openThread(branch.id);
+
       const prompt = [
-        `[작업 지시서 작성 요청] "${plan.title}" Subtask ${subtaskIdx + 1}: "${st.title}"`,
+        `[작업 지시서 작성] "${plan.title}" Subtask ${subtaskIdx + 1}: "${st.title}"`,
         "",
-        `이 subtask의 상세 작업 지시서(how)를 작성해주세요.`,
-        `수정/생성할 파일, 접근 방법, 주의사항을 포함하세요.`,
-        "",
-        `### 현재 전체 Subtasks`,
-        list,
-        "",
-        `\`<!-- tunaflow:plan-proposal -->\` 형식으로 수정 Plan을 제안하세요.`,
-        `**중요: 모든 subtask를 포함하세요. 누락된 subtask는 삭제됩니다.**`,
+        `이 subtask의 상세 작업 지시서를 작성해주세요.`,
+        `docs/plans/ 에 task 파일을 직접 작성하세요.`,
+        `수정/생성할 파일, 접근 방법, 의존성, 주의사항을 포함하세요.`,
       ].join("\n");
 
-      await sendWithEngine(mainEngine, prompt);
+      await sendThreadMessage(prompt, mainEngine);
       await planApi.createPlanEvent(plan.id, "detail_design_requested", "user",
         `subtask ${subtaskIdx + 1}`);
-      onSwitchToChat?.();
     } catch { /* silent */ }
     setBusy(false);
   };
@@ -167,9 +206,9 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
             className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">
             <Check className="w-3.5 h-3.5" />승인 → Approved
           </button>
-          <button onClick={handleBackToPlan} disabled={busy}
+          <button onClick={handleFullRevision} disabled={busy}
             className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors">
-            <ArrowLeft className="w-3.5 h-3.5" />Plan 수정
+            <ArrowLeft className="w-3.5 h-3.5" />전체 수정 → Chat
           </button>
           {/* Debug: 전체 작업지시서 일괄 요청 — details 없는 subtask가 있을 때만 */}
           {subtasks.some((s) => !s.details?.trim()) && (
