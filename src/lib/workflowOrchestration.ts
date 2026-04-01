@@ -176,18 +176,24 @@ export async function approveAndStartImplementation(
     plan, "implementation", `Impl: ${plan.title}`, "chat",
   );
 
-  // Build developer prompt — caller will send via sendThreadMessage
-  const planContext = await buildPlanContext(plan);
+  // Build developer prompt — lightweight, agent reads files directly
+  const slug = plan.title.replace(/[^\w가-힣-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 80);
+  const subtasks = await planApi.listSubtasks(plan.id);
+  const taskFileList = subtasks.map((_, i) =>
+    `- \`docs/plans/${slug}-task-${String(i + 1).padStart(2, "0")}.md\``
+  ).join("\n");
+
   const prompt = [
-    `당신은 Developer입니다. 아래 Plan의 모든 subtask를 **순서대로** 구현하세요.`,
+    `"${plan.title}" 구현을 시작합니다.`,
     "",
-    planContext,
+    `## 작업 지시서 파일`,
+    `메인 Plan: \`docs/plans/${slug}.md\``,
+    taskFileList,
     "",
     `## 작업 규칙`,
-    `1. subtask 순서대로 진행하세요.`,
-    `2. 각 subtask의 상세 설계(details)를 따르세요.`,
-    `3. 각 subtask 완료 시 \`<!-- tunaflow:subtask-done:N -->\`을 포함하세요 (N = subtask 번호).`,
-    `4. 전체 구현 완료 후 \`<!-- tunaflow:impl-complete -->\`를 포함하세요.`,
+    `1. 각 task 파일을 읽고 순서대로 구현하세요.`,
+    `2. 각 subtask 완료 시 \`<!-- tunaflow:subtask-done:N -->\`을 포함하세요.`,
+    `3. 전체 완료 후 \`<!-- tunaflow:impl-complete -->\`를 포함하세요.`,
   ].join("\n");
 
   return { branch, shadowConvId, prompt };

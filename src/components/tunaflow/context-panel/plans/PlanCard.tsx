@@ -7,7 +7,7 @@ import type { Plan, PlanEvent, PlanPhase, PlanSubtask, PlanStatus, SubtaskStatus
 import * as planApi from "@/lib/api/plans";
 import { scanMessagesForMarkers, startReviewRT } from "@/lib/workflowOrchestration";
 import type { ParsedReviewVerdict } from "@/lib/planProposalParser";
-import { PLAN_STATUS_CFG, PLAN_PHASE_CFG, OWNER_OPTIONS } from "./constants";
+import { PLAN_STATUS_CFG, PLAN_PHASE_CFG } from "./constants";
 import { PlanDocumentModal } from "../PlanDocumentModal";
 import { SubtaskRow } from "./SubtaskRow";
 import { EventTimeline } from "./EventTimeline";
@@ -296,41 +296,53 @@ export function PlanCard({
               </>
             )}
 
-            {/* Rework phase — back to implementation */}
+            {/* Rework phase — send findings to Developer or return to Subtask */}
             {plan.phase === "rework" && plan.implementationBranchId && (
-              <div className="mt-2 rounded-md border border-status-rejected/30 bg-status-rejected/5 p-2 text-[10px] text-status-rejected">
-                <p className="mb-1.5">Rework 필요 — Review findings를 반영하세요.</p>
-                <button
-                  onClick={async () => {
-                    await planApi.updatePlanPhase(plan.id, "implementation");
-                    await planApi.createPlanEvent(plan.id, "rework_requested", "user");
-                    handlePlanUpdate({ phase: "implementation" });
-                    await openThread(plan.implementationBranchId!);
-                  }}
-                  className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                >
-                  Implementation Branch로 돌아가기
-                </button>
+              <div className="mt-2 rounded-md border border-status-rejected/30 bg-status-rejected/5 p-2.5 text-[10px] text-status-rejected space-y-2">
+                <p>Rework 필요 — Review findings를 Developer에게 전달합니다.</p>
+                {reviewVerdict && reviewVerdict.findings.length > 0 && (
+                  <ul className="space-y-0.5 text-[9px] text-foreground/60 pl-2">
+                    {reviewVerdict.findings.map((f, i) => <li key={i}>- {f}</li>)}
+                  </ul>
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      await planApi.updatePlanPhase(plan.id, "implementation");
+                      await planApi.createPlanEvent(plan.id, "rework_requested", "user");
+                      handlePlanUpdate({ phase: "implementation" });
+                      await openThread(plan.implementationBranchId!);
+                      // Send review findings to Developer
+                      const findings = reviewVerdict?.findings.join("\n- ") ?? "";
+                      const reworkPrompt = [
+                        `[Rework] Review에서 다음 사항이 지적되었습니다:`,
+                        findings ? `- ${findings}` : "(findings 없음)",
+                        "",
+                        `위 사항을 수정하고 완료 시 \`<!-- tunaflow:impl-complete -->\`를 포함하세요.`,
+                      ].join("\n");
+                      const shadowConvId = `branch:${plan.implementationBranchId}`;
+                      const saved = useChatStore.getState().getConversationEngine(shadowConvId);
+                      await useChatStore.getState().sendThreadMessage(reworkPrompt, saved?.engine ?? "claude");
+                    }}
+                    className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                  >
+                    Developer에게 전달 + Rework
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await planApi.updatePlanPhase(plan.id, "subtask_review");
+                      await planApi.createPlanEvent(plan.id, "reverted_to_subtask_review", "user", "Design change needed");
+                      handlePlanUpdate({ phase: "subtask_review" as any });
+                    }}
+                    className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    설계 변경 → Subtask
+                  </button>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Plan forward — send plan context to an agent */}
-          <div className="flex items-center gap-1.5 pl-5 pt-1.5 mt-1 border-t border-border/20">
-            <span className="text-[9px] text-muted-foreground/50">Forward plan:</span>
-            {OWNER_OPTIONS.map((eng) => (
-              <button
-                key={eng}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  sendFollowup(eng, "plan", buildPlanContent(subtasks));
-                }}
-                className="text-[9px] text-primary/60 hover:text-primary hover:underline"
-              >
-                → {eng}
-              </button>
-            ))}
-          </div>
 
           {/* Event timeline */}
           {events.length > 0 && (
