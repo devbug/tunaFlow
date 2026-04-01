@@ -78,7 +78,12 @@ fn extract_tool_uses(msg: &StreamAssistantMsg) -> Vec<String> {
                     // Summarize input — show first ~80 chars of stringified input
                     let input_summary = b.input.as_ref().map(|v| {
                         let s = v.to_string();
-                        if s.len() > 80 { format!("{}…", &s[..80]) } else { s }
+                        if s.len() > 80 {
+                            // Find a valid UTF-8 char boundary near 80 bytes
+                            let mut end = 80;
+                            while end > 0 && !s.is_char_boundary(end) { end -= 1; }
+                            format!("{}…", &s[..end])
+                        } else { s }
                     }).unwrap_or_default();
                     Some(format!("🔧 {} {}", name, input_summary))
                 })

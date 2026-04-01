@@ -510,7 +510,11 @@ fn slugify(title: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-");
-    if result.len() > 80 { result[..80].to_string() } else { result }
+    if result.len() > 80 {
+        let mut end = 80;
+        while end > 0 && !result.is_char_boundary(end) { end -= 1; }
+        result[..end].to_string()
+    } else { result }
 }
 
 /// Generate a review report document.

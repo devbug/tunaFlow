@@ -310,7 +310,11 @@ where
                 } else if parsed.role.as_deref() == Some("tool") {
                     // Tool result — show as progress
                     if let Some(text) = &parsed.content {
-                        let summary = if text.len() > 100 { format!("{}…", &text[..100]) } else { text.clone() };
+                        let summary = if text.len() > 100 {
+                            let mut end = 100;
+                            while end > 0 && !text.is_char_boundary(end) { end -= 1; }
+                            format!("{}…", &text[..end])
+                        } else { text.clone() };
                         on_progress(format!("🔧 Tool result: {}", summary));
                     }
                 }
