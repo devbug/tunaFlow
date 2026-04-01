@@ -87,10 +87,22 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
 
       set({ conversations, error: null, projectLoading: null });
 
-      // Auto-select first main conversation
+      // Auto-select first main conversation + ensure default profile
       const mainConv = conversations.find((c) => c.type === "main") ?? conversations[0];
       if (mainConv) {
         await get().selectConversation(mainConv.id);
+        // Set default profile (architect) for conversations without a saved profile
+        const saved = get().getConversationEngine(mainConv.id);
+        if (!saved) {
+          const defaultProfile = get().agentProfiles[0]; // architect-claude
+          if (defaultProfile) {
+            get().saveConversationEngine(mainConv.id, {
+              profileId: defaultProfile.id,
+              engine: defaultProfile.engine,
+            });
+            get().selectProfile(defaultProfile.id);
+          }
+        }
       }
     } catch (e) {
       set({ error: String(e), projectLoading: null });

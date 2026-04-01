@@ -305,9 +305,22 @@ pub fn load_context_data(
         let agents_dir = std::path::Path::new(pp).join("docs").join("agents");
         if !agents_dir.is_dir() { return None; }
 
-        // Try to determine role from persona fragment or identity
-        // Default: architect for main chat, developer for branch
-        let role = if is_branch { "developer" } else { "architect" };
+        // Determine role:
+        // - Implementation branch (linked to plan) → developer
+        // - Review branch → reviewer
+        // - Everything else (main chat, subtask discussion branch) → architect
+        let role = if is_branch {
+            let branch_id = conversation_id.strip_prefix("branch:").unwrap_or("");
+            let is_impl: bool = conn.query_row(
+                "SELECT COUNT(*) > 0 FROM plans WHERE implementation_branch_id = ?1",
+                [branch_id], |row| row.get(0),
+            ).unwrap_or(false);
+            let is_review: bool = conn.query_row(
+                "SELECT COUNT(*) > 0 FROM plans WHERE review_branch_id = ?1",
+                [branch_id], |row| row.get(0),
+            ).unwrap_or(false);
+            if is_impl { "developer" } else if is_review { "reviewer" } else { "architect" }
+        } else { "architect" };
 
         let role_file = agents_dir.join(format!("{}.md", role));
         std::fs::read_to_string(&role_file).ok()
