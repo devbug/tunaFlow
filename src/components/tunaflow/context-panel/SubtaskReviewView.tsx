@@ -12,6 +12,12 @@ import { markdownComponents } from "../chat/MarkdownComponents";
 import { PlanDocumentModal } from "./PlanDocumentModal";
 import { SUBTASK_STATUS_CFG } from "./plans/constants";
 
+/** Extract title from markdown file content (first # heading) */
+function extractTitleFromMd(content: string): string | null {
+  const match = content.match(/^#\s+(.+)$/m);
+  return match ? match[1].trim() : null;
+}
+
 interface SubtaskReviewViewProps {
   plan: Plan;
   onPlanUpdate: (planId: string, update: Partial<Plan>) => void;
@@ -361,15 +367,25 @@ function SubtaskReviewCard({
         <span className="text-[10px] text-muted-foreground/40 font-mono shrink-0 mt-0.5 w-4 text-right">{index + 1}.</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
-            <span className="text-[11px] font-medium text-foreground">{subtask.title}</span>
+            <span className="text-[11px] font-medium text-foreground">
+              {(taskFileContent && extractTitleFromMd(taskFileContent)) || subtask.title}
+            </span>
             <span className={cn("text-[8px] font-semibold px-1 py-0 rounded-full border shrink-0", statusCfg.cls)}>
               {statusCfg.label}
             </span>
-            {!hasDetails && (
-              <span className="text-[8px] text-amber-600/50 shrink-0">작업지시 없음</span>
+            {!taskFileContent && !hasDetails && (
+              <span className="text-[8px] text-amber-600/50 shrink-0">파일 미생성</span>
+            )}
+            {taskFileContent && (
+              <span className="text-[8px] text-status-approved/40 shrink-0">파일</span>
             )}
           </div>
-          {!expanded && hasDetails && (
+          {!expanded && taskFileContent && (
+            <p className="text-[10px] text-muted-foreground/50 mt-0.5 line-clamp-1">
+              {extractTitleFromMd(taskFileContent) ?? subtask.details ?? ""}
+            </p>
+          )}
+          {!expanded && !taskFileContent && hasDetails && (
             <p className="text-[10px] text-muted-foreground/50 mt-0.5 line-clamp-1">{subtask.details}</p>
           )}
         </div>

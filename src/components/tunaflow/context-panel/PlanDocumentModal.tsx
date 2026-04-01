@@ -149,7 +149,9 @@ export function PlanDocumentModal({ plan, onClose }: PlanDocumentModalProps) {
                           <span className="text-[10px] text-muted-foreground/40 font-mono shrink-0 mt-0.5 w-4 text-right">{i + 1}.</span>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <span className="text-[11px] font-medium text-foreground">{st.title}</span>
+                              <span className="text-[11px] font-medium text-foreground">
+                                {(taskFileContents[i + 1] && (() => { const m = taskFileContents[i + 1].match(/^#\s+(.+)$/m); return m?.[1]?.trim(); })()) || st.title}
+                              </span>
                               <span className={cn("text-[8px] font-semibold px-1 py-0 rounded-full border shrink-0", statusCfg.cls)}>
                                 {statusCfg.label}
                               </span>
