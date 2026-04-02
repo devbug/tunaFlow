@@ -100,6 +100,24 @@ where
 
                 if let Ok(event) = serde_json::from_str::<StreamEvent>(data_str) {
                     match event.event_type.as_deref() {
+                        Some("content_block_start") => {
+                            // Detect tool_use block start
+                            if let Some(cb) = &event.content_block {
+                                if cb.block_type.as_deref() == Some("tool_use") {
+                                    if let (Some(name), Some(input_val)) = (&cb.name, &cb.input) {
+                                        let ctx = crate::agents::tool_handler::ToolContext {
+                                            conversation_id: String::new(),
+                                            plan_id: None,
+                                            project_path: input.project_path.clone(),
+                                        };
+                                        let result = crate::agents::tool_handler::execute_tool_call(name, input_val, &ctx);
+                                        on_progress(format!("🔧 {} → {}", name, result.output));
+                                        full_text.push_str(&format!("\n\n[Tool: {}] {}", name, result.output));
+                                        on_chunk(full_text.clone());
+                                    }
+                                }
+                            }
+                        }
                         Some("content_block_delta") => {
                             if let Some(delta) = &event.delta {
                                 if let Some(text) = &delta.text {
@@ -193,6 +211,15 @@ struct StreamEvent {
     delta: Option<ContentDelta>,
     message: Option<MessageInfo>,
     usage: Option<UsageInfo>,
+    content_block: Option<ContentBlock>,
+}
+
+#[derive(Deserialize)]
+struct ContentBlock {
+    #[serde(rename = "type")]
+    block_type: Option<String>,
+    name: Option<String>,
+    input: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]

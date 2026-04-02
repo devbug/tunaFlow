@@ -112,8 +112,27 @@ where
                             full_text.push_str(content);
                             on_chunk(full_text.clone());
                         }
+                        // Handle tool calls
+                        if let Some(tool_calls) = &choice.delta.tool_calls {
+                            for tc in tool_calls {
+                                if let Some(func) = &tc.function {
+                                    if let (Some(name), Some(args_str)) = (&func.name, &func.arguments) {
+                                        if let Ok(args) = serde_json::from_str::<serde_json::Value>(args_str) {
+                                            let ctx = crate::agents::tool_handler::ToolContext {
+                                                conversation_id: String::new(),
+                                                plan_id: None,
+                                                project_path: input.project_path.clone(),
+                                            };
+                                            let result = crate::agents::tool_handler::execute_tool_call(name, &args, &ctx);
+                                            on_progress(format!("🔧 {} → {}", name, result.output));
+                                            full_text.push_str(&format!("\n\n[Tool: {}] {}", name, result.output));
+                                            on_chunk(full_text.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
-                    // Usage comes in the final chunk
                     if let Some(usage) = &chunk.usage {
                         input_tokens = usage.prompt_tokens;
                         output_tokens = usage.completion_tokens;
@@ -198,6 +217,18 @@ struct StreamChoice {
 #[derive(Deserialize)]
 struct Delta {
     content: Option<String>,
+    tool_calls: Option<Vec<ToolCallDelta>>,
+}
+
+#[derive(Deserialize)]
+struct ToolCallDelta {
+    function: Option<ToolCallFunction>,
+}
+
+#[derive(Deserialize)]
+struct ToolCallFunction {
+    name: Option<String>,
+    arguments: Option<String>,
 }
 
 #[derive(Deserialize)]

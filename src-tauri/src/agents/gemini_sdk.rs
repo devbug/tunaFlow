@@ -39,12 +39,12 @@ where
     // Build request body
     let contents = vec![Content {
         role: "user".into(),
-        parts: vec![Part { text: Some(input.prompt.clone()) }],
+        parts: vec![Part { text: Some(input.prompt.clone()), function_call: None }],
     }];
 
     let system_instruction = input.system_prompt.as_ref().map(|sp| Content {
         role: "user".into(),
-        parts: vec![Part { text: Some(sp.clone()) }],
+        parts: vec![Part { text: Some(sp.clone()), function_call: None }],
     });
 
     // Add workflow tools for function calling
@@ -102,13 +102,30 @@ where
                 let json_str = &buffer[json_start..json_start + end_pos];
 
                 if let Ok(response) = serde_json::from_str::<StreamResponse>(json_str) {
-                    // Extract text from candidates
+                    // Extract text + function calls from candidates
                     if let Some(candidates) = &response.candidates {
                         for candidate in candidates {
                             if let Some(content) = &candidate.content {
                                 for part in &content.parts {
                                     if let Some(text) = &part.text {
                                         full_text.push_str(text);
+                                        on_chunk(full_text.clone());
+                                    }
+                                    // Handle function call
+                                    if let Some(fc) = &part.function_call {
+                                        let ctx = crate::agents::tool_handler::ToolContext {
+                                            conversation_id: String::new(),
+                                            plan_id: None,
+                                            project_path: input.project_path.clone(),
+                                        };
+                                        let result = crate::agents::tool_handler::execute_tool_call(
+                                            &fc.name,
+                                            fc.args.as_ref().unwrap_or(&serde_json::Value::Null),
+                                            &ctx,
+                                        );
+                                        on_progress(format!("🔧 {} → {}", fc.name, result.output));
+                                        // Append tool result to text for downstream processing
+                                        full_text.push_str(&format!("\n\n[Tool: {}] {}", fc.name, result.output));
                                         on_chunk(full_text.clone());
                                     }
                                 }
@@ -197,9 +214,18 @@ struct Content {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Part {
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    function_call: Option<FunctionCall>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct FunctionCall {
+    name: String,
+    args: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
