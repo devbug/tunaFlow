@@ -1,5 +1,10 @@
 import { AppShell } from "./components/tunaflow/AppShell";
+import { ErrorBoundary } from "./components/tunaflow/ErrorBoundary";
 
 export default function App() {
-  return <AppShell />;
+  return (
+    <ErrorBoundary>
+      <AppShell />
+    </ErrorBoundary>
+  );
 }

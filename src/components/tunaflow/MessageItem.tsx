@@ -22,21 +22,18 @@ function hasMarkdownSignal(content: string): boolean {
   return /^#{1,3} |```|\n- |\n\d+\. |<!-- tunaflow:|\*\*[^*]+\*\*/m.test(content);
 }
 
-/** Clean tunaflow markers from message display:
- *  - verdict blocks (<!-- tunaflow:review-verdict --> ... <!-- /tunaflow:review-verdict -->) → hidden (shown in ReviewVerdictCard)
- *  - impl-plan blocks (<!-- tunaflow:impl-plan --> ... <!-- /tunaflow:impl-plan -->) → hidden (shown in ImplPlanCard)
- *  - single markers → inline code for visibility
+/** Clean all tunaflow markers from message display.
+ *  Markers are for the workflow pipeline only — users should never see them.
  */
 function vizMarkers(text: string): string {
   return text
-    // Remove full verdict/impl-plan blocks (rendered separately in PlanCard)
+    // Remove full blocks (verdict, impl-plan — rendered separately in PlanCard)
     .replace(/<!-- ?tunaflow:review-verdict ?-->[\s\S]*?<!-- ?\/?tunaflow:review-verdict ?-->/g, "")
     .replace(/<!-- ?tunaflow:impl-plan ?-->[\s\S]*?<!-- ?\/?tunaflow:impl-plan ?-->/g, "")
-    // Remaining single markers → inline code
-    .replace(
-      /(?<!`)<!-- ?(tunaflow:[a-z_-]+(?::\d+)?|subtask-done:\d+|impl-complete) ?-->(?!`)/g,
-      "`<!-- $1 -->`",
-    );
+    // Remove all remaining single markers (impl-complete, subtask-done, plan-proposal, etc.)
+    .replace(/<!-- ?(?:tunaflow:[a-z_-]+(?::\d+)?|subtask-done:\d+|impl-complete) ?-->/g, "")
+    // Clean up leftover blank lines from removed markers
+    .replace(/\n{3,}/g, "\n\n");
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
