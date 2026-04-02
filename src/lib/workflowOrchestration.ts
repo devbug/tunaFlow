@@ -62,10 +62,18 @@ export async function syncResultReport(
     const pp = await getProjectPath();
     if (!pp) return;
 
+    // Strip tunaflow workflow markers from content before including in documents
+    const stripMarkers = (text: string) =>
+      text.replace(/<!--\s*tunaflow:[a-z_-]+(?::\d+)?\s*-->/g, "")
+          .replace(/<!--\s*subtask-done:\d+\s*-->/g, "")
+          .replace(/<!--\s*impl-complete\s*-->/g, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+
     // Compress impl messages into summary + per-subtask results
     const assistantMsgs = implMessages.filter((m) => m.role === "assistant");
     const summary = assistantMsgs.length > 0
-      ? assistantMsgs[assistantMsgs.length - 1].content.slice(0, 2000)
+      ? stripMarkers(assistantMsgs[assistantMsgs.length - 1].content.slice(0, 2000))
       : "(No implementation output)";
 
     // Extract subtask-done markers to build per-subtask results
@@ -73,7 +81,7 @@ export async function syncResultReport(
     const completedNums = scanCompletedSubtasks(implMessages);
     const subtaskResults = assistantMsgs
       .slice(-10)
-      .map((m) => m.content.slice(0, 500))
+      .map((m) => stripMarkers(m.content.slice(0, 500)))
       .filter((c) => c.trim().length > 0);
 
     const knownIssues: string[] = [];
