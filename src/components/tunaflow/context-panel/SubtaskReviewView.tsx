@@ -57,7 +57,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
           } catch { break; }
         }
         setTaskFiles(files);
-      } catch { /* silent */ }
+      } catch (e) { console.warn("[tunaflow]", e); }
     })();
   }, [plan.id, plan.revision]);
 
@@ -78,7 +78,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       await planApi.createPlanEvent(plan.id, "subtask_review_completed", "user");
       syncPlanDocument(plan.id);
       onPlanUpdate(plan.id, { phase: "approval" as PlanPhase });
-    } catch { /* silent */ }
+    } catch (e) { console.warn("[tunaflow]", e); }
     setBusy(false);
   };
 
@@ -113,7 +113,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
 
       await sendThreadMessage(prompt, mainEngine);
       await planApi.createPlanEvent(plan.id, "plan_sync_requested", "user");
-    } catch { /* silent */ }
+    } catch (e) { console.warn("[tunaflow]", e); }
     setBusy(false);
   };
 
@@ -154,7 +154,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       await sendThreadMessage(prompt, mainEngine);
       await planApi.createPlanEvent(plan.id, "subtask_revision_requested", "user",
         `subtask ${subtaskIdx + 1}: ${opinion.slice(0, 100)}`);
-    } catch { /* silent */ }
+    } catch (e) { console.warn("[tunaflow]", e); }
     setBusy(false);
   };
 
@@ -185,7 +185,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       ].join("\n");
 
       await sendThreadMessage(prompt, mainEngine);
-    } catch { /* silent */ }
+    } catch (e) { console.warn("[tunaflow]", e); }
     setBusy(false);
   };
 
@@ -228,7 +228,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       await sendThreadMessage(prompt, mainEngine);
       await planApi.createPlanEvent(plan.id, "detail_design_requested", "user",
         `subtask ${subtaskIdx + 1}`);
-    } catch { /* silent */ }
+    } catch (e) { console.warn("[tunaflow]", e); }
     setBusy(false);
   };
 
@@ -312,7 +312,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
                   await sendWithEngine(mainEngine, prompt);
                   await planApi.createPlanEvent(plan.id, "detail_design_requested", "user", "all subtasks");
                   onSwitchToChat?.();
-                } catch { /* silent */ }
+                } catch (e) { console.warn("[tunaflow]", e); }
                 setBusy(false);
               }}
               disabled={busy}

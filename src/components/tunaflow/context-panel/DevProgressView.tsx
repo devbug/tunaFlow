@@ -65,7 +65,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
               break;
             }
           }
-        } catch { /* silent */ }
+        } catch (e) { console.warn("[tunaflow]", e); }
       }
 
       setLoading(false);
@@ -87,7 +87,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       const shadowConvId = `branch:${plan.implementationBranchId}`;
       const saved = useChatStore.getState().getConversationEngine(shadowConvId);
       await sendThreadMessage(prompt, saved?.engine ?? "claude");
-    } catch { /* silent */ }
+    } catch (e) { console.warn("[tunaflow]", e); }
     setBusy(false);
   };
 
@@ -157,7 +157,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
 
       await sendThreadMessage(prompt, selectedProfile.engine);
       onPlanUpdate(plan.id, { phase: "review" as PlanPhase, reviewBranchId: branch.id });
-    } catch { /* silent */ }
+    } catch (e) { console.warn("[tunaflow]", e); }
     setBusy(false);
     setReviewMode("idle");
   };
@@ -177,7 +177,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
         `부모 Plan: ${plan.title}`,
       ].filter(Boolean).join("\n");
       await sendWithEngine("claude", prompt);
-    } catch { /* silent */ }
+    } catch (e) { console.warn("[tunaflow]", e); }
     setBusy(false);
   };
 
@@ -307,7 +307,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
                   const saved = useChatStore.getState().getConversationEngine(shadowConvId);
                   await sendThreadMessage(reworkPrompt, saved?.engine ?? "claude");
                   onPlanUpdate(plan.id, { phase: "implementation" as PlanPhase });
-                } catch { /* silent */ }
+                } catch (e) { console.warn("[tunaflow]", e); }
                 setBusy(false);
               }}
               disabled={busy}
@@ -322,7 +322,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
                   await planApi.updatePlanPhase(plan.id, "subtask_review");
                   await planApi.createPlanEvent(plan.id, "reverted_to_subtask_review", "user", "Design change needed from rework");
                   onPlanUpdate(plan.id, { phase: "subtask_review" as PlanPhase });
-                } catch { /* silent */ }
+                } catch (e) { console.warn("[tunaflow]", e); }
                 setBusy(false);
               }}
               disabled={busy}

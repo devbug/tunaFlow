@@ -30,7 +30,7 @@ export async function syncPlanDocument(planId: string): Promise<void> {
     const pp = await getProjectPath();
     if (!pp) return;
     await planApi.generatePlanDocument(planId, pp);
-  } catch { /* fire-and-forget */ }
+  } catch (e) { console.warn("[tunaflow]", e); }
 }
 
 /** Generate review report document. Fire-and-forget. */
@@ -48,7 +48,7 @@ export async function syncReviewReport(
       verdict.findings, verdict.recommendations,
       reviewerEngines, testOutput,
     );
-  } catch { /* fire-and-forget */ }
+  } catch (e) { console.warn("[tunaflow]", e); }
 }
 
 /** Generate implementation result report. Fire-and-forget. */
@@ -82,7 +82,7 @@ export async function syncResultReport(
       planId, pp, summary, subtaskResults, knownIssues,
       developerEngine, branchLabel,
     );
-  } catch { /* fire-and-forget */ }
+  } catch (e) { console.warn("[tunaflow]", e); }
 }
 
 // ─── Branch helpers ─────────────────────────────────────────────────────────
