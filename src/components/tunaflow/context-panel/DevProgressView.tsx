@@ -20,6 +20,7 @@ interface DevProgressViewProps {
 export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
   const { openThread, sendThreadMessage, loadBranches, saveConversationEngine } = useChatStore();
   const profiles = useChatStore((s) => s.agentProfiles);
+  const runningThreadIds = useChatStore((s) => s.runningThreadIds);
   const [subtasks, setSubtasks] = useState<PlanSubtask[]>([]);
   const [completedNums, setCompletedNums] = useState<Set<number>>(new Set());
   const [implComplete, setImplComplete] = useState(false);
@@ -248,7 +249,10 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
         {subtasks.map((st, i) => {
           const num = i + 1;
           const isDone = completedNums.has(num);
-          const isNext = !isDone && !completedNums.has(num) && (i === 0 || completedNums.has(i));
+          const branchRunning = plan.implementationBranchId
+            ? runningThreadIds.includes(`branch:${plan.implementationBranchId}`)
+            : false;
+          const isNext = !isDone && (i === 0 || completedNums.has(i)) && branchRunning;
 
           return (
             <div key={st.id} className={cn(
