@@ -5,7 +5,8 @@ import { useChatStore } from "@/stores/chatStore";
 import { GitBranch, Check, Loader2, Clock, RotateCcw, Plus, ClipboardList, FileText } from "lucide-react";
 import type { Plan, PlanPhase, PlanSubtask, Message } from "@/types";
 import * as planApi from "@/lib/api/plans";
-import { scanCompletedSubtasks, hasImplComplete } from "@/lib/planProposalParser";
+import { scanCompletedSubtasks, hasImplComplete, hasReviewVerdict, extractReviewVerdict } from "@/lib/planProposalParser";
+import type { ParsedReviewVerdict } from "@/lib/planProposalParser";
 import { syncResultReport } from "@/lib/workflowOrchestration";
 import type { Branch } from "@/types";
 import { PlanDocumentModal } from "./PlanDocumentModal";
@@ -24,6 +25,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [showDoc, setShowDoc] = useState(false);
+  const [reviewVerdict, setReviewVerdict] = useState<ParsedReviewVerdict | null>(null);
   const [reviewMode, setReviewMode] = useState<"idle" | "select">("idle");
   const [selectedReviewerId, setSelectedReviewerId] = useState(() => {
     // Default to a profile with "review" in label, or first profile
@@ -51,11 +53,26 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
           }
         } catch { /* branch may not exist */ }
       }
+      // Scan review branch for verdict (rework phase)
+      if (plan.reviewBranchId && (plan.phase === "rework" || plan.phase === "review")) {
+        try {
+          const reviewShadow = `branch:${plan.reviewBranchId}`;
+          const reviewMsgs = await invoke<Message[]>("list_messages", { conversationId: reviewShadow });
+          for (const msg of reviewMsgs) {
+            if (msg.role === "assistant" && hasReviewVerdict(msg.content)) {
+              const v = extractReviewVerdict(msg.content);
+              if (v && !cancelled) setReviewVerdict(v);
+              break;
+            }
+          }
+        } catch { /* silent */ }
+      }
+
       setLoading(false);
     })();
 
     return () => { cancelled = true; };
-  }, [plan.id, plan.implementationBranchId]);
+  }, [plan.id, plan.implementationBranchId, plan.phase]);
 
   const handleOpenBranch = () => {
     if (plan.implementationBranchId) openThread(plan.implementationBranchId);
@@ -214,13 +231,74 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
         })}
       </div>
 
+      {/* Rework notice */}
+      {plan.phase === "rework" && (
+        <div className="rounded-md border border-status-rejected/30 bg-status-rejected/5 p-2.5 text-[10px] text-status-rejected space-y-2">
+          <p className="font-medium">Rework 필요 — Review에서 다음 사항이 지적되었습니다.</p>
+          {reviewVerdict && reviewVerdict.findings.length > 0 && (
+            <ul className="space-y-0.5 text-[9px] text-foreground/60 pl-2">
+              {reviewVerdict.findings.map((f, i) => <li key={i}>- {f.slice(0, 200)}</li>)}
+            </ul>
+          )}
+          {reviewVerdict && reviewVerdict.recommendations.length > 0 && (
+            <div className="text-[9px] text-muted-foreground/50">
+              Recommendations: {reviewVerdict.recommendations.map((r) => r.slice(0, 100)).join("; ")}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                if (!plan.implementationBranchId) return;
+                setBusy(true);
+                try {
+                  await planApi.updatePlanPhase(plan.id, "implementation");
+                  await planApi.createPlanEvent(plan.id, "rework_requested", "user");
+                  await openThread(plan.implementationBranchId);
+                  const findings = reviewVerdict?.findings.join("\n- ") ?? "";
+                  const reworkPrompt = [
+                    `[Rework] Review에서 다음 사항이 지적되었습니다:`,
+                    findings ? `- ${findings}` : "(findings 없음)",
+                    "",
+                    `위 사항을 수정하고 완료 시 \`<!-- tunaflow:impl-complete -->\`를 포함하세요.`,
+                  ].join("\n");
+                  const shadowConvId = `branch:${plan.implementationBranchId}`;
+                  const saved = useChatStore.getState().getConversationEngine(shadowConvId);
+                  await sendThreadMessage(reworkPrompt, saved?.engine ?? "claude");
+                  onPlanUpdate(plan.id, { phase: "implementation" as PlanPhase });
+                } catch { /* silent */ }
+                setBusy(false);
+              }}
+              disabled={busy}
+              className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
+            >
+              {busy ? "전달 중..." : "Developer에게 전달 + Rework"}
+            </button>
+            <button
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await planApi.updatePlanPhase(plan.id, "subtask_review");
+                  await planApi.createPlanEvent(plan.id, "reverted_to_subtask_review", "user", "Design change needed from rework");
+                  onPlanUpdate(plan.id, { phase: "subtask_review" as PlanPhase });
+                } catch { /* silent */ }
+                setBusy(false);
+              }}
+              disabled={busy}
+              className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+            >
+              설계 변경 → Subtask
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Summary + actions */}
       <div className="flex items-center gap-2 pt-2 border-t border-border/30">
         <span className="text-[10px] text-muted-foreground/50">
           {completedNums.size}/{subtasks.length} 완료
         </span>
         <span className="flex-1" />
-        {implComplete && reviewMode === "idle" && (
+        {implComplete && plan.phase !== "rework" && reviewMode === "idle" && (
           <button onClick={() => setReviewMode("select")} disabled={busy}
             className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">
             <Check className="w-3.5 h-3.5" />Review 시작
