@@ -311,6 +311,19 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
         </div>
       )}
 
+      {/* Re-review: show previous findings summary before review button */}
+      {implComplete && plan.phase !== "rework" && reviewVerdict && (
+        <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-2.5 text-[10px] space-y-1.5">
+          <div className="font-medium text-amber-600">이전 Review Findings (Re-review #{(plan.versionMinor || 0) + 1})</div>
+          <ul className="space-y-0.5 text-[9px] text-foreground/60 pl-2">
+            {reviewVerdict.findings.slice(0, 5).map((f, i) => (
+              <li key={i}>□ {f.slice(0, 150)}</li>
+            ))}
+          </ul>
+          <p className="text-[9px] text-muted-foreground/50">위 사항이 수정되었는지 중심으로 재검증됩니다.</p>
+        </div>
+      )}
+
       {/* Summary + actions */}
       <div className="flex items-center gap-2 pt-2 border-t border-border/30">
         <span className="text-[10px] text-muted-foreground/50">
@@ -319,8 +332,13 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
         <span className="flex-1" />
         {implComplete && plan.phase !== "rework" && reviewMode === "idle" && (
           <button onClick={() => setReviewMode("select")} disabled={busy}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">
-            <Check className="w-3.5 h-3.5" />Review 시작
+            className={cn(
+              "flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium disabled:opacity-50 transition-colors",
+              reviewVerdict
+                ? "bg-amber-500/10 text-amber-600 hover:bg-amber-500/20"
+                : "bg-status-approved/10 text-status-approved hover:bg-status-approved/20"
+            )}>
+            <Check className="w-3.5 h-3.5" />{reviewVerdict ? "Re-review 시작" : "Review 시작"}
           </button>
         )}
         {implComplete && reviewMode === "select" && (
@@ -331,7 +349,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
             </select>
             <button onClick={handleStartReview} disabled={busy}
               className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">
-              {busy ? "시작 중..." : "Review 시작"}
+              {busy ? "시작 중..." : reviewVerdict ? "Re-review 시작" : "Review 시작"}
             </button>
             <button onClick={() => setReviewMode("idle")}
               className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">취소</button>
