@@ -208,7 +208,30 @@ where
     let mut final_output: Option<RunOutput> = None;
     let mut unparsed_lines: Vec<String> = Vec::new();
 
+    // Idle timeout: kill process if no output for 10 minutes
+    let idle_timeout = std::time::Duration::from_secs(600);
+    let last_activity = std::sync::Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
+    let child_id = child.id();
+    {
+        let last_act = std::sync::Arc::clone(&last_activity);
+        thread::spawn(move || {
+            loop {
+                thread::sleep(std::time::Duration::from_secs(30));
+                let elapsed = last_act.lock().map(|t| t.elapsed()).unwrap_or_default();
+                if elapsed > idle_timeout {
+                    eprintln!("[agent-timeout] No output for {}s, killing pid {}", elapsed.as_secs(), child_id);
+                    // Best-effort kill via system command
+                    let _ = std::process::Command::new("kill").arg("-9").arg(child_id.to_string()).output();
+                    break;
+                }
+            }
+        });
+    }
+
     for raw in reader.lines() {
+        // Reset idle timer on each line
+        if let Ok(mut t) = last_activity.lock() { *t = std::time::Instant::now(); }
+
         // Check cancel between each line of streaming output
         if is_cancelled() {
             let _ = child.kill();

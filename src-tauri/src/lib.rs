@@ -56,10 +56,25 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             let db_path = data_dir.join("tunaflow.db");
             let (write_conn, read_conn) = db::init(db_path)?;
+
+            // Cleanup stale streaming messages from previous crash/shutdown
+            let cleaned = write_conn.execute(
+                "UPDATE messages SET status = 'error', content = CASE WHEN content = '' THEN '(이전 세션에서 중단됨)' ELSE content END WHERE status = 'streaming'",
+                [],
+            ).unwrap_or(0);
+            let jobs = write_conn.execute(
+                "UPDATE agent_jobs SET status = 'failed', error = 'app restart' WHERE status = 'running'",
+                [],
+            ).unwrap_or(0);
+            if cleaned > 0 || jobs > 0 {
+                eprintln!("[startup] Cleaned {} stale streaming messages, {} stale jobs", cleaned, jobs);
+            }
+
             app.manage(DbState {
                 write: std::sync::Arc::new(std::sync::Mutex::new(write_conn)),
                 read: std::sync::Arc::new(std::sync::Mutex::new(read_conn)),
             });
+
             app.manage(CancelRegistry(std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()))));
             app.manage(commands::projects::RawqIndexing(std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()))));
 
