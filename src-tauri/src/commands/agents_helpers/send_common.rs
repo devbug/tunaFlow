@@ -726,6 +726,16 @@ pub fn assemble_prompt(
         sections.push(s);
         included_sections.push("rawq".into());
     }
+    // context-hub (chops): library documentation search — best-effort, skip if unavailable
+    if ctx_mode >= ContextMode::Standard {
+        if let Some(s) = guardrail::truncate_section(
+            build_chops_section(&data.prompt),
+            2000, // max 2k chars for library docs
+        ) {
+            sections.push(s);
+            included_sections.push("chops".into());
+        }
+    }
     if !data.cross_session_data.is_empty() {
         if let Some(s) = maybe_compress_section_typed(
             build_cross_session_section(&data.cross_session_data),

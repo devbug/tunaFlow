@@ -261,6 +261,57 @@ fn extract_relevant_skill_sections(skill_name: &str, content: &str, keywords: &[
     result
 }
 
+/// Build a context-hub (chops) section from automatic keyword search.
+///
+/// Calls `context_hub::search()` with keywords extracted from the prompt.
+/// Returns None if context-hub is unavailable or no results found.
+/// Graceful degradation: never blocks or errors — just skips.
+pub fn build_chops_section(prompt: &str) -> Option<String> {
+    // Extract meaningful keywords for search (reuse same logic as rawq)
+    let keywords: Vec<&str> = prompt
+        .split_whitespace()
+        .filter(|w| w.len() >= 3)
+        .filter(|w| !CHOPS_SKIP_WORDS.contains(&w.to_lowercase().as_str()))
+        .take(6)
+        .collect();
+
+    if keywords.is_empty() {
+        return None;
+    }
+
+    let query = keywords.join(" ");
+    match crate::agents::context_hub::search(&query, None, 3) {
+        Ok(results) => {
+            if results.is_empty() {
+                return None;
+            }
+            let mut out = String::from("## Library documentation (context-hub)\n\n");
+            for r in &results {
+                out.push_str(&format!(
+                    "### {} ({})\n{}\n\n",
+                    r.title,
+                    r.source,
+                    truncate_str(&r.snippet, 500),
+                ));
+            }
+            eprintln!("[context_pack] chops: {} results for \"{}\"", results.len(), query);
+            Some(out.trim_end().to_string())
+        }
+        Err(_) => {
+            // context-hub not available or search failed — skip silently
+            None
+        }
+    }
+}
+
+/// Words to skip when building chops search query.
+const CHOPS_SKIP_WORDS: &[&str] = &[
+    "the", "this", "that", "with", "from", "have", "been",
+    "will", "would", "could", "should", "about", "into",
+    "구현", "수정", "변경", "추가", "삭제", "확인", "진행",
+    "해주세요", "합니다", "입니다", "있습니다", "없습니다",
+];
+
 pub fn build_cross_session_section(
     cross_session: &[(String, Vec<(String, String)>)],
 ) -> Option<String> {
