@@ -31,6 +31,8 @@ export interface AssetSlice {
   artifacts: Artifact[];
   skills: SkillDef[];
   activeSkills: string[];
+  /** Phase→skills mapping for automatic workflow skill injection */
+  workflowSkills: Record<string, string[]>;
   crossSessionIds: string[];
   handoffSource: { type: string; content: string } | null;
   scrollToMessageId: string | null;
@@ -58,6 +60,12 @@ export interface AssetSlice {
   deleteArtifact: (id: string) => Promise<void>;
   loadSkills: () => Promise<void>;
   toggleSkill: (name: string) => void;
+  /** Load workflow skill mappings from appStore */
+  loadWorkflowSkills: () => Promise<void>;
+  /** Save workflow skill mappings */
+  saveWorkflowSkills: (config: Record<string, string[]>) => void;
+  /** Get effective skills: manual activeSkills ∪ phase-based workflow skills */
+  getEffectiveSkills: (planPhase: string | null) => string[];
   toggleCrossSession: (conversationId: string) => void;
 }
 
@@ -66,6 +74,7 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
   artifacts: [],
   skills: [],
   activeSkills: [],
+  workflowSkills: {},
   crossSessionIds: [],
   handoffSource: null,
   scrollToMessageId: null,
@@ -122,13 +131,40 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
     try {
       const skills = await invoke<SkillDef[]>("list_skills");
       const saved = await getSetting<string[]>("lastActiveSkills", []);
-      // Restore only skills that still exist in the snapshot
       const validNames = new Set(skills.map((s) => s.name));
       const restored = saved.filter((n) => validNames.has(n));
-      set({ skills, activeSkills: restored });
+      const wfSkills = await getSetting<Record<string, string[]>>("workflowSkills", {});
+      set({ skills, activeSkills: restored, workflowSkills: wfSkills });
     } catch (e) {
       set({ error: String(e) });
     }
+  },
+
+  loadWorkflowSkills: async () => {
+    const config = await getSetting<Record<string, string[]>>("workflowSkills", {});
+    set({ workflowSkills: config });
+  },
+
+  saveWorkflowSkills: (config: Record<string, string[]>) => {
+    set({ workflowSkills: config });
+    setSetting("workflowSkills", config);
+  },
+
+  getEffectiveSkills: (planPhase: string | null) => {
+    const { activeSkills, workflowSkills } = get();
+    // Determine which phase to use for skill lookup
+    const phase = planPhase ?? "chat";
+    // Map workflow phases to skill config keys
+    const phaseKey =
+      phase === "drafting" || phase === "subtask_review" || phase === "approval"
+        ? "chat"
+        : phase === "rework"
+          ? "implementation"
+          : phase; // "implementation", "review", "chat", "done"
+    const phaseSkills = workflowSkills[phaseKey] ?? [];
+    // Union: manual + phase-based (deduplicated)
+    const combined = new Set([...activeSkills, ...phaseSkills]);
+    return [...combined];
   },
 
   toggleSkill: (name: string) => {

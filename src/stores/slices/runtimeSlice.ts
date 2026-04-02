@@ -196,11 +196,14 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
 
     try {
       const bo = await loadBudgetOverrides();
+      // Resolve phase-based workflow skills
+      const planPhase = await invoke<string | null>("get_active_plan_phase", { conversationId: selectedConversationId }).catch(() => null);
+      const effectiveSkills = get().getEffectiveSkills(planPhase);
       const input: SendWithClaudeInput = {
         projectKey: selectedProjectKey,
         conversationId: selectedConversationId,
         prompt, model, systemPrompt,
-        activeSkills: get().activeSkills,
+        activeSkills: effectiveSkills,
         crossSessionIds: get().crossSessionIds,
         personaFragment: get().personaFragment ?? undefined,
         personaLabel: get().personaLabel ?? undefined,

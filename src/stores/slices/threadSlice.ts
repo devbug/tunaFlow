@@ -144,12 +144,15 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
 
     const { getSetting } = await import("@/lib/appStore");
     const budgetCfg = await getSetting<{ mode: string; totalCap: number }>("contextBudgetConfig", { mode: "auto", totalCap: 60000 });
+    // Resolve phase-based workflow skills
+    const planPhase = await invoke<string | null>("get_active_plan_phase", { conversationId: threadBranchConvId }).catch(() => null);
+    const effectiveSkills = get().getEffectiveSkills(planPhase);
     const input: SendWithClaudeInput = {
       projectKey: selectedProjectKey,
       conversationId: threadBranchConvId,
       prompt,
       model,
-      activeSkills,
+      activeSkills: effectiveSkills,
       crossSessionIds,
       personaFragment: get().personaFragment ?? undefined,
       personaLabel: get().personaLabel ?? undefined,

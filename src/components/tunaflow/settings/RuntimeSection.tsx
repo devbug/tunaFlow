@@ -6,6 +6,76 @@ import { X, Search, FileText, ChevronRight, Copy, Send, Archive } from "lucide-r
 import { useChatStore } from "@/stores/chatStore";
 import { getSetting, setSetting } from "@/lib/appStore";
 
+// ─── Workflow Skills Config ──────────────────────────────────────────────────
+
+const WORKFLOW_PHASES = [
+  { key: "chat", label: "Chat / Planning", desc: "일반 대화, Architect 설계" },
+  { key: "implementation", label: "Implementation", desc: "Developer 코드 구현" },
+  { key: "review", label: "Review", desc: "Reviewer 코드 검토" },
+] as const;
+
+function WorkflowSkillsConfig() {
+  const skills = useChatStore((s) => s.skills);
+  const workflowSkills = useChatStore((s) => s.workflowSkills);
+  const saveWorkflowSkills = useChatStore((s) => s.saveWorkflowSkills);
+
+  const toggle = (phase: string, skillName: string) => {
+    const current = workflowSkills[phase] ?? [];
+    const updated = current.includes(skillName)
+      ? current.filter((s) => s !== skillName)
+      : [...current, skillName];
+    saveWorkflowSkills({ ...workflowSkills, [phase]: updated });
+  };
+
+  return (
+    <div className="rounded-lg border border-border/30 bg-background/50 p-4 space-y-3">
+      <div>
+        <h3 className="text-[13px] font-medium text-foreground">Workflow Skills</h3>
+        <p className="text-[11px] text-muted-foreground/60 mt-0.5">워크플로우 단계별 자동 스킬 주입. 수동 선택(Settings &gt; Skills)과 합산됩니다.</p>
+      </div>
+      {skills.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground/40">~/.tunaflow/skills/에 스킬이 없습니다.</p>
+      ) : (
+        <div className="space-y-3">
+          {WORKFLOW_PHASES.map(({ key, label, desc }) => {
+            const active = workflowSkills[key] ?? [];
+            return (
+              <div key={key} className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] font-medium text-foreground/80">{label}</span>
+                  <span className="text-[10px] text-muted-foreground/40">{desc}</span>
+                  {active.length > 0 && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">{active.length}</span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {skills.map((s) => {
+                    const isActive = active.includes(s.name);
+                    return (
+                      <button
+                        key={s.name}
+                        onClick={() => toggle(key, s.name)}
+                        className={cn(
+                          "px-2 py-0.5 rounded text-[10px] transition-colors",
+                          isActive
+                            ? "bg-primary/20 text-primary font-medium"
+                            : "bg-accent/50 text-muted-foreground/60 hover:text-foreground/80"
+                        )}
+                      >
+                        {s.name.replace(/^[^/]+\//, "")}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Context Budget Control ──────────────────────────────────────────────────
 
 const CONTEXT_MODES = [
@@ -263,6 +333,7 @@ export function RuntimeSection() {
       </div>
 
       <ContextBudgetControl />
+      <WorkflowSkillsConfig />
       <ContextHubPanel hubHealth={hubHealth} />
 
       {/* Background / Daemon */}

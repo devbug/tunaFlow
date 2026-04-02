@@ -183,6 +183,23 @@ pub fn list_plans_by_conversation(
     Ok(rows)
 }
 
+/// Get the active plan phase for a conversation. Returns the phase of the most recent non-done plan.
+#[tauri::command]
+pub fn get_active_plan_phase(
+    conversation_id: String,
+    state: State<DbState>,
+) -> Result<Option<String>, AppError> {
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
+    let phase: Option<String> = conn
+        .query_row(
+            "SELECT phase FROM plans WHERE conversation_id = ?1 AND status != 'done' AND status != 'abandoned' ORDER BY updated_at DESC LIMIT 1",
+            [&conversation_id],
+            |row| row.get(0),
+        )
+        .ok();
+    Ok(phase)
+}
+
 /// Update the status of a plan (draft → active → done | abandoned).
 #[tauri::command]
 pub fn update_plan_status(

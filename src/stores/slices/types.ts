@@ -85,6 +85,7 @@ export interface ChatState {
   artifacts: Artifact[];
   skills: SkillDef[];
   activeSkills: string[];
+  workflowSkills: Record<string, string[]>;
   crossSessionIds: string[];
   rawqStatus: RawqStatus | null;
   projectLoading: string | null;
@@ -144,6 +145,9 @@ export interface ChatState {
   toggleCrossSession: (conversationId: string) => void;
   loadSkills: () => Promise<void>;
   toggleSkill: (name: string) => void;
+  loadWorkflowSkills: () => Promise<void>;
+  saveWorkflowSkills: (config: Record<string, string[]>) => void;
+  getEffectiveSkills: (planPhase: string | null) => string[];
   loadMemos: () => Promise<void>;
   createMemo: (messageId: string, content: string) => Promise<void>;
   deleteMemo: (id: string) => Promise<void>;

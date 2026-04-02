@@ -2,8 +2,26 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { Activity, Loader2 } from "lucide-react";
+import { Activity, Loader2, Zap } from "lucide-react";
 import { TraceModal } from "./TraceModal";
+
+function SkillsBadge() {
+  const activeSkills = useChatStore((s) => s.activeSkills);
+  const workflowSkills = useChatStore((s) => s.workflowSkills);
+  const totalPhaseSkills = Object.values(workflowSkills).flat().length;
+  const count = activeSkills.length;
+  if (count === 0 && totalPhaseSkills === 0) return null;
+  return (
+    <>
+      <span className="w-px h-3 bg-border/30" />
+      <span className="flex items-center gap-0.5 text-muted-foreground/50">
+        <Zap className="w-2.5 h-2.5" />
+        <span>{count}s</span>
+        {totalPhaseSkills > 0 && <span className="text-primary/40">+wf</span>}
+      </span>
+    </>
+  );
+}
 
 interface AgentJob {
   id: string;
@@ -103,6 +121,7 @@ export function RuntimeStatusBar() {
           )}
           <span className="w-px h-3 bg-border/30" />
           <span>{totalCost > 0 ? `$${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)}` : "$0"}</span>
+          <SkillsBadge />
         </div>
 
         {/* Separator */}

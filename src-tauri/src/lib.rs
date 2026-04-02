@@ -225,6 +225,7 @@ pub fn run() {
             commands::plans::create_plan,
             commands::plans::get_plan,
             commands::plans::list_plans_by_conversation,
+            commands::plans::get_active_plan_phase,
             commands::plans::update_plan_status,
             commands::plans::list_subtasks,
             commands::plans::set_subtask_owner,
