@@ -156,7 +156,7 @@ where
         .arg("--output-format")
         .arg("stream-json")
         .arg("--verbose")
-        .arg("--permission-mode").arg("bypassPermissions")
+        .arg("--permission-mode").arg("acceptEdits")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .current_dir(resolve_cwd(input.project_path.as_deref()));
@@ -324,7 +324,7 @@ pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
         .arg(&input.prompt)
         .arg("--output-format")
         .arg("json")
-        .arg("--permission-mode").arg("bypassPermissions")
+        .arg("--permission-mode").arg("acceptEdits")
         .current_dir(resolve_cwd(input.project_path.as_deref()));
 
     if let Some(model) = &input.model {

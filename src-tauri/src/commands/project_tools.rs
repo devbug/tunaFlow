@@ -253,6 +253,75 @@ pub fn ensure_workflow_templates(project_path: &str) {
         // Always overwrite — agent templates should stay current with tunaFlow version
         let _ = fs::write(&path, content);
     }
+
+    // Ensure .claude/settings.local.json with default permissions
+    let claude_dir = root.join(".claude");
+    let _ = fs::create_dir_all(&claude_dir);
+    let settings_path = claude_dir.join("settings.local.json");
+    if !settings_path.exists() {
+        let default_settings = r#"{
+  "permissions": {
+    "allow": [
+      "Bash(npm install*)",
+      "Bash(npm run*)",
+      "Bash(npm ci*)",
+      "Bash(npx *)",
+      "Bash(cargo build*)",
+      "Bash(cargo test*)",
+      "Bash(cargo check*)",
+      "Bash(cargo run*)",
+      "Bash(git *)",
+      "Bash(mkdir *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(node *)"
+    ]
+  }
+}"#;
+        let _ = fs::write(&settings_path, default_settings);
+    }
+}
+
+/// Read the project's .claude/settings.local.json permissions
+#[tauri::command]
+pub fn get_project_cli_permissions(project_path: String) -> Result<Vec<String>, AppError> {
+    let path = std::path::Path::new(&project_path).join(".claude/settings.local.json");
+    if !path.exists() { return Ok(vec![]); }
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| AppError::Agent(format!("read: {}", e)))?;
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| AppError::Agent(format!("parse: {}", e)))?;
+    let allow = json.get("permissions")
+        .and_then(|p| p.get("allow"))
+        .and_then(|a| a.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+    Ok(allow)
+}
+
+/// Update the project's .claude/settings.local.json permissions
+#[tauri::command]
+pub fn set_project_cli_permissions(project_path: String, permissions: Vec<String>) -> Result<(), AppError> {
+    let claude_dir = std::path::Path::new(&project_path).join(".claude");
+    let _ = std::fs::create_dir_all(&claude_dir);
+    let path = claude_dir.join("settings.local.json");
+
+    // Read existing or create new
+    let mut json: serde_json::Value = if path.exists() {
+        let content = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".into());
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    // Update permissions.allow
+    json["permissions"]["allow"] = serde_json::json!(permissions);
+
+    let content = serde_json::to_string_pretty(&json)
+        .map_err(|e| AppError::Agent(format!("serialize: {}", e)))?;
+    std::fs::write(&path, content)
+        .map_err(|e| AppError::Agent(format!("write: {}", e)))?;
+    Ok(())
 }
 
 const ARCHITECT_TEMPLATE: &str = r#"# Architect
