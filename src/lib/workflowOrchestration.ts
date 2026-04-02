@@ -183,17 +183,22 @@ export async function approveAndStartImplementation(
     `- \`docs/plans/${slug}-task-${String(i + 1).padStart(2, "0")}.md\``
   ).join("\n");
 
+  const taskItems = subtasks.map((_, i) =>
+    `│ □ docs/plans/${slug}-task-${String(i + 1).padStart(2, "0")}.md`
+  );
   const prompt = [
-    `"${plan.title}" 구현을 시작합니다.`,
-    "",
-    `## 작업 지시서 파일`,
-    `메인 Plan: \`docs/plans/${slug}.md\``,
-    taskFileList,
-    "",
-    `## 작업 규칙`,
-    `1. 각 task 파일을 읽고 순서대로 구현하세요.`,
-    `2. 각 subtask 완료 시 \`<!-- tunaflow:subtask-done:N -->\`을 포함하세요.`,
-    `3. 전체 완료 후 \`<!-- tunaflow:impl-complete -->\`를 포함하세요.`,
+    `┌─ 구현 시작 ──────────────────────────┐`,
+    `│`,
+    `│ Plan: "${plan.title}"`,
+    `│`,
+    `│ 작업 지시서:`,
+    ...taskItems,
+    `│`,
+    `│ 규칙:`,
+    `│ 1. 각 task 파일을 읽고 순서대로 구현`,
+    `│ 2. 각 완료 시 <!-- subtask-done:N -->`,
+    `│ 3. 전체 완료 시 <!-- impl-complete -->`,
+    `└──────────────────────────────────────┘`,
   ].join("\n");
 
   return { branch, shadowConvId, prompt };
