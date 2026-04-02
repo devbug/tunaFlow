@@ -223,7 +223,13 @@ tunaFlow/
 - **자동 세션 발견**: `session_links` 테이블 (DB v21). FTS5 기반 관련 대화 자동 발견 + 수동 핀. `send_common.rs`에서 crossSessionIds 비었을 때 자동 로드. CrossSessionPanel 리팩토링 (auto/pinned/available 3섹션).
 - DB v21 (topic columns + provenance + session_links), v22 (conversation_chunks + BLOB 임베딩).
 - **Vector DB**: rawq embed CLI 활용 (새 의존성 없음), conversation_chunks 테이블, brute-force cosine 검색, FTS5+Vector 하이브리드 병합, session_discovery 벡터 시그널 추가.
-- Rust 79 tests, Frontend 96 tests.
+- **rawq 고도화**: SearchOptions + search_with_options (rerank/text-weight/rrf-weight), prompt_needs_rawq 완화
+- **Doom Loop 감지**: plan_events 기반 review_failed 3회 → 자동 subtask_review 에스컬레이션
+- **채팅 가독성**: 워크플로우 프롬프트 ASCII→마크다운 (8개), 폰트/대비/간격/prose 개선
+- **워크플로우 스킬 자동 주입**: phase→스킬 매핑 (appStore), effectiveSkills = 수동 ∪ phase 자동, Settings UI
+- **마커 strip**: syncResultReport에서 tunaflow 마커 제거, Reviewer 템플릿 모순 해소
+- **chops ContextPack 자동 주입**: context-hub search를 프롬프트 키워드로 호출 → Standard+ 모드 자동 삽입
+- Rust 79 tests, Frontend 96 tests. DB v22.
 
 ### 기타 알려진 이슈
 - window-state: dev 모드 Ctrl+C 종료 시 상태 미저장 (X 버튼으로 닫아야 함)
@@ -336,7 +342,7 @@ tunaFlow/
 | 4 | 2026-03-31 | Multi-agent context 3-layer, retrieval 품질 튜닝, Gemini auto/fnm/nvm, streaming UX 정리, project scaffold, deps Phase 1-4.2, rawq fs watcher |
 | 5 | 2026-04-01 | 오케스트레이션 워크플로 파이프라인 Phase A-E 전체 완료 (DB v18, 마커 파서 4종, Approval Gate, Test Runner, Review RT, Verdict, Rework 루프) |
 | 6 | 2026-04-02 | zod 스키마 검증 인프라, OpenAI Compatible 엔진 (Ollama), Tool Steps 가시화, silent error 표면화, Developer/Reviewer 프롬프트 수정 |
-| 7 | 2026-04-02~03 | 문서 정리, 장기기억 Phase 1-4, Vector DB (rawq embed), react-virtuoso, cmdk 커맨드 팔레트, tokio async RT |
+| 7 | 2026-04-02~03 | 문서 정리, 장기기억 Phase 1-4 (토픽 메모리/세션 발견/Vector DB), virtuoso, cmdk, tokio async RT, rawq 고도화, doom loop 감지, 채팅 가독성, 워크플로우 스킬 자동 주입, 마커 strip, chops ContextPack 주입 |
 
 ---
 
@@ -378,12 +384,26 @@ tunaFlow/
 - 코드 쿼리 → text-weight 0.5 + auto rrf-weight (rawq 자체 판단)
 - rerank 항상 활성화 (2-pass keyword overlap)
 
+### ✅ 완료: 워크플로우 품질 강화 (세션 7)
+- **Doom Loop 감지**: plan_events review_failed 3회 → subtask_review 자동 에스컬레이션
+- **채팅 가독성**: ASCII 박스→마크다운 (8개 프롬프트), 폰트/대비/간격/prose-chat
+- **워크플로우 스킬 자동 주입**: phase→스킬 매핑, effectiveSkills, Settings > Runtime UI
+- **마커 strip**: syncResultReport에서 tunaflow 마커 제거, Reviewer 모순 해소
+- **chops ContextPack 자동 주입**: context-hub 라이브러리 문서 → Standard+ 자동 삽입
+
+### P0: 실사용 검증
+- 워크플로우 풀사이클 (Plan→Dev→Review→Done) 3회+ 실행
+- 장기기억 (토픽/세션/벡터) 품질 확인
+- chops 활성화 상태에서 라이브러리 문서 주입 확인
+
 ### P1: 구조 개선
 - **ContextPack DB/assembly 완전 분리** (논리적 2-phase 분리 완료, 파일 분리는 후순위)
+- **KnowledgeLayer trait** — 6번째 소스 추가 시 도입 (트리거 조건: `knowledgeLayerArchitectureIdea.md` §6)
+- **code-review-graph** — 워크플로우 3회+ 완료 후 도입 판단 (트리거 조건: `rawqGraphEvolutionStrategyIdea.md` §7)
 
 ### P2: 후순위
-- 실사용 검증 (긴 multi-agent 대화)
-- context-hub 활성화 (외부 라이브러리 문서 검색)
+- Gemini SDK 직접 통합 (보조 경로, CLI 기본 유지)
+- Function calling 마커 대체 (SDK 전환 후)
 - smoke test 복구
 
 ---
