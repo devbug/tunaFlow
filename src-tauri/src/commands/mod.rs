@@ -18,6 +18,8 @@ pub mod project_tools;
 pub mod projects;
 pub mod roundtable;
 pub mod roundtable_helpers;
+pub mod session_discovery;
 pub mod skills;
 pub mod test_runner;
 pub mod tracing;
+pub mod vector_search;

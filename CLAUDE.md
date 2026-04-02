@@ -1,6 +1,6 @@
 # tunaFlow — Claude Code Handoff Document
 
-> 최종 갱신: 2026-03-30 (세션 2 반영)
+> 최종 갱신: 2026-04-02 (세션 7 반영)
 > SSOT: `docs/reference/dataModelRevised.md` (도메인 모델), `docs/reference/implementationStatus.md` (구현 현황)
 
 ---
@@ -216,13 +216,22 @@ tunaFlow/
 - **Reviewer 프롬프트 수정**: result report는 자동 생성이므로 문서 품질로 fail 주지 않도록. 프로젝트 전체 체크 실패는 Developer 실패가 아님.
 - Rust 60 unit tests, Frontend 96 tests (스키마 17개 포함)
 
+### ✅ 해결됨 (세션 7: 문서 정리 + 장기기억 Phase 1-3)
+- **문서 정리**: `docs/plans/index.md` 전면 재분류 (완료 47개, 부분 21개, 보류 13개, 진행 예정 27개). `futureWorkBacklog.md` 동기화. CLAUDE.md §10 113줄→10줄 압축.
+- **주제별 메모리**: `SUMMARY_PROMPT` → JSON 배열 출력, 토픽별 다중 행 저장 (graceful fallback). `load_compressed_memory_topics()` + `format_topics_as_section()`.
+- **운영 보강**: `provenance` (auto/manual) + `model_used` 기록. `force_recompress_memory` 커맨드. TracePanel에 토픽 수/재압축 버튼 표시.
+- **자동 세션 발견**: `session_links` 테이블 (DB v21). FTS5 기반 관련 대화 자동 발견 + 수동 핀. `send_common.rs`에서 crossSessionIds 비었을 때 자동 로드. CrossSessionPanel 리팩토링 (auto/pinned/available 3섹션).
+- DB v21 (topic columns + provenance + session_links), v22 (conversation_chunks + BLOB 임베딩).
+- **Vector DB**: rawq embed CLI 활용 (새 의존성 없음), conversation_chunks 테이블, brute-force cosine 검색, FTS5+Vector 하이브리드 병합, session_discovery 벡터 시그널 추가.
+- Rust 79 tests, Frontend 96 tests.
+
 ### 기타 알려진 이슈
 - window-state: dev 모드 Ctrl+C 종료 시 상태 미저장 (X 버튼으로 닫아야 함)
-- Rust 60 unit test + Frontend 96 test이나, integration test 부재
-- RT에서 `run()` 동기 사용 — progress 가시성 없음
+- Rust 79 unit test + Frontend 96 test이나, integration test 부재
+- ~~RT에서 `run()` 동기 사용~~ — ✅ tokio async 전환 완료 (세션 7)
 - 긴 multi-agent 대화 (24+ 메시지) 실사용 검증 미완
 - Tool steps: Gemini CLI 버전에 따라 `tool_use` 이벤트 미지원 가능 (tool_result만 올 수 있음)
-- docs/plans/ 문서 정리 필요 — 40+개 문서 status 갱신, 폐기 idea 정리
+- ~~docs/plans/ 문서 정리 필요~~ — ✅ 세션 7에서 완료 (index.md 전면 재분류)
 
 ---
 
@@ -275,7 +284,7 @@ tunaFlow/
 
 ---
 
-## 8. DB 스키마 (v18)
+## 8. DB 스키마 (v22)
 
 | 테이블 | 핵심 필드 |
 |---|---|
@@ -291,7 +300,9 @@ tunaFlow/
 | `plan_events` | id, plan_id(FK), event_type, actor, detail, created_at (v18) |
 | `trace_log` | id, conversation_id, trace_id, span_id, engine, context_mode, context_sections, context_length, context_truncated, usage_status |
 | `agent_jobs` | id, conversation_id, message_id, engine, kind, status, error |
-| `conversation_memory` | id, conversation_id(FK), summary, source_count, created_at, updated_at (v17) |
+| `conversation_memory` | id, conversation_id(FK), summary, source_count, created_at, updated_at, topic, phase, message_range, provenance, model_used (v21) |
+| `session_links` | id, conversation_id(FK), linked_conv_id(FK), score, method, created_at (v21) |
+| `conversation_chunks` | id, project_key, conversation_id(FK), kind, root_message_id, text_preview, embedding(BLOB), created_at (v22) |
 
 ---
 
@@ -313,132 +324,34 @@ tunaFlow/
 
 ---
 
-## 10. 2026-03-28~29 세션 주요 변경사항
+## 10. 세션 이력 요약
 
-### Engine Feature Parity (Wave 1+2 완료)
-- `build_normalized_prompt()` — 4개 엔진 동일 context 조립
-- rawq injection mode 독립화
-- Codex JSONL synthetic streaming (`stream_run` + `codex:chunk`)
-- Frontend: activeSkills/crossSessionIds 전 엔진 전달
-- Token/cost: frontend N/A 표시 (backend DB 레벨 구분은 후속)
-- Resume/continuation: Claude native + non-Claude context replay
+> 상세 내역은 §5 참조. 아래는 세션별 핵심 성과 압축.
 
-### Chat UX (tunaChat parity 일부)
-- CodeBlock: 헤더 바 (lang + lines + copy), 15줄 이상 collapse/expand
-- FileViewer: inline code 파일 경로 감지 + 모달 preview (AppShell 레벨 공유)
-- Message grouping: 연속 동일 발신자 아바타/이름 축소
-- MessageActions 아이콘 축소
-
-### 드로어/Branch 통합 (완료)
-- 모든 Branch/RT는 드로어로만 열림 (openBranchStream UI에서 제거)
-- BranchThreadPanel: RT 모드 → RoundtableView 렌더링, 일반 → MessageItem 렌더링
-- sendThreadRoundtable/sendThreadRoundtableFollowup: thread context RT 전용 함수
-- openThread: shadow conv를 conversations 배열에 추가 + 부모 conv 자동 로딩
-- 사이드바: Chats 하위 트리로 RT/Branch 통합 (RoundtablesSection/BranchesSection 폐기)
-- CreateRoundtableDialog: 항상 branch로 생성, 부모 채팅 선택 UI 추가
-- checkpointId 없는 branch에서 Adopt 숨김
-
-### Skills UI
-- vendor 그룹핑 + 검색/필터 + 추천 프리셋 (Frontend/Review/OpenAI/Claude/MCP)
-- SkillDef에 vendor/sourcePath 메타데이터 (backend `_meta.json` 파싱)
-- active skills persistence (`lastActiveSkills` → appStore)
-- snapshot published_at 표시
-
-### Infrastructure
-- rawq: sidecar bundle, daemon startup, background indexing (`start_rawq_index`)
-- rawq: timeout 제거, RawqIndexing guard, listener cleanup
-- Gemini model discovery: `npm root -g` 기반 (fnm/nvm 호환)
-- window-state: `CloseRequested` 시 명시적 save
-- App icons: tunaDish tuna.png (전 플랫폼)
-
-### UI/UX 대규모 리팩토링 (Linear-inspired)
-- ContextPanel 제거 → CenterPanel 5-tab 구조 (Chat/Plan/Artifacts/Review/Test)
-- 사이드바: 프로젝트 드롭다운, Chat 트리 루트 (섹션 헤더 제거), Skills/Files
-- Memo: toolbar 아이콘 + 팝오버 (메시지 스크롤 + 하이라이트)
-- RuntimeStatusBar: 하단 전체 폭 (trace modal + rawq)
-- Linear lch 색상 시스템 + 간격 스펙 + 폰트 통일 (13px/500)
-- 프로젝트 soft-delete (hidden), 메인 채팅 삭제 방지, 검색 placeholder
-
-### Agent Profile / Persona 시스템
-- Settings: Agents (profile CRUD), Personas (7종 built-in), Skills, Runtime (실제 UI)
-- Agent Profile: engine + model + personaId + defaultSkills → chat input binding
-- ProfileSelector: 드롭다운 (profile list + Custom fallback)
-- Persona: promptFragment → runtime prompt persona section 삽입 (4-engine parity)
-- Applied config visibility: message.persona에 profile label 저장 → MessageMeta 표시
-
-### Branch/RT 고도화
-- Branch depth 탐색: 드로어 네비게이터 (중앙 배치, «» 오버플로), breadcrumb 전체 경로
-- VS Code 스타일 트리: 선택한 branch만 펼침, 들여쓰기 10px
-- Git 스타일 삭제: adopted/archived는 메시지 보존, active는 전체 삭제
-- History 섹션: adopted/archived branch 분리 표시
-- RT: 드로어 내 RT 분기, RT 테이블 뷰 전체 액션 (branch/RT/memo/forward/copy/save-artifact)
-- window.confirm → Tauri ask() 네이티브 다이얼로그 전환
-- 삭제 시 하위 adopted 경고 강화
-
-### Artifacts 워크플로
-- Save as Artifact: assistant 메시지/RT 카드에서 수동 승격 (SaveArtifactDialog)
-- Artifacts 탭: 필터(All/Notes/Code/Specs/Harness), 정렬(Newest/Oldest/Title), 통합 리스트
-- Artifact 상세 모달: 전체 content 읽기 + status 변경 + copy/forward/delete
-- Provenance: source conversation/branch/RT 표시 + 클릭 시 이동 (jumpToSource)
-- 카드 + 모달에서 subtask link 표시
-
-### Settings 실제 구현
-- Agents: profile CRUD + engine/model/persona/skills 편집 + appStore persistence
-- Personas: 7종 built-in + 편집 UI (priorities/behaviors/constraints/tone/outputStyle/promptFragment)
-- Skills: Settings로 이동 완료
-- Runtime: rawq 상태, model catalog (+refresh), context budget 정책, background execution 설명
-
-### 문서 IA 거버넌스
-- documentationNavigationModel: 읽기 순서 + 문서 타입별 역할
-- documentMetadataSchema: type/status/canonical/related 메타 기준
-- documentVersioningPolicy: reference=같은 파일, plan=새 파일, brainstorm≠SSOT
-- documentNamingRule: 짧은 파일명 + title/metas/index 보완
-- CLAUDE.md §17에 규칙 요약
-
-### 2026-03-30 세션 2 주요 변경사항
-
-### ContextPack 고도화
-- 4-engine context metadata parity: 모든 엔진이 trace_log에 context_mode/sections/length/truncated 기록
-- TracePanel/RuntimeStatusBar에서 context 가시화 (mode badge, section pills, truncated 경고)
-- rawq 후처리: SearchResult에 scope/confidence 추가, dedup/재정렬/300자 snippet
-- Compression: section 유형별 압축 목표 (`maybe_compress_section_typed`)
-- Context budget control: Settings UI + appStore 영속 + backend override 전달
-- Conversation context framing: author attribution (per-message author 태그)
-- Compressed conversation memory: v17 migration, 12+ 메시지 시 구조화 요약 + ContextPack 주입
-
-### Agent Identity
-- `## Identity` 블록: profile/engine/persona 3층 분리, 혼합 표현 금지
-- Message author attribution: 과거 메시지 작성자 구분 규칙
-- 사용자 언어 자동 감지 응답
-
-### context-hub 연동
-- `agents/context_hub.rs`: health/search/get CLI 호출 + source policy(bundled/local/private only)
-- `commands/context_hub.rs`: 3개 Tauri commands
-- Settings > Runtime: 검색/조회/문서 미리보기 + Copy/Send to Context/Save as Artifact handoff
-
-### 코드 품질 개선
-- runtimeSlice 팩토리 추출: 4개 중복 send → `sendWithEngine` (509줄 → 311줄)
-- SettingsPanel 분할: 904줄 → 74줄 shell + settings/ 폴더
-- deprecated `isRunning` 필드 제거
-- OpenCode model discovery (`opencode models` CLI) + 바이너리 경로 추가
-- Engine 선택 stale closure 버그 수정
-- 사이드바 인디케이터/삭제 위치 교체
-- 주 모니터 중앙 창 배치 (멀티모니터 대응)
+| 세션 | 날짜 | 핵심 성과 |
+|------|------|-----------|
+| 1 | 2026-03-28~29 | Linear UI 리팩토링, 4-engine parity Wave 1+2, 드로어/Branch/RT 통합, Skills UI, Agent Profile/Persona, Artifacts 워크플로, Settings, rawq sidecar, 문서 IA 거버넌스 |
+| 2 | 2026-03-30 | ContextPack 전체 파이프라인 (visibility/compression/budget/identity/memory), context-hub 연동, runtimeSlice/SettingsPanel 리팩토링, 108 tests |
+| 3 | 2026-03-30 | Claude parity fix (unified `build_normalized_prompt_with_budget()`), auto mode +1 bias 수정, compression DB lock 3-phase 분리, agents.rs 1168→260줄 |
+| 4 | 2026-03-31 | Multi-agent context 3-layer, retrieval 품질 튜닝, Gemini auto/fnm/nvm, streaming UX 정리, project scaffold, deps Phase 1-4.2, rawq fs watcher |
+| 5 | 2026-04-01 | 오케스트레이션 워크플로 파이프라인 Phase A-E 전체 완료 (DB v18, 마커 파서 4종, Approval Gate, Test Runner, Review RT, Verdict, Rework 루프) |
+| 6 | 2026-04-02 | zod 스키마 검증 인프라, OpenAI Compatible 엔진 (Ollama), Tool Steps 가시화, silent error 표면화, Developer/Reviewer 프롬프트 수정 |
+| 7 | 2026-04-02~03 | 문서 정리, 장기기억 Phase 1-4, Vector DB (rawq embed), react-virtuoso, cmdk 커맨드 팔레트, tokio async RT |
 
 ---
 
 ## 11. 다음 우선순위
 
-### P0: 문서 정리 + 세션 연속성
-- `docs/plans/` 40+개 문서 status 갱신, index.md 업데이트, 폐기 idea 정리
-- `docs/plans/futureWorkBacklog.md` 동기화
-- CLAUDE.md §10 이전 세션 이력 압축 검토
+### ✅ 완료: 문서 정리 + 세션 연속성 (세션 7)
+- `docs/plans/index.md` 전면 재분류 (완료 47개, 부분 완료 21개, 보류 13개, 진행 예정 27개)
+- `docs/plans/futureWorkBacklog.md` 동기화 (세션 4b-6 완료 항목 반영)
+- CLAUDE.md §10 세션 이력 113줄→10줄 압축
 
-### P0: 장기기억 + 에이전트 연속성
-- **Vector DB Phase 1** — 대화 메시지 의미 검색 (FTS5만으로는 50+ 대화 시 회수율 급락)
-- **자동 세션 발견** — 관련 대화를 수동 crossSessionIds 대신 자동 연결
-- **주제별 메모리** — 대화 단위 1개 요약에서 주제/phase별 분리
-- 로드맵: `docs/reference/multiAgentContextStrategy.md`
+### ✅ 완료: 장기기억 Phase 1-4 (세션 7)
+- **주제별 메모리** — JSON 배열 토픽 분할, graceful fallback, 다중 행 저장
+- **운영 보강** — provenance/model_used 기록, force recompress, TracePanel 가시화
+- **자동 세션 발견** — FTS5 기반 session_links, auto+manual+available UI
+- **Vector DB** — rawq embed CLI 활용 (snowflake-arctic-embed-s 384차원), conversation_chunks 테이블 (v22, BLOB 임베딩), brute-force cosine 검색, FTS5+Vector 하이브리드 병합, 자동 세션 발견 벡터 시그널 추가
 
 ### ✅ 완료: 내부 품질 강화 (세션 6)
 - zod 스키마 검증 인프라, OpenAI Compatible 엔진 (Ollama), Tool Steps 가시화
@@ -448,11 +361,18 @@ tunaFlow/
 - **Phase A-E 전체 완료** — DB v18, 마커 파서 4종, PlanProposalCard, Approval Gate, Test Runner, 전체 자동화
 - Chat→Plan 승격→Approval(3-way)→Implementation Branch(Developer 자동 호출)→Review RT(2-agent)→Verdict→Done/Rework 루프
 
-### P1: 의존성 마이그레이션 + 구조 개선
-- **Phase 4-3: react-virtuoso** — ChatPanel 가상 스크롤
-- **Phase 4-4: cmdk** — 커맨드 팔레트
-- **ContextPack DB/assembly 완전 분리**
-- **Phase 5: tokio async**
+### ✅ 완료: react-virtuoso + cmdk (세션 7)
+- **react-virtuoso**: ChatPanel 가상 스크롤 전환 (Virtuoso + followOutput + scrollToIndex)
+- **cmdk**: Cmd+K 커맨드 팔레트 (탭 전환, 대화 전환, 프로젝트 전환, 새 대화, 설정)
+
+### ✅ 완료: tokio async RT (세션 7)
+- `execute_round()`, `run_participant()`, `execute_sequential()`, `execute_parallel()` async 전환
+- `run_participant()`: `std::thread::spawn` + `.join()` → `tokio::task::spawn_blocking`
+- `execute_parallel()`: `std::sync::mpsc` → `tokio::sync::mpsc`, `std::thread::spawn` → `tokio::spawn`
+- background 커맨드: `std::thread::spawn` → `tokio::spawn(async move { ... .await })`
+
+### P1: 구조 개선
+- **ContextPack DB/assembly 완전 분리** (논리적 2-phase 분리 완료, 파일 분리는 후순위)
 
 ### P2: 후순위
 - 실사용 검증 (긴 multi-agent 대화)

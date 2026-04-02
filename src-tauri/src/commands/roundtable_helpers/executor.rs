@@ -102,7 +102,8 @@ pub enum RoundStrategy {
 }
 
 /// Run a single participant against a prompt. No DB lock held.
-pub fn run_participant(
+/// Uses `spawn_blocking` to run the synchronous subprocess without blocking the tokio runtime.
+pub async fn run_participant(
     p: &RoundtableParticipant,
     prompt: String,
     sources_json: String,
@@ -112,7 +113,6 @@ pub fn run_participant(
     let max_tok = effective_max_tokens(p);
     eprintln!("[rt] running participant={} engine={} role={:?} max_tokens={:?}", p.name, engine_key, p.role, max_tok);
 
-    // Prepend output cap directive if applicable
     let prompt = format!("{}{}", output_cap_directive(max_tok), prompt);
 
     let run_input = claude::RunInput {
@@ -123,9 +123,8 @@ pub fn run_participant(
         project_path,
     };
 
-    // Run subprocess in background thread to prevent UI freeze
     let engine_key_owned = engine_key.to_string();
-    let (run_result, engine_label) = std::thread::spawn(move || -> (Result<crate::agents::claude::RunOutput, AppError>, &'static str) {
+    let result = tokio::task::spawn_blocking(move || -> (Result<crate::agents::claude::RunOutput, AppError>, &'static str) {
         match engine_key_owned.as_str() {
             "claude" => (claude::run(run_input), "claude-code"),
             "codex" => (codex::run(run_input), "codex"),
@@ -138,9 +137,10 @@ pub fn run_participant(
             ),
         }
     })
-    .join()
-    .unwrap_or_else(|_| (Err(AppError::Agent("participant thread panicked".into())), "unknown"));
+    .await
+    .unwrap_or_else(|_| (Err(AppError::Agent("participant task panicked".into())), "unknown"));
 
+    let (run_result, engine_label) = result;
     match run_result {
         Ok(out) => ParticipantResult {
             name: p.name.clone(),
@@ -176,7 +176,7 @@ pub fn run_participant(
 ///
 /// Prompt is passed through as-is — no forced context injection.
 /// Users control what context to include in their prompt per round.
-pub fn execute_round(
+pub async fn execute_round(
     participants: &[RoundtableParticipant],
     transcript: &[(String, String)],
     round_num: u32,
@@ -198,16 +198,16 @@ pub fn execute_round(
         RoundStrategy::Sequential => execute_sequential(
             participants, transcript, &prior_refs, round_num, total_rounds, topic, rt_mode,
             conversation_id, state, app, cancel, trace_id, root_span_id, project_path,
-        ),
+        ).await,
         RoundStrategy::Deliberative => execute_parallel(
             participants, transcript, &prior_refs, round_num, total_rounds, topic, rt_mode,
             conversation_id, state, app, cancel, trace_id, root_span_id, project_path,
-        ),
+        ).await,
     }
 }
 
 /// Sequential: run participants one by one. Each sees prior-round + current-round context.
-fn execute_sequential(
+async fn execute_sequential(
     participants: &[RoundtableParticipant],
     transcript: &[(String, String)],
     prior_refs: &[String],
@@ -248,7 +248,7 @@ fn execute_sequential(
         } else {
             build_round_prompt_with_identity(topic, transcript, &round_responses, Some(&identity))
         };
-        let r = run_participant(p, prompt, sources_json, project_path.map(|s| s.to_string()));
+        let r = run_participant(p, prompt, sources_json, project_path.map(|s| s.to_string())).await;
 
         let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
             conversation_id: conversation_id.to_string(),
@@ -271,9 +271,9 @@ fn execute_sequential(
     Ok((messages, round_responses))
 }
 
-/// Deliberative: run all participants in parallel, then persist results.
+/// Deliberative: run all participants in parallel via tokio tasks, then persist results.
 /// Each sees prior-round context but not current-round peers.
-fn execute_parallel(
+async fn execute_parallel(
     participants: &[RoundtableParticipant],
     transcript: &[(String, String)],
     prior_refs: &[String],
@@ -306,20 +306,18 @@ fn execute_parallel(
     };
     let sources_json = serde_json::to_string(&sources).unwrap_or_default();
 
-    // Spawn all participants in parallel, collect results in completion-order via channel.
-    let (tx, rx) = std::sync::mpsc::channel::<ParticipantResult>();
+    // Spawn all participants as tokio tasks, collect results in completion-order via channel.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<ParticipantResult>(participants.len());
     let participant_count = participants.len();
 
-    // Each participant gets their own identity + prompt
     let transcript_owned: Vec<(String, String)> = transcript.to_vec();
     let topic_owned = topic.to_string();
 
-    let _handles: Vec<_> = participants.iter().map(|p| {
+    for p in participants {
         let p_clone = p.clone();
         let identity = participant_identity(p);
         let tr = transcript_owned.clone();
         let tp = topic_owned.clone();
-        // Build per-participant prompt with identity
         let pr = if p.blind {
             eprintln!("[rt] blind verifier: {} — no transcript (deliberative)", p.name);
             build_round_prompt_with_identity(&tp, &[], &[], Some(&identity))
@@ -329,19 +327,19 @@ fn execute_parallel(
         let sj = sources_json.clone();
         let pp = project_path.map(|s| s.to_string());
         let tx = tx.clone();
-        std::thread::spawn(move || {
-            let result = run_participant(&p_clone, pr, sj, pp);
-            let _ = tx.send(result);
-        })
-    }).collect();
-    drop(tx); // Close sender so rx iterator terminates after all threads finish
+        tokio::spawn(async move {
+            let result = run_participant(&p_clone, pr, sj, pp).await;
+            let _ = tx.send(result).await;
+        });
+    }
+    drop(tx); // Close sender so rx terminates after all tasks finish
 
-    // Collect results in completion-order — first to finish is first to persist/emit
+    // Collect results in completion-order
     let mut messages = Vec::new();
     let mut round_responses: Vec<(String, String)> = Vec::new();
     let mut received = 0;
 
-    for r in rx {
+    while let Some(r) = rx.recv().await {
         received += 1;
         eprintln!("[rt] deliberative result {}/{}: {} ({})", received, participant_count, r.name, r.status);
 

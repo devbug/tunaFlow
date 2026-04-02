@@ -1,5 +1,6 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/types";
 import { useChatStore } from "@/stores/chatStore";
@@ -26,12 +27,12 @@ export function ChatPanel() {
   const deleteMessagePair = useChatStore((s) => s.deleteMessagePair);
   const scrollToMessageId = useChatStore((s) => s.scrollToMessageId);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [view, setView] = useState<"stream" | "roundtable">("stream");
   const [rtDialogCheckpoint, setRtDialogCheckpoint] = useState<string | null>(null);
   const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
   const [artifactContent, setArtifactContent] = useState<string | null>(null);
+  const [atBottom, setAtBottom] = useState(true);
 
   const currentConv = conversations.find((c) => c.id === selectedConversationId);
   const isRoundtable = currentConv?.mode === "roundtable";
@@ -40,7 +41,6 @@ export function ChatPanel() {
   const handleCreateBranch = async (checkpointId: string) => {
     if (!selectedConversationId) return;
     await createBranch(selectedConversationId, checkpointId);
-    // Find the newly created branch by checkpointId (most recent)
     const { branches: freshBranches } = useChatStore.getState();
     const newBranch = freshBranches
       .filter((b) => b.checkpointId === checkpointId && b.status === "active")
@@ -58,21 +58,76 @@ export function ChatPanel() {
   // Scroll to specific message (memo click, etc.)
   useEffect(() => {
     if (!scrollToMessageId) return;
-    const el = document.getElementById(`msg-${scrollToMessageId}`);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const idx = messages.findIndex((m) => m.id === scrollToMessageId);
+    if (idx >= 0) {
+      virtuosoRef.current?.scrollToIndex({ index: idx, align: "center", behavior: "smooth" });
       setHighlightedMsgId(scrollToMessageId);
       setTimeout(() => setHighlightedMsgId(null), 2000);
     }
     useChatStore.setState({ scrollToMessageId: null });
   }, [scrollToMessageId, messages]);
 
-  // Auto-scroll on new messages
-  const lastMsg = messages[messages.length - 1];
-  const scrollKey = `${messages.length}:${lastMsg?.id}:${lastMsg?.status}`;
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "auto" });
-  }, [scrollKey]);
+  // Follow output: auto-scroll to bottom when at bottom and new messages arrive
+  const followOutput = useCallback(
+    (isAtBottom: boolean) => (isAtBottom ? "smooth" : false) as "smooth" | false,
+    []
+  );
+
+  // Render a single message item
+  const renderMessage = useCallback(
+    (index: number) => {
+      const msg = messages[index];
+      if (!msg) return null;
+      const prev = index > 0 ? messages[index - 1] : null;
+      const grouped =
+        !!prev &&
+        prev.role === msg.role &&
+        prev.engine === msg.engine &&
+        prev.persona === msg.persona &&
+        msg.status !== "streaming";
+      const msgBranches = !activeBranchId
+        ? branches.filter((b) => b.checkpointId === msg.id)
+        : [];
+      return (
+        <div
+          id={`msg-${msg.id}`}
+          className={cn(
+            highlightedMsgId === msg.id &&
+              "ring-1 ring-primary/40 rounded-md transition-all duration-500"
+          )}
+        >
+          <MessageItem
+            message={msg}
+            grouped={grouped}
+            onBranch={!activeBranchId ? (id) => handleCreateBranch(id) : undefined}
+            onBranchRT={
+              !activeBranchId ? (id) => setRtDialogCheckpoint(id) : undefined
+            }
+            onMemo={
+              !activeBranchId ? (id) => createMemo(id, msg.content) : undefined
+            }
+            onFollowup={(engine, content) => sendFollowup(engine, "message", content)}
+            onDeletePair={(id) => deleteMessagePair(id)}
+            onSaveArtifact={(content) => setArtifactContent(content)}
+            threadBranches={msgBranches.length > 0 ? msgBranches : undefined}
+            onOpenThread={
+              !activeBranchId ? (branchId) => openThread(branchId) : undefined
+            }
+          />
+        </div>
+      );
+    },
+    [
+      messages,
+      branches,
+      activeBranchId,
+      highlightedMsgId,
+      createMemo,
+      sendFollowup,
+      deleteMessagePair,
+      openThread,
+    ]
+  );
 
   if (!selectedConversationId) {
     return (
@@ -82,9 +137,15 @@ export function ChatPanel() {
     );
   }
 
-  return (
-    <div data-testid="chat-panel" className="flex flex-col flex-1 min-w-0 overflow-hidden">
+  const isRunning = runningThreadIds.includes(selectedConversationId);
+  const showTyping =
+    isRunning && messages[messages.length - 1]?.status !== "streaming";
 
+  return (
+    <div
+      data-testid="chat-panel"
+      className="flex flex-col flex-1 min-w-0 overflow-hidden"
+    >
       {/* Error banner */}
       {error && (
         <div className="px-4 py-1.5 bg-destructive/8 border-b border-destructive/15 text-destructive/80 text-[11px] shrink-0">
@@ -93,60 +154,74 @@ export function ChatPanel() {
       )}
 
       {/* Scrollable message area */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-hidden">
         {view === "roundtable" && isRoundtable ? (
-          <RoundtableView
-            messages={messages}
-            onBranch={(id) => handleCreateBranch(id)}
-            onBranchRT={!activeBranchId ? (id) => setRtDialogCheckpoint(id) : undefined}
-            onMemo={!activeBranchId ? (id) => createMemo(id, messages.find((m) => m.id === id)?.content ?? "") : undefined}
-            onFollowup={(engine, content) => sendFollowup(engine, "message", content)}
-            onSaveArtifact={(content) => setArtifactContent(content)}
-            onDelete={async (id) => { await invoke("delete_message_pair", { messageId: id }); const msgs = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId }); useChatStore.setState({ messages: msgs }); }}
-          />
-        ) : (
-          <div className="py-3 space-y-0.5">
-            {messages.length === 0 && !runningThreadIds.includes(selectedConversationId!) && (
-              <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
-                No messages yet
-              </div>
-            )}
-            {messages.map((msg, idx) => {
-              const prev = idx > 0 ? messages[idx - 1] : null;
-              const grouped = !!prev
-                && prev.role === msg.role
-                && prev.engine === msg.engine
-                && prev.persona === msg.persona
-                && msg.status !== "streaming";
-              const msgBranches = !activeBranchId
-                ? branches.filter((b) => b.checkpointId === msg.id)
-                : [];
-              return (
-                <div key={msg.id} id={`msg-${msg.id}`} className={cn(highlightedMsgId === msg.id && "ring-1 ring-primary/40 rounded-md transition-all duration-500")}>
-                <MessageItem
-                  message={msg}
-                  grouped={grouped}
-                  onBranch={!activeBranchId ? (id) => handleCreateBranch(id) : undefined}
-                  onBranchRT={!activeBranchId ? (id) => setRtDialogCheckpoint(id) : undefined}
-                  onMemo={!activeBranchId ? (id) => createMemo(id, msg.content) : undefined}
-                  onFollowup={(engine, content) => sendFollowup(engine, "message", content)}
-                  onDeletePair={(id) => deleteMessagePair(id)}
-                  onSaveArtifact={(content) => setArtifactContent(content)}
-                  threadBranches={msgBranches.length > 0 ? msgBranches : undefined}
-                  onOpenThread={!activeBranchId ? (branchId) => openThread(branchId) : undefined}
-                />
-                </div>
-              );
-            })}
-            {runningThreadIds.includes(selectedConversationId!) && messages[messages.length - 1]?.status !== "streaming" && (
-              <div className="flex items-center gap-1 px-4 py-3 text-muted-foreground text-xs">
-                <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-                <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-                <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-              </div>
-            )}
-            <div ref={bottomRef} />
+          <div className="h-full overflow-y-auto">
+            <RoundtableView
+              messages={messages}
+              onBranch={(id) => handleCreateBranch(id)}
+              onBranchRT={
+                !activeBranchId
+                  ? (id) => setRtDialogCheckpoint(id)
+                  : undefined
+              }
+              onMemo={
+                !activeBranchId
+                  ? (id) =>
+                      createMemo(
+                        id,
+                        messages.find((m) => m.id === id)?.content ?? ""
+                      )
+                  : undefined
+              }
+              onFollowup={(engine, content) =>
+                sendFollowup(engine, "message", content)
+              }
+              onSaveArtifact={(content) => setArtifactContent(content)}
+              onDelete={async (id) => {
+                await invoke("delete_message_pair", { messageId: id });
+                const msgs = await invoke<Message[]>("list_messages", {
+                  conversationId: selectedConversationId,
+                });
+                useChatStore.setState({ messages: msgs });
+              }}
+            />
           </div>
+        ) : (
+          <Virtuoso
+            ref={virtuosoRef}
+            totalCount={messages.length + (showTyping ? 1 : 0)}
+            itemContent={(index) => {
+              // Typing indicator as last virtual item
+              if (index === messages.length) {
+                return (
+                  <div className="flex items-center gap-1 px-4 py-3 text-muted-foreground text-xs">
+                    <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
+                    <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
+                    <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
+                  </div>
+                );
+              }
+              return renderMessage(index);
+            }}
+            followOutput={followOutput}
+            atBottomStateChange={setAtBottom}
+            atBottomThreshold={100}
+            initialTopMostItemIndex={Math.max(0, messages.length - 1)}
+            className="h-full"
+            style={{ height: "100%" }}
+            components={{
+              Header: () =>
+                messages.length === 0 && !isRunning ? (
+                  <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+                    No messages yet
+                  </div>
+                ) : (
+                  <div className="pt-3" />
+                ),
+              Footer: () => <div className="pb-1" />,
+            }}
+          />
         )}
       </div>
 
@@ -174,8 +249,12 @@ export function ChatPanel() {
               <span className="typing-dot w-2 h-2 rounded-full bg-primary" />
               <span className="typing-dot w-2 h-2 rounded-full bg-primary" />
             </div>
-            <p className="text-[13px] font-medium text-foreground">{projectLoading}</p>
-            <p className="text-[10px] text-muted-foreground/50">This may take a moment for large projects</p>
+            <p className="text-[13px] font-medium text-foreground">
+              {projectLoading}
+            </p>
+            <p className="text-[10px] text-muted-foreground/50">
+              This may take a moment for large projects
+            </p>
           </div>
         </div>
       )}

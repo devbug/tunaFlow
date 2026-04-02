@@ -260,7 +260,7 @@ pub fn load_context_data(
     let findings_section = build_findings_section(conn, &plan_conv_id);
     let artifacts_section = build_artifact_handoff_section(conn, &plan_conv_id);
 
-    // Query 8-9: retrieval chunks
+    // Query 8-9: retrieval chunks (FTS5 + vector hybrid)
     let project_key: Option<String> = conn.query_row(
         "SELECT project_key FROM conversations WHERE id = ?1",
         [conversation_id],
@@ -274,9 +274,26 @@ pub fn load_context_data(
                 .map(|rows| rows.filter_map(|r| r.ok()).collect())
                 .unwrap_or_default()
         }).unwrap_or_default();
-        // Note: existing_context is None here (not yet assembled).
-        // Overlap penalty will be slightly less precise but functionally equivalent.
-        retrieve_relevant_chunks_with_overlap(conn, pk, conversation_id, prompt, &recent_ids, 10, None)
+        let mut fts_chunks = retrieve_relevant_chunks_with_overlap(conn, pk, conversation_id, prompt, &recent_ids, 10, None);
+
+        // Boost with vector search results (best-effort, skip if rawq unavailable)
+        if let Ok(query_emb) = crate::agents::rawq::embed_text(prompt, true) {
+            let vec_results = crate::commands::vector_search::search_similar(conn, &query_emb, pk, conversation_id, 5);
+            // RRF merge: add vector-only results that aren't already in FTS results
+            let fts_conv_ids: std::collections::HashSet<String> = fts_chunks.iter().map(|c| c.conversation_id.clone()).collect();
+            for vc in vec_results {
+                if vc.score > 0.3 && !fts_conv_ids.contains(&vc.conversation_id) {
+                    fts_chunks.push(crate::commands::context_queries::RetrievedChunk {
+                        kind: "anchor",
+                        messages: vec![("assistant".to_string(), vc.text_preview, None, None)],
+                        conversation_id: vc.conversation_id,
+                        score: vc.score as f64,
+                        timestamp: 0,
+                    });
+                }
+            }
+        }
+        fts_chunks
     } else {
         Vec::new()
     };
@@ -289,8 +306,14 @@ pub fn load_context_data(
             } else { None }
         });
 
-    // Query 11: cross-session data
-    let cross_session_data: Vec<(String, Vec<(String, String)>)> = cross_session_ids
+    // Query 11: cross-session data (manual IDs + auto-discovered links)
+    let effective_cross_ids: Vec<String> = if cross_session_ids.is_empty() {
+        // No manual selection: use auto-discovered session links
+        crate::commands::session_discovery::load_active_session_ids(conn, conversation_id, 3)
+    } else {
+        cross_session_ids.to_vec()
+    };
+    let cross_session_data: Vec<(String, Vec<(String, String)>)> = effective_cross_ids
         .iter()
         .filter(|id| id.as_str() != conversation_id)
         .filter_map(|id| {

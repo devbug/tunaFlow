@@ -2,7 +2,7 @@
 
 실행 계획, 로드맵, 리팩토링 계획, 테스트 계획 문서.
 
-## 진행 현황 (2026-03-28 기준)
+## 진행 현황 (2026-04-02 기준)
 
 ### 완료
 
@@ -18,237 +18,296 @@
 | [progressFirstStreamingPlan](./progressFirstStreamingPlan.md) | progressContent + ProgressBlock/ProgressSummary + stream/done 분리 구현 완료 |
 | [rawqIntegrationPlan](./rawqIntegrationPlan.md) | rawq CLI 실제 연동, search/index/status, auto-indexing 구현 완료 |
 | [scalabilityRefactorPlan](./scalabilityRefactorPlan.md) | 확장 대비 store/sidebar/input/agents.rs 중심 리팩토링 로드맵 |
-
 | [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md) | Phase 1 구현 완료 — start_* background commands + event-driven frontend + DB SSOT |
 | [threadLocalRunQueuePlan](./threadLocalRunQueuePlan.md) | runningThreadIds[] + messageQueue[] + thread-aware cancel 구현 완료 |
 | [threadContextInheritancePlan](./threadContextInheritancePlan.md) | anchor message + parent turns + RT inheritance Phase 1 구현 완료 |
 | [workspacePanelRedesignPlan](./workspacePanelRedesignPlan.md) | 3-mode workspace panel (Plan/Artifacts/Trace) Phase A 구현 완료 |
 | [panelDrawerUxPlan](./panelDrawerUxPlan.md) | resizable panels + overlay drawer Phase 1 구현 완료 |
 | [sidebarThreeSectionPlan](./sidebarThreeSectionPlan.md) | Chats 하위 트리로 RT/Branch 통합, RoundtablesSection/BranchesSection 폐기 |
+| [contextPackP0Phase1Plan_2026-03-30](./contextPackP0Phase1Plan_2026-03-30.md) | section visibility + compression + budget UI — 3 phase 모두 구현 완료 (세션 2) |
+| [contextPackVisibilityUiPolishPlan_2026-03-30](./contextPackVisibilityUiPolishPlan_2026-03-30.md) | TracePanel/StatusBar context metadata 가시화 구현 완료 (세션 2) |
+| [contextPackCompressionAndRawqPostprocessPlan_2026-03-30](./contextPackCompressionAndRawqPostprocessPlan_2026-03-30.md) | compression 품질 + rawq 후처리 Phase 1+2 구현 완료 (세션 2) |
+| [contextBudgetControlUiPlan_2026-03-30](./contextBudgetControlUiPlan_2026-03-30.md) | Settings > Runtime context budget mode/cap UI 구현 완료 (세션 2) |
+| [contextHubMinimalIntegrationPlan_2026-03-30](./contextHubMinimalIntegrationPlan_2026-03-30.md) | context-hub CLI health/search/get + source policy 구현 완료 (세션 2) |
+| [contextHubSidecarIntegrationPlan_2026-03-29](./contextHubSidecarIntegrationPlan_2026-03-29.md) | Phase 1 CLI 연동 구현 완료 (세션 2) |
+| [agentIdentityFramingPlan_2026-03-30](./agentIdentityFramingPlan_2026-03-30.md) | `## Identity` 블록 3층 분리 (profile/engine/persona) 구현 완료 (세션 2) |
+| [agentIdentityValidationPlan_2026-03-30](./agentIdentityValidationPlan_2026-03-30.md) | 4-engine identity 검증 구현 완료 (세션 2) |
+| [messageAuthorAttributionPlan_2026-03-30](./messageAuthorAttributionPlan_2026-03-30.md) | 메시지별 `[assistant:Profile (engine)]` 작성자 태그 구현 완료 (세션 2) |
+| [longTermMemoryPhase1CompressionPlan_2026-03-30](./longTermMemoryPhase1CompressionPlan_2026-03-30.md) | conversation_memory v17 + 12+ 메시지 구조화 요약 구현 완료 (세션 2) |
+| [runtimeSettingsImplementationPlan_2026-03-30](./runtimeSettingsImplementationPlan_2026-03-30.md) | Settings > Runtime rawq/model/budget/daemon 구현 완료 (세션 2) |
+| [settingsShellIaPlan_2026-03-29](./settingsShellIaPlan_2026-03-29.md) | Settings Shell — Agents/Personas/Skills/Runtime 4섹션 구현 완료 (세션 2) |
+| [skillsUiVisibilityPlan](./skillsUiVisibilityPlan.md) | vendor 그룹핑 + 검색/필터 + snapshot 메타 표시 구현 완료 (세션 1) |
+| [chatMarkdownCodeblockUpgradePlan_2026-03-29](./chatMarkdownCodeblockUpgradePlan_2026-03-29.md) | 코드블록 헤더 + collapse/expand + copy 피드백 Phase 1 구현 완료 (세션 1) |
+| [chatFileViewerIntegrationPlan_2026-03-29](./chatFileViewerIntegrationPlan_2026-03-29.md) | 파일 경로 클릭 + FileViewer 모달 Phase 1 구현 완료 (세션 1) |
+| [tracePanelRuntimeFirstPlan_2026-03-29](./tracePanelRuntimeFirstPlan_2026-03-29.md) | TracePanel runtime 대시보드 전환 Phase 1 구현 완료 (세션 1) |
+| [agentProfilesSettingsMvpPlan_2026-03-29](./agentProfilesSettingsMvpPlan_2026-03-29.md) | Settings > Agents profile 목록/편집/persistence 구현 완료 (세션 1-2) |
+| [agentProfileChatInputBindingPlan_2026-03-29](./agentProfileChatInputBindingPlan_2026-03-29.md) | ProfileSelector + 실행 반영 구현 완료 (세션 1-2) |
+| [personaRuntimeBindingPlan_2026-03-29](./personaRuntimeBindingPlan_2026-03-29.md) | persona section 주입 + 4-engine parity + applied persona 표시 구현 완료 (세션 2) |
+| [appliedAgentConfigVisibilityPlan_2026-03-29](./appliedAgentConfigVisibilityPlan_2026-03-29.md) | message.persona에 profile label → MessageMeta 표시 구현 완료 (세션 2) |
+| [artifactManualPromotionMvpPlan_2026-03-30](./artifactManualPromotionMvpPlan_2026-03-30.md) | SaveArtifactDialog 수동 승격 구현 완료 (세션 2) |
+| [artifactsTabUsabilityPlan_2026-03-30](./artifactsTabUsabilityPlan_2026-03-30.md) | 필터/정렬/통합 리스트 구현 완료 (세션 2) |
+| [artifactDetailViewPlan_2026-03-30](./artifactDetailViewPlan_2026-03-30.md) | content 읽기 + status 변경 + copy/forward/delete 모달 구현 완료 (세션 2) |
+| [artifactProvenanceWorkflowPlan_2026-03-30](./artifactProvenanceWorkflowPlan_2026-03-30.md) | source conversation/branch/RT 표시 + jumpToSource 구현 완료 (세션 2) |
+| [artifactNavigationActionsPlan_2026-03-30](./artifactNavigationActionsPlan_2026-03-30.md) | 카드 + 모달 subtask link 표시 구현 완료 (세션 2) |
+| [chatSearchFtsPlan_2026-03-30](./chatSearchFtsPlan_2026-03-30.md) | FTS5 + SearchBox in CenterPanel 구현 완료 (세션 2) |
+| [personaBehaviorValidationPlan_2026-03-30](./personaBehaviorValidationPlan_2026-03-30.md) | 7종 built-in persona promptFragment 검증 완료 (세션 2) |
+| [personaCliValidationPlan_2026-03-30](./personaCliValidationPlan_2026-03-30.md) | CLI persona 주입 검증 완료 (세션 2) |
+| [handoffTruncationFixPlan_2026-03-30](./handoffTruncationFixPlan_2026-03-30.md) | 핸드오프 컨텍스트 보존 구현 완료 (세션 2) |
+| [orchestratedWorkflowPipelinePlan](./orchestratedWorkflowPipelinePlan.md) | V1 Phase A-E 전체 구현 완료 (세션 5). superseded by V2 |
+| [dependencyAdoptionPlan](./dependencyAdoptionPlan.md) | Phase 1-4.2 완료 — clipboard/shell/opener/fs/chrono/tokio/virtuoso/cmdk/sonner (세션 4b) |
+| [documentationIaGovernancePlan_2026-03-30](./documentationIaGovernancePlan_2026-03-30.md) | 문서 IA/거버넌스 규칙 수립 완료 (세션 2) |
 
 ### 부분 완료
 
 | 문서 | 요약 | 남은 것 |
 |------|------|--------|
-| [harnessEngineeringAdoptionPlan](./harnessEngineeringAdoptionPlan.md) | Phase 1-5 완료 (artifact types, approval gates, developer/reviewer lane). Phase 6 workspace 가시화 1차 완료 | Review/Test 독립 모드, runtime RBAC |
-| [masterTestPlan](./masterTestPlan.md) | Rust unit 27, DB integration 13, Frontend API 13, CI 구축 | E2E smoke, coverage 목표, property test |
-| [messagePairDeletionPlan](./messagePairDeletionPlan.md) | 일반 chat에서 user+assistant 인접 메시지 쌍을 함께 삭제하는 계획 |
-| [tauri2PluginAdoptionPlan](./tauri2PluginAdoptionPlan.md) | notification, store, dialog, window-state 적용 | clipboard, shell, updater 미적용 |
+| [harnessEngineeringAdoptionPlan](./harnessEngineeringAdoptionPlan.md) | Phase 1-6 workspace 가시화 완료 | Review/Test 독립 모드, runtime RBAC |
+| [masterTestPlan](./masterTestPlan.md) | Rust 60 + Frontend 96 unit tests | E2E smoke, coverage 목표, property test |
+| [messagePairDeletionPlan](./messagePairDeletionPlan.md) | user+assistant 인접 메시지 쌍 삭제 계획 | 구현 미확인 |
+| [tauri2PluginAdoptionPlan](./tauri2PluginAdoptionPlan.md) | notification/store/dialog/window-state/clipboard/shell 적용 | updater 미적용 |
 | [ownerAgentAssignmentPlan](./ownerAgentAssignmentPlan.md) | DB 필드 + PlansPanel UI dropdown 존재 | 자동 할당 로직, agent lane 연동 |
-| [projectOnboardingLifecyclePlan](./projectOnboardingLifecyclePlan.md) | folder picker + validation + auto main conv + rawq indexing | workspace scan, template, guided setup |
-| [threadModelRoundtableRedesign](./threadModelRoundtableRedesign.md) | branch.mode + RT branch + shadow conversation + 드로어 RT 완성 + 사이드바 통합 | reviewer thread |
-| [gitSyncBranchModelPlan_2026-03-29](./gitSyncBranchModelPlan_2026-03-29.md) | branch↔git 동기화 모델 설계. adopt=merge, delete=pointer-only, message 보존 | git CLI 연동, .tunaflow/ 구조 |
-| [settingsShellIaPlan_2026-03-29](./settingsShellIaPlan_2026-03-29.md) | Settings Shell MVP — Agents/Personas/Skills/Runtime 섹션 구조 | Skills 이식 완료, 나머지 placeholder |
-| [projectScopedConcurrencyPlan](./projectScopedConcurrencyPlan.md) | thread-local queue 구현 (선행 조건 충족) | 프로젝트 간 병렬 UI 표시, cross-project queue |
-| [rawqRequiredSidecarPlan](./rawqRequiredSidecarPlan.md) | rawq를 optional fallback이 아니라 필수 sidecar로 다루는 전환 계획 | vendor/sidecar 정착, 배포 경로 정리 |
-| [skillRegistryPlan](./skillRegistryPlan.md) | chops 참고 메모 기반 상위 계획 | UI registry, collections, applied skill visibility |
-| [2026-03-28_skills_runtime_snapshot_plan](./2026-03-28_skills_runtime_snapshot_plan.md) | _research/_skills → ~/.tunaflow/skills snapshot 발행. Phase 1 완료 | Phase 2 manifest 고도화, Phase 3 앱 번들 |
-| [skillsUiVisibilityPlan](./skillsUiVisibilityPlan.md) | Skills UI 가시화 — vendor 그룹핑, 활성 카운트, snapshot 메타 표시 | Phase 1 최소 가시화부터 |
-| [engineFeatureParityClassificationPlan](./engineFeatureParityClassificationPlan.md) | 4개 엔진 parity 기준을 P0/P1/P2로 분류하는 기준 문서 | 기능별 개별 parity 실행 필요 |
-| [skillsEngineParityPlan](./skillsEngineParityPlan.md) | skill 적용을 4개 엔진 공통으로 맞추는 계획 | 구현 미착수 |
-| [contextPackEngineParityPlan](./contextPackEngineParityPlan.md) | full/lite 분리를 줄이고 normalized ContextPack으로 맞추는 계획 | 구현 미착수 |
-| [collaborationContextEngineParityPlan](./collaborationContextEngineParityPlan.md) | plan/findings/artifact/thread inheritance parity 계획 | 구현 미착수 |
-| [rawqEngineParityPlan](./rawqEngineParityPlan.md) | rawq section과 diagnostics를 4개 엔진 공통으로 맞추는 계획 | 구현 미착수 |
-| [streamingEngineParityPlan](./streamingEngineParityPlan.md) | streaming UX/state parity 계획 | 구현 미착수 |
-| [tokenCostTrackingEngineParityPlan](./tokenCostTrackingEngineParityPlan.md) | usage/cost 모델 parity 계획 | 구현 미착수 |
-| [resumeContinuationEngineParityPlan](./resumeContinuationEngineParityPlan.md) | native/synthetic continuation parity 계획 | 구현 미착수 |
-| [chatUiParityWithTunaChatPlan](./chatUiParityWithTunaChatPlan.md) | tunaChat 수준의 채팅 UI/UX로 단계적으로 끌어올리는 상위 계획 | Markdown/file viewer/message density/virtualization 진행 필요 |
-| [chatMarkdownCodeblockUpgradePlan_2026-03-29](./chatMarkdownCodeblockUpgradePlan_2026-03-29.md) | 코드블록 헤더 통합, collapse/expand, copy 피드백 | Phase 1 완료 |
-| [chatFileViewerIntegrationPlan_2026-03-29](./chatFileViewerIntegrationPlan_2026-03-29.md) | 파일 경로 클릭 + FileViewer 모달 | Phase 1 완료 |
-| [tracePanelRuntimeFirstPlan_2026-03-29](./tracePanelRuntimeFirstPlan_2026-03-29.md) | TracePanel을 runtime 대시보드로 전환 | Phase 1 완료 |
-| [agentSkillPersonaIaPlan_2026-03-29](./agentSkillPersonaIaPlan_2026-03-29.md) | skills를 workspace에서 분리하고 agent/persona/settings 중심으로 재구성하는 IA 초안 | Settings/agent profile 구조 설계 필요 |
-| [sidebarWorkspaceHierarchyPlan_2026-03-29](./sidebarWorkspaceHierarchyPlan_2026-03-29.md) | 프로젝트 선택과 선택된 프로젝트 하위 채팅 트리의 위계를 분리하는 1차 계획 | Sidebar IA 1차 구현 필요 |
-| [artifactsAsMainTabAndMemoAssistPlan_2026-03-29](./artifactsAsMainTabAndMemoAssistPlan_2026-03-29.md) | Artifacts를 메인 탭으로 승격하고 Memo를 보조 UX로 내리는 계획 | 메인 탭/보조 아이콘 구조 반영 필요 |
-| [agentProfilesSettingsMvpPlan_2026-03-29](./agentProfilesSettingsMvpPlan_2026-03-29.md) | Settings > Agents를 실제 profile 관리 UI로 만드는 MVP 계획 | profile 목록/편집/persistence 구현 필요 |
-| [agentProfileChatInputBindingPlan_2026-03-29](./agentProfileChatInputBindingPlan_2026-03-29.md) | Settings의 Agent Profile을 실제 채팅 입력과 실행 흐름에 연결하는 계획 | profile selector + 실행 반영 필요 |
-| [agentProfileUsagePolishPlan_2026-03-29](./agentProfileUsagePolishPlan_2026-03-29.md) | Agent Profile을 실제 1급 선택 단위로 느끼게 만드는 UX 보강 계획 | profile summary, custom 규칙 가시화, RT 표시 polish |
-| [personaBaselineReviewPlan_2026-03-29](./personaBaselineReviewPlan_2026-03-29.md) | persona baseline 문서를 현재 Agent Profile 중심 구조와 비교 검토하는 계획 | 유지/수정/후순위 판단 필요 |
-| [personaRuntimeBindingPlan_2026-03-29](./personaRuntimeBindingPlan_2026-03-29.md) | 선택된 persona를 실제 runtime prompt 조립과 applied persona 가시성에 연결하는 계획 | persona section 주입, 4-engine parity, applied persona 표시 |
-| [appliedAgentConfigVisibilityPlan_2026-03-29](./appliedAgentConfigVisibilityPlan_2026-03-29.md) | assistant message surface에서 applied profile/persona/skills를 다시 보여주는 계획 | message meta visibility, runtime snapshot 경로 필요 |
-| [chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29](./chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29.md) | chops/context-hub/tunaFlow를 관리층/공급층/적용층으로 나누는 통합 IA 초안 | Settings/Knowledge Sources 구조 정리 필요 |
-| [contextHubSidecarIntegrationPlan_2026-03-29](./contextHubSidecarIntegrationPlan_2026-03-29.md) | context-hub를 CLI/MCP/sidecar로 도입하는 단계별 계획 | Phase 1 CLI health/search/get 미구현 |
-| [settingsSkillsKnowledgeSourcesPlan_2026-03-29](./settingsSkillsKnowledgeSourcesPlan_2026-03-29.md) | Settings에서 Skills와 Knowledge Sources를 분리하는 초안 | Knowledge Sources shell 필요 |
-| [knowledgeSourcesSettingsShellPlan_2026-03-30](./knowledgeSourcesSettingsShellPlan_2026-03-30.md) | Settings에 Knowledge Sources를 제품 셸로 먼저 추가하는 계획 | nav 추가, shell UI, Skills와의 경계 설명 필요 |
-| [documentationIaGovernancePlan_2026-03-30](./documentationIaGovernancePlan_2026-03-30.md) | 문서 탐색성과 신뢰성을 높이기 위한 IA/거버넌스 계획 | index 개선, 상태 라벨, reading pack 정리 필요 |
-| [documentMetadataAdoptionPlan_2026-03-30](./documentMetadataAdoptionPlan_2026-03-30.md) | 문서 메타를 핵심 문서군부터 단계적으로 도입하는 계획 | 최소 메타 적용 순서와 대상 정리 필요 |
-| [runtimeSettingsImplementationPlan_2026-03-30](./runtimeSettingsImplementationPlan_2026-03-30.md) | Settings > Runtime을 placeholder에서 실제 진단/설정 화면으로 바꾸는 계획 | rawq/model catalog/context budget/daemon 구체화 필요 |
-| [contextPackVisibilityUiPolishPlan_2026-03-30](./contextPackVisibilityUiPolishPlan_2026-03-30.md) | trace_log의 context metadata를 TracePanel/StatusBar에서 읽기 쉽게 보여주는 UI polish | 구현 완료 |
-| [contextPackCompressionAndRawqPostprocessPlan_2026-03-30](./contextPackCompressionAndRawqPostprocessPlan_2026-03-30.md) | compression 품질 개선 + rawq 결과 후처리 (dedup, confidence, snippet 확장) | Phase 1+2 완료 |
-| [contextHubMinimalIntegrationPlan_2026-03-30](./contextHubMinimalIntegrationPlan_2026-03-30.md) | context-hub CLI 최소 연동 (health/search/get + source policy) | 구현 완료 |
+| [projectOnboardingLifecyclePlan](./projectOnboardingLifecyclePlan.md) | folder picker + validation + auto main conv + rawq + scaffolding | workspace scan, template, guided setup |
+| [threadModelRoundtableRedesign](./threadModelRoundtableRedesign.md) | branch.mode + RT branch + shadow conv + 드로어 RT + 사이드바 통합 | reviewer thread |
+| [gitSyncBranchModelPlan_2026-03-29](./gitSyncBranchModelPlan_2026-03-29.md) | branch↔git 동기화 모델 설계. adopt=merge, delete=pointer-only | git CLI 연동, .tunaflow/ 구조 |
+| [projectScopedConcurrencyPlan](./projectScopedConcurrencyPlan.md) | thread-local queue 구현 | 프로젝트 간 병렬 UI, cross-project queue |
+| [rawqRequiredSidecarPlan](./rawqRequiredSidecarPlan.md) | sidecar bundle + daemon startup + fs watcher 구현 | 배포 경로 정리 |
+| [skillRegistryPlan](./skillRegistryPlan.md) | chops 참고 메모 기반 | UI registry, collections, applied skill visibility |
+| [2026-03-28_skills_runtime_snapshot_plan](./2026-03-28_skills_runtime_snapshot_plan.md) | Phase 1 snapshot 발행 완료 | Phase 2 manifest 고도화, Phase 3 앱 번들 |
+| [engineFeatureParityClassificationPlan](./engineFeatureParityClassificationPlan.md) | 4-engine parity 분류 기준 + Claude parity fix 완료 | 기능별 개별 parity 실행 |
+| [chatUiParityWithTunaChatPlan](./chatUiParityWithTunaChatPlan.md) | Markdown/codeblock/file viewer 완료 | message density, virtualization |
+| [agentProfileUsagePolishPlan_2026-03-29](./agentProfileUsagePolishPlan_2026-03-29.md) | profile summary 기본 표시 | custom 규칙 가시화, RT 표시 polish |
 | [contextHubSearchGetUiPlan_2026-03-30](./contextHubSearchGetUiPlan_2026-03-30.md) | context-hub search/get 사용자 UI | 구현 진행 중 |
+| [contextPackAlgorithmImprovementsPlan](./contextPackAlgorithmImprovementsPlan.md) | ContextPack 알고리즘 개선 (dedup, 경량화) | Phase 1 미착수 |
+| [agentDaemonRoadmapPlan](./agentDaemonRoadmapPlan.md) | Phase 1-2 완료 (background worker + job registry) | Phase 3 daemon extraction |
+| [planBasedFollowupPlan](./planBasedFollowupPlan.md) | PlansPanel Forward 버튼 구현 | subtask 단위 자동 dispatch |
+| [workflowPipelineV2Plan](./workflowPipelineV2Plan.md) | V2 6-stage 파이프라인 재설계 문서 | 구현 미착수 |
+| [workflowStabilizationPlan](./workflowStabilizationPlan.md) | 워크플로우 안정화 — 프롬프트 표준화 + 풀사이클 실행 | 구현 미착수 |
+| [workflowDocumentV2Plan](./workflowDocumentV2Plan.md) | Architect 직접 작성 + semantic versioning 문서 모델 | 구현 미착수 |
 
 ### 보류
 
 | 문서 | 이유 |
 |------|------|
-| [chatVirtualizationPlan](./chatVirtualizationPlan.md) | 긴 대화 성능 문제 체감 시 착수. 현재 메시지 수 기준 불필요 |
-
-| 문서 | 이유 |
-|------|------|
+| [chatVirtualizationPlan](./chatVirtualizationPlan.md) | 긴 대화 성능 문제 체감 시 착수 (react-virtuoso 의존성은 도입 완료) |
 | [sidecarMigrationPlan](./sidecarMigrationPlan.md) | direct-call로 충분. 필요 시 재검토 |
 | [rawqCodeReviewGraphIntegrationPlan](./rawqCodeReviewGraphIntegrationPlan.md) | code-review-graph 미도입. rawq 단독 운영 |
 | [rawqAutomationPlan](./rawqAutomationPlan.md) | rawq 기본 연동 완료. 자동화는 후순위 |
 | [gitAwareBranchModelPlan](./gitAwareBranchModelPlan.md) | git 필드 준비만 됨. 실제 git 연동은 후순위 |
-| [opusRefactorPlan](./opusRefactorPlan.md) | 초기 대규모 리팩토링 계획. 점진 구조 개선으로 대체 |
-| [messageSearchAdoptionPlan](./messageSearchAdoptionPlan.md) | FTS 스키마만 존재. 현재 프로젝트 중심 로컬 필터로 충분 |
+| [messageSearchAdoptionPlan](./messageSearchAdoptionPlan.md) | FTS5 구현 완료. 전문 검색 확장은 후순위 |
+| [skillsEngineParityPlan](./skillsEngineParityPlan.md) | 키워드 매칭 선택적 주입 완료. 세밀 parity는 후순위 |
+| [contextPackEngineParityPlan](./contextPackEngineParityPlan.md) | normalized ContextPack 통합 완료. 세밀 parity는 후순위 |
+| [collaborationContextEngineParityPlan](./collaborationContextEngineParityPlan.md) | plan/findings/artifact parity 기본 달성. 세밀 조정 후순위 |
+| [rawqEngineParityPlan](./rawqEngineParityPlan.md) | rawq section 4-engine 공통 완료. diagnostics parity 후순위 |
+| [streamingEngineParityPlan](./streamingEngineParityPlan.md) | streaming UX 기본 parity 달성. typing indicator 통일 후순위 |
+| [tokenCostTrackingEngineParityPlan](./tokenCostTrackingEngineParityPlan.md) | usage/cost 모델 parity 후순위 |
+| [resumeContinuationEngineParityPlan](./resumeContinuationEngineParityPlan.md) | Claude native + non-Claude context replay 완료. 세밀 조정 후순위 |
 
 ### 진행 예정
 
 | 문서 | 우선순위 |
 |------|---------|
-| [longTermMemoryRoadmapPlan_2026-03-30](./longTermMemoryRoadmapPlan_2026-03-30.md) | 중요 / P0 — tunaFlow 장기기억 구조(working/compressed/structured/retrieval) 로드맵 |
-| [longTermMemoryPhase1CompressionPlan_2026-03-30](./longTermMemoryPhase1CompressionPlan_2026-03-30.md) | 중요 / P0 — recent window를 넘는 대화를 compressed memory로 유지하는 1차 구현 |
-| [compressedMemoryOperationalPolishPlan_2026-03-30](./compressedMemoryOperationalPolishPlan_2026-03-30.md) | 중요 / P0 — compressed memory의 상태/실패/provenance/재압축 정책 운영 보강 |
-| [structuredMemorySourceStrengtheningPlan_2026-03-30](./structuredMemorySourceStrengtheningPlan_2026-03-30.md) | 중요 / P0 — plan/findings/artifacts/memo/cross-session를 장기기억용 structured memory source로 강화 |
-| [contextPackAlgorithmPhase1Plan_2026-03-30](./contextPackAlgorithmPhase1Plan_2026-03-30.md) | 중요 / P1 — Jaccard dedup, markdown 경량화, import collapse, rawq 다해상도 같은 저리스크 알고리즘 개선 |
-| [conversationRetrievalPhase1Plan_2026-03-30](./conversationRetrievalPhase1Plan_2026-03-30.md) | 중요 / P1 — 프로젝트 범위 과거 대화 chunk를 회수하는 conversation retrieval 최소 실험 |
-| [conversationRetrievalChunkingPlan_2026-03-30](./conversationRetrievalChunkingPlan_2026-03-30.md) | 중요 / P1 — retrieval 결과를 message 단건에서 pair/chunk 단위로 끌어올리는 2차 개선 |
-| [conversationRetrievalRankingPolishPlan_2026-03-30](./conversationRetrievalRankingPolishPlan_2026-03-30.md) | 중요 / P1 — retrieval chunk를 ranking/dedup/overlap suppression으로 더 적고 관련성 높게 다듬는 3차 개선 |
-| [unifiedMemoryPolicyPhase1Plan_2026-03-30](./unifiedMemoryPolicyPhase1Plan_2026-03-30.md) | 중요 / P1 — working/structured/compressed/retrieval memory를 하나의 selection policy로 통합 |
-| [unifiedMemoryPolicyThresholdTuningPlan_2026-03-30](./unifiedMemoryPolicyThresholdTuningPlan_2026-03-30.md) | 중요 / P1 — retrieval/compressed memory cutoff를 실제 사용 패턴에 맞게 조정하는 정책 튜닝 |
-| [orchestratedWorkflowPipelinePlan](./orchestratedWorkflowPipelinePlan.md) | archived — V1 파이프라인 (Phase A-E 구현 완료). superseded by V2 |
-| [workflowPipelineV2Plan](./workflowPipelineV2Plan.md) | 중요 / P0 — 6-stage 파이프라인 재설계. Plan→Subtask→Approved→Dev→Review→Decision |
-| [memoryPolicyTraceSurfacePlan_2026-03-30](./memoryPolicyTraceSurfacePlan_2026-03-30.md) | 중요 / P1 — memory layer 포함/스킵/threshold 결과를 Trace/Runtime surface에서 읽기 쉽게 노출 |
-| [memorySectionBudgetBreakdownPlan_2026-03-30](./memorySectionBudgetBreakdownPlan_2026-03-30.md) | 중요 / P1 — 각 ContextPack section이 실제 budget을 얼마나 먹는지 Trace/Runtime에서 읽게 하는 observability 보강 |
-| [topHeavySectionTuningPlan_2026-03-30](./topHeavySectionTuningPlan_2026-03-30.md) | 중요 / P1 — top budget consumer section 2~3개를 targeted tuning으로 줄이는 최적화 단계 |
-| [modeSpecificSectionHeuristicsPlan_2026-03-30](./modeSpecificSectionHeuristicsPlan_2026-03-30.md) | 중요 / P1 — Lite/Standard/Full/Auto를 section 해상도까지 다른 context assembly profile로 정교화 |
-| [autoModeHeuristicPolishPlan_2026-03-30](./autoModeHeuristicPolishPlan_2026-03-30.md) | 중요 / P1 — Auto가 Lite/Standard/Full 중 적절한 profile을 설명 가능하게 선택하도록 다듬는 단계 |
-| [projectFirstStartupUxPlan_2026-03-30](./projectFirstStartupUxPlan_2026-03-30.md) | 중요 / P1 — 프로젝트 선택부터 시작하는 최종 제품 진입 UX를 실제 startup flow로 옮기는 단계 |
-| [roundtableCompletionOrderPlan_2026-03-30](./roundtableCompletionOrderPlan_2026-03-30.md) | 중요 / P1 — Deliberative RT의 reduce 병목을 completion-order collection으로 제거 |
-| [roundtableBlindVerifierPhasePlan_2026-03-30](./roundtableBlindVerifierPhasePlan_2026-03-30.md) | 중요 / P1 — sycophancy 방지를 위해 특정 participant를 blind verifier로 격리하는 RT 확장 |
-| [roundtableParticipantRoleBlindUiPlan_2026-03-30](./roundtableParticipantRoleBlindUiPlan_2026-03-30.md) | 중요 / P1 — RT participant 설정 UI에서 role/blind/max token override를 실제로 다루게 하는 연결 단계 |
-| [roundtableParticipantSurfaceVisibilityPlan_2026-03-30](./roundtableParticipantSurfaceVisibilityPlan_2026-03-30.md) | 중요 / P1 — RT 실행/조회 표면에서 participant role/blind를 다시 읽을 수 있게 하는 가시화 단계 |
-| [roundtableRoleTerminologySeparationPlan_2026-03-30](./roundtableRoleTerminologySeparationPlan_2026-03-30.md) | 중요 / P1 — 프로젝트 프로필 역할과 RT 토론 역할을 분리해 `role` 혼동을 없애는 정리 단계 |
-| [runtimeFeatureValidationPlan_2026-03-30](./runtimeFeatureValidationPlan_2026-03-30.md) | 중요 / P1 — compressed memory / retrieval / auto mode / budget reflection / RT 회귀를 실제 시나리오로 검증하는 라운드 |
-| [postParityRuntimeValidationSweepPlan_2026-03-30](./postParityRuntimeValidationSweepPlan_2026-03-30.md) | 중요 / P1 — Claude가 통합 ContextPack 파이프라인을 타게 된 이후 parity fix 효과를 재검증하는 라운드 |
-| [liveRuntimeTraceParityValidationPlan_2026-03-30](./liveRuntimeTraceParityValidationPlan_2026-03-30.md) | 중요 / P1 — 앱 실행 기준으로 4-engine trace/meta parity를 실제 surface에서 재확인하는 라운드 |
-| [realWorkflowMemoryQualityValidationPlan_2026-03-30](./realWorkflowMemoryQualityValidationPlan_2026-03-30.md) | 중요 / P1 — 실제 프로젝트 흐름에서 memory/retrieval/auto/budget이 응답 품질에 주는 효과를 검증하는 라운드 |
-| [agentDaemonRoadmapPlan](./agentDaemonRoadmapPlan.md) | Phase 1-2 완료 (background worker + job registry). Phase 3 daemon extraction 진행 예정 |
-| [contextBudgetScalingPlan](./contextBudgetScalingPlan.md) | background execution 안정화 후 베타에서 단계적 context budget 상향 실험 |
-| [planBasedFollowupPlan](./planBasedFollowupPlan.md) | PlansPanel Forward 버튼은 구현됨. subtask 단위 자동 dispatch는 미구현 |
+| [longTermMemoryRoadmapPlan_2026-03-30](./longTermMemoryRoadmapPlan_2026-03-30.md) | P0 — 장기기억 구조(working/compressed/structured/retrieval) 로드맵 |
+| [compressedMemoryOperationalPolishPlan_2026-03-30](./compressedMemoryOperationalPolishPlan_2026-03-30.md) | P0 — compressed memory 상태/실패/provenance/재압축 운영 보강 |
+| [structuredMemorySourceStrengtheningPlan_2026-03-30](./structuredMemorySourceStrengtheningPlan_2026-03-30.md) | P0 — plan/findings/artifacts/memo를 structured memory source로 강화 |
+| [geminiSdkIntegrationPlan](./geminiSdkIntegrationPlan.md) | P1 — Google AI SDK 직접 통합 (CLI 대체, SSE/token/function calling) |
+| [toolCallHandlerPlan](./toolCallHandlerPlan.md) | P1 — function calling으로 마커 대체 |
+| [contextPackAlgorithmPhase1Plan_2026-03-30](./contextPackAlgorithmPhase1Plan_2026-03-30.md) | P1 — Jaccard dedup, markdown 경량화, import collapse, rawq 다해상도 |
+| [conversationRetrievalPhase1Plan_2026-03-30](./conversationRetrievalPhase1Plan_2026-03-30.md) | P1 — 프로젝트 범위 과거 대화 chunk 회수 최소 실험 |
+| [conversationRetrievalChunkingPlan_2026-03-30](./conversationRetrievalChunkingPlan_2026-03-30.md) | P1 — retrieval pair/chunk 단위 2차 개선 |
+| [conversationRetrievalRankingPolishPlan_2026-03-30](./conversationRetrievalRankingPolishPlan_2026-03-30.md) | P1 — ranking/dedup/overlap suppression 3차 개선 |
+| [unifiedMemoryPolicyPhase1Plan_2026-03-30](./unifiedMemoryPolicyPhase1Plan_2026-03-30.md) | P1 — working/structured/compressed/retrieval 통합 selection policy |
+| [unifiedMemoryPolicyThresholdTuningPlan_2026-03-30](./unifiedMemoryPolicyThresholdTuningPlan_2026-03-30.md) | P1 — retrieval/compressed memory 임계값 튜닝 |
+| [memoryPolicyTraceSurfacePlan_2026-03-30](./memoryPolicyTraceSurfacePlan_2026-03-30.md) | P1 — memory layer 결과를 Trace/Runtime surface에 노출 |
+| [memorySectionBudgetBreakdownPlan_2026-03-30](./memorySectionBudgetBreakdownPlan_2026-03-30.md) | P1 — section별 budget 소비량 observability |
+| [topHeavySectionTuningPlan_2026-03-30](./topHeavySectionTuningPlan_2026-03-30.md) | P1 — top budget consumer 최적화 |
+| [modeSpecificSectionHeuristicsPlan_2026-03-30](./modeSpecificSectionHeuristicsPlan_2026-03-30.md) | P1 — Lite/Std/Full/Auto section-level profile 정교화 |
+| [autoModeHeuristicPolishPlan_2026-03-30](./autoModeHeuristicPolishPlan_2026-03-30.md) | P1 — Auto profile 선택 다듬기 |
+| [projectFirstStartupUxPlan_2026-03-30](./projectFirstStartupUxPlan_2026-03-30.md) | P1 — 프로젝트 선택 최종 startup flow |
+| [roundtableCompletionOrderPlan_2026-03-30](./roundtableCompletionOrderPlan_2026-03-30.md) | P1 — Deliberative RT completion-order collection |
+| [roundtableBlindVerifierPhasePlan_2026-03-30](./roundtableBlindVerifierPhasePlan_2026-03-30.md) | P1 — sycophancy 방지 blind verifier RT 확장 |
+| [roundtableParticipantRoleBlindUiPlan_2026-03-30](./roundtableParticipantRoleBlindUiPlan_2026-03-30.md) | P1 — RT participant role/blind UI |
+| [roundtableParticipantSurfaceVisibilityPlan_2026-03-30](./roundtableParticipantSurfaceVisibilityPlan_2026-03-30.md) | P1 — RT participant role/blind 가시화 |
+| [roundtableRoleTerminologySeparationPlan_2026-03-30](./roundtableRoleTerminologySeparationPlan_2026-03-30.md) | P1 — 프로필 역할 vs RT 토론 역할 분리 |
+| [runtimeFeatureValidationPlan_2026-03-30](./runtimeFeatureValidationPlan_2026-03-30.md) | P1 — memory/retrieval/auto/budget/RT 실시나리오 검증 |
+| [postParityRuntimeValidationSweepPlan_2026-03-30](./postParityRuntimeValidationSweepPlan_2026-03-30.md) | P1 — parity fix 효과 재검증 |
+| [liveRuntimeTraceParityValidationPlan_2026-03-30](./liveRuntimeTraceParityValidationPlan_2026-03-30.md) | P1 — 4-engine trace/meta parity 실제 확인 |
+| [realWorkflowMemoryQualityValidationPlan_2026-03-30](./realWorkflowMemoryQualityValidationPlan_2026-03-30.md) | P1 — memory/retrieval 응답 품질 검증 |
+| [contextBudgetScalingPlan](./contextBudgetScalingPlan.md) | P2 — 단계적 context budget 상향 실험 |
+
+### 기타 (IA/검토/가이드)
+
+| 문서 | 설명 |
+|------|------|
+| [agentSkillPersonaIaPlan_2026-03-29](./agentSkillPersonaIaPlan_2026-03-29.md) | agent/persona/settings IA 초안 — 대부분 구현 반영됨 |
+| [sidebarWorkspaceHierarchyPlan_2026-03-29](./sidebarWorkspaceHierarchyPlan_2026-03-29.md) | 사이드바 위계 1차 계획 — 구현 반영됨 |
+| [artifactsAsMainTabAndMemoAssistPlan_2026-03-29](./artifactsAsMainTabAndMemoAssistPlan_2026-03-29.md) | Artifacts 메인 탭 승격 계획 — 구현 반영됨 |
+| [personaBaselineReviewPlan_2026-03-29](./personaBaselineReviewPlan_2026-03-29.md) | persona baseline 비교 검토 — 세션 2에서 반영 |
+| [chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29](./chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29.md) | chops/context-hub/tunaFlow 통합 IA 초안 |
+| [settingsSkillsKnowledgeSourcesPlan_2026-03-29](./settingsSkillsKnowledgeSourcesPlan_2026-03-29.md) | Settings Skills/Knowledge Sources 분리 초안 |
+| [knowledgeSourcesSettingsShellPlan_2026-03-30](./knowledgeSourcesSettingsShellPlan_2026-03-30.md) | Knowledge Sources 제품 셸 계획 |
+| [documentMetadataAdoptionPlan_2026-03-30](./documentMetadataAdoptionPlan_2026-03-30.md) | 문서 메타 단계적 도입 계획 |
+| [personaVsHandoffValidationPlan_2026-03-30](./personaVsHandoffValidationPlan_2026-03-30.md) | persona vs handoff 검증 — 세션 2에서 반영 |
+| [codeHygienePassPlan_2026-03-30](./codeHygienePassPlan_2026-03-30.md) | 코드 위생 패스 — 세션 3에서 부분 반영 |
+| [promptQualityAdoptionPlan_2026-03-30](./promptQualityAdoptionPlan_2026-03-30.md) | 프롬프트 품질 도입 계획 |
+| [contextHubExplicitHandoffPlan_2026-03-30](./contextHubExplicitHandoffPlan_2026-03-30.md) | context-hub 명시적 핸드오프 |
+| [contextStackReevaluationPlan_2026-03-30](./contextStackReevaluationPlan_2026-03-30.md) | context 스택 재평가 |
+| [deferredTechReevaluationPlan_2026-03-30](./deferredTechReevaluationPlan_2026-03-30.md) | 보류 기술 재평가 |
+| [tokenCostDbParityPlan_2026-03-30](./tokenCostDbParityPlan_2026-03-30.md) | token/cost DB 레벨 parity |
+| [evaluationUiConnectionPlan_2026-03-30](./evaluationUiConnectionPlan_2026-03-30.md) | Evaluation UI 연결 계획 |
+| [evaluationUnderTestPlan_2026-03-30](./evaluationUnderTestPlan_2026-03-30.md) | Evaluation 테스트 계획 |
+| [evaluationRunCreationUiPlan_2026-03-30](./evaluationRunCreationUiPlan_2026-03-30.md) | Evaluation Run 생성 UI |
+| [evaluationRunExecutionLinkagePlan_2026-03-30](./evaluationRunExecutionLinkagePlan_2026-03-30.md) | Evaluation Run 실행 연결 |
+| [evaluationRunExecutionRealWiringPlan_2026-03-30](./evaluationRunExecutionRealWiringPlan_2026-03-30.md) | Evaluation Run 실제 배선 |
+| [evaluationUsabilityPassPlan_2026-03-30](./evaluationUsabilityPassPlan_2026-03-30.md) | Evaluation 사용성 패스 |
+| [gitSyncPhase1Plan_2026-03-30](./gitSyncPhase1Plan_2026-03-30.md) | Git sync Phase 1 |
+| [gitBranchLinkVisibilityPlan_2026-03-30](./gitBranchLinkVisibilityPlan_2026-03-30.md) | Git branch link 가시화 |
+| [gitBranchDefaultingPlan_2026-03-30](./gitBranchDefaultingPlan_2026-03-30.md) | Git branch 기본값 |
+| [gitSyncPhase2GuardedActionsPlan_2026-03-30](./gitSyncPhase2GuardedActionsPlan_2026-03-30.md) | Git sync Phase 2 guarded actions |
+| [roundtableCreationConfigPlan](./roundtableCreationConfigPlan.md) | RT 생성 설정 계획 |
+| [contextPackTraceabilityPlan](./contextPackTraceabilityPlan.md) | ContextPack 추적성 계획 |
+| [codebaseRefactoringProposal](./codebaseRefactoringProposal.md) | 코드베이스 리팩토링 제안서 |
+| [2026-03-28_claude_skill_activation_guide](./2026-03-28_claude_skill_activation_guide.md) | Claude Code 스킬 활성화 운영 가이드 |
+| [opusRefactorPlan](./opusRefactorPlan.md) | 초기 대규모 리팩토링 — 점진 개선으로 대체, 참고용 |
 
 ## 문서 목록
 
+- [2026-03-28_claude_skill_activation_guide](./2026-03-28_claude_skill_activation_guide.md)
+- [2026-03-28_skills_runtime_snapshot_plan](./2026-03-28_skills_runtime_snapshot_plan.md)
 - [agentCollaborationPlan](./agentCollaborationPlan.md)
 - [agentDaemonRoadmapPlan](./agentDaemonRoadmapPlan.md)
-- [chatUiMarkdownUpgradePlan](./chatUiMarkdownUpgradePlan.md)
-- [claudeContextLightweightPlan](./claudeContextLightweightPlan.md)
-- [conversationVectorSearchPlan](./conversationVectorSearchPlan.md)
-- [contextPackTraceabilityPlan](./contextPackTraceabilityPlan.md)
-- [contextBudgetScalingPlan](./contextBudgetScalingPlan.md)
-- [engineModelCatalogPlan](./engineModelCatalogPlan.md)
-- [gitAwareBranchModelPlan](./gitAwareBranchModelPlan.md)
-- [harnessEngineeringAdoptionPlan](./harnessEngineeringAdoptionPlan.md)
-- [masterTestPlan](./masterTestPlan.md)
-- [messagePairDeletionPlan](./messagePairDeletionPlan.md)
-- [messageSearchAdoptionPlan](./messageSearchAdoptionPlan.md)
-- [modelsCommandCatalogPlan](./modelsCommandCatalogPlan.md)
-- [naturalLanguageHandoffPlan](./naturalLanguageHandoffPlan.md)
-- [ownerAgentAssignmentPlan](./ownerAgentAssignmentPlan.md)
-- [panelDrawerUxPlan](./panelDrawerUxPlan.md)
-- [planBasedFollowupPlan](./planBasedFollowupPlan.md)
-- [projectOnboardingLifecyclePlan](./projectOnboardingLifecyclePlan.md)
-- [projectScopedConcurrencyPlan](./projectScopedConcurrencyPlan.md)
-- [progressFirstStreamingPlan](./progressFirstStreamingPlan.md)
-- [opusRefactorPlan](./opusRefactorPlan.md)
-- [rawqAutomationPlan](./rawqAutomationPlan.md)
-- [rawqCodeReviewGraphIntegrationPlan](./rawqCodeReviewGraphIntegrationPlan.md)
-- [rawqIntegrationPlan](./rawqIntegrationPlan.md)
-- [rawqRequiredSidecarPlan](./rawqRequiredSidecarPlan.md)
-- [roundtableCreationConfigPlan](./roundtableCreationConfigPlan.md)
-- [scalabilityRefactorPlan](./scalabilityRefactorPlan.md)
-- [skillRegistryPlan](./skillRegistryPlan.md)
-- [engineFeatureParityClassificationPlan](./engineFeatureParityClassificationPlan.md)
-- [skillsEngineParityPlan](./skillsEngineParityPlan.md)
-- [contextPackEngineParityPlan](./contextPackEngineParityPlan.md)
-- [collaborationContextEngineParityPlan](./collaborationContextEngineParityPlan.md)
-- [rawqEngineParityPlan](./rawqEngineParityPlan.md)
-- [streamingEngineParityPlan](./streamingEngineParityPlan.md)
-- [tokenCostTrackingEngineParityPlan](./tokenCostTrackingEngineParityPlan.md)
-- [resumeContinuationEngineParityPlan](./resumeContinuationEngineParityPlan.md)
-- [chatUiParityWithTunaChatPlan](./chatUiParityWithTunaChatPlan.md)
-- [chatMarkdownCodeblockUpgradePlan_2026-03-29](./chatMarkdownCodeblockUpgradePlan_2026-03-29.md)
-- [chatFileViewerIntegrationPlan_2026-03-29](./chatFileViewerIntegrationPlan_2026-03-29.md)
-- [tracePanelRuntimeFirstPlan_2026-03-29](./tracePanelRuntimeFirstPlan_2026-03-29.md)
-- [agentSkillPersonaIaPlan_2026-03-29](./agentSkillPersonaIaPlan_2026-03-29.md)
-- [sidebarWorkspaceHierarchyPlan_2026-03-29](./sidebarWorkspaceHierarchyPlan_2026-03-29.md)
-- [artifactsAsMainTabAndMemoAssistPlan_2026-03-29](./artifactsAsMainTabAndMemoAssistPlan_2026-03-29.md)
-- [agentProfilesSettingsMvpPlan_2026-03-29](./agentProfilesSettingsMvpPlan_2026-03-29.md)
+- [agentIdentityFramingPlan_2026-03-30](./agentIdentityFramingPlan_2026-03-30.md)
+- [agentIdentityValidationPlan_2026-03-30](./agentIdentityValidationPlan_2026-03-30.md)
 - [agentProfileChatInputBindingPlan_2026-03-29](./agentProfileChatInputBindingPlan_2026-03-29.md)
+- [agentProfilesSettingsMvpPlan_2026-03-29](./agentProfilesSettingsMvpPlan_2026-03-29.md)
 - [agentProfileUsagePolishPlan_2026-03-29](./agentProfileUsagePolishPlan_2026-03-29.md)
-- [personaBaselineReviewPlan_2026-03-29](./personaBaselineReviewPlan_2026-03-29.md)
-- [personaRuntimeBindingPlan_2026-03-29](./personaRuntimeBindingPlan_2026-03-29.md)
+- [agentSkillPersonaIaPlan_2026-03-29](./agentSkillPersonaIaPlan_2026-03-29.md)
 - [appliedAgentConfigVisibilityPlan_2026-03-29](./appliedAgentConfigVisibilityPlan_2026-03-29.md)
+- [artifactDetailViewPlan_2026-03-30](./artifactDetailViewPlan_2026-03-30.md)
+- [artifactManualPromotionMvpPlan_2026-03-30](./artifactManualPromotionMvpPlan_2026-03-30.md)
+- [artifactNavigationActionsPlan_2026-03-30](./artifactNavigationActionsPlan_2026-03-30.md)
+- [artifactProvenanceWorkflowPlan_2026-03-30](./artifactProvenanceWorkflowPlan_2026-03-30.md)
+- [artifactsAsMainTabAndMemoAssistPlan_2026-03-29](./artifactsAsMainTabAndMemoAssistPlan_2026-03-29.md)
+- [artifactsTabUsabilityPlan_2026-03-30](./artifactsTabUsabilityPlan_2026-03-30.md)
+- [autoModeHeuristicPolishPlan_2026-03-30](./autoModeHeuristicPolishPlan_2026-03-30.md)
+- [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md)
+- [chatFileViewerIntegrationPlan_2026-03-29](./chatFileViewerIntegrationPlan_2026-03-29.md)
+- [chatMarkdownCodeblockUpgradePlan_2026-03-29](./chatMarkdownCodeblockUpgradePlan_2026-03-29.md)
+- [chatSearchFtsPlan_2026-03-30](./chatSearchFtsPlan_2026-03-30.md)
+- [chatUiMarkdownUpgradePlan](./chatUiMarkdownUpgradePlan.md)
+- [chatUiParityWithTunaChatPlan](./chatUiParityWithTunaChatPlan.md)
+- [chatVirtualizationPlan](./chatVirtualizationPlan.md)
 - [chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29](./chopsContextHubTunaFlowIntegrationIaPlan_2026-03-29.md)
+- [claudeContextLightweightPlan](./claudeContextLightweightPlan.md)
+- [codebaseRefactoringProposal](./codebaseRefactoringProposal.md)
+- [codeHygienePassPlan_2026-03-30](./codeHygienePassPlan_2026-03-30.md)
+- [collaborationContextEngineParityPlan](./collaborationContextEngineParityPlan.md)
+- [compressedMemoryOperationalPolishPlan_2026-03-30](./compressedMemoryOperationalPolishPlan_2026-03-30.md)
+- [contextBudgetControlUiPlan_2026-03-30](./contextBudgetControlUiPlan_2026-03-30.md)
+- [contextBudgetScalingPlan](./contextBudgetScalingPlan.md)
+- [contextHubExplicitHandoffPlan_2026-03-30](./contextHubExplicitHandoffPlan_2026-03-30.md)
+- [contextHubMinimalIntegrationPlan_2026-03-30](./contextHubMinimalIntegrationPlan_2026-03-30.md)
+- [contextHubSearchGetUiPlan_2026-03-30](./contextHubSearchGetUiPlan_2026-03-30.md)
 - [contextHubSidecarIntegrationPlan_2026-03-29](./contextHubSidecarIntegrationPlan_2026-03-29.md)
-- [settingsSkillsKnowledgeSourcesPlan_2026-03-29](./settingsSkillsKnowledgeSourcesPlan_2026-03-29.md)
-- [knowledgeSourcesSettingsShellPlan_2026-03-30](./knowledgeSourcesSettingsShellPlan_2026-03-30.md)
+- [contextPackAlgorithmImprovementsPlan](./contextPackAlgorithmImprovementsPlan.md)
+- [contextPackAlgorithmPhase1Plan_2026-03-30](./contextPackAlgorithmPhase1Plan_2026-03-30.md)
+- [contextPackCompressionAndRawqPostprocessPlan_2026-03-30](./contextPackCompressionAndRawqPostprocessPlan_2026-03-30.md)
+- [contextPackEngineParityPlan](./contextPackEngineParityPlan.md)
+- [contextPackP0Phase1Plan_2026-03-30](./contextPackP0Phase1Plan_2026-03-30.md)
+- [contextPackTraceabilityPlan](./contextPackTraceabilityPlan.md)
+- [contextPackVisibilityUiPolishPlan_2026-03-30](./contextPackVisibilityUiPolishPlan_2026-03-30.md)
+- [contextStackReevaluationPlan_2026-03-30](./contextStackReevaluationPlan_2026-03-30.md)
+- [conversationRetrievalChunkingPlan_2026-03-30](./conversationRetrievalChunkingPlan_2026-03-30.md)
+- [conversationRetrievalPhase1Plan_2026-03-30](./conversationRetrievalPhase1Plan_2026-03-30.md)
+- [conversationRetrievalRankingPolishPlan_2026-03-30](./conversationRetrievalRankingPolishPlan_2026-03-30.md)
+- [conversationVectorSearchPlan](./conversationVectorSearchPlan.md)
+- [deferredTechReevaluationPlan_2026-03-30](./deferredTechReevaluationPlan_2026-03-30.md)
+- [dependencyAdoptionPlan](./dependencyAdoptionPlan.md)
 - [documentationIaGovernancePlan_2026-03-30](./documentationIaGovernancePlan_2026-03-30.md)
 - [documentMetadataAdoptionPlan_2026-03-30](./documentMetadataAdoptionPlan_2026-03-30.md)
-- [runtimeSettingsImplementationPlan_2026-03-30](./runtimeSettingsImplementationPlan_2026-03-30.md)
-- [artifactManualPromotionMvpPlan_2026-03-30](./artifactManualPromotionMvpPlan_2026-03-30.md)
-- [artifactsTabUsabilityPlan_2026-03-30](./artifactsTabUsabilityPlan_2026-03-30.md)
-- [artifactDetailViewPlan_2026-03-30](./artifactDetailViewPlan_2026-03-30.md)
-- [artifactProvenanceWorkflowPlan_2026-03-30](./artifactProvenanceWorkflowPlan_2026-03-30.md)
-- [artifactNavigationActionsPlan_2026-03-30](./artifactNavigationActionsPlan_2026-03-30.md)
-- [chatSearchFtsPlan_2026-03-30](./chatSearchFtsPlan_2026-03-30.md)
-- [personaBehaviorValidationPlan_2026-03-30](./personaBehaviorValidationPlan_2026-03-30.md)
-- [personaVsHandoffValidationPlan_2026-03-30](./personaVsHandoffValidationPlan_2026-03-30.md)
-- [handoffTruncationFixPlan_2026-03-30](./handoffTruncationFixPlan_2026-03-30.md)
-- [personaCliValidationPlan_2026-03-30](./personaCliValidationPlan_2026-03-30.md)
-- [codeHygienePassPlan_2026-03-30](./codeHygienePassPlan_2026-03-30.md)
-- [tokenCostDbParityPlan_2026-03-30](./tokenCostDbParityPlan_2026-03-30.md)
-- [evaluationUiConnectionPlan_2026-03-30](./evaluationUiConnectionPlan_2026-03-30.md)
-- [evaluationUnderTestPlan_2026-03-30](./evaluationUnderTestPlan_2026-03-30.md)
+- [engineFeatureParityClassificationPlan](./engineFeatureParityClassificationPlan.md)
+- [engineModelCatalogPlan](./engineModelCatalogPlan.md)
 - [evaluationRunCreationUiPlan_2026-03-30](./evaluationRunCreationUiPlan_2026-03-30.md)
 - [evaluationRunExecutionLinkagePlan_2026-03-30](./evaluationRunExecutionLinkagePlan_2026-03-30.md)
 - [evaluationRunExecutionRealWiringPlan_2026-03-30](./evaluationRunExecutionRealWiringPlan_2026-03-30.md)
+- [evaluationUiConnectionPlan_2026-03-30](./evaluationUiConnectionPlan_2026-03-30.md)
+- [evaluationUnderTestPlan_2026-03-30](./evaluationUnderTestPlan_2026-03-30.md)
 - [evaluationUsabilityPassPlan_2026-03-30](./evaluationUsabilityPassPlan_2026-03-30.md)
-- [gitSyncPhase1Plan_2026-03-30](./gitSyncPhase1Plan_2026-03-30.md)
-- [gitBranchLinkVisibilityPlan_2026-03-30](./gitBranchLinkVisibilityPlan_2026-03-30.md)
+- [geminiSdkIntegrationPlan](./geminiSdkIntegrationPlan.md)
+- [gitAwareBranchModelPlan](./gitAwareBranchModelPlan.md)
 - [gitBranchDefaultingPlan_2026-03-30](./gitBranchDefaultingPlan_2026-03-30.md)
+- [gitBranchLinkVisibilityPlan_2026-03-30](./gitBranchLinkVisibilityPlan_2026-03-30.md)
+- [gitSyncBranchModelPlan_2026-03-29](./gitSyncBranchModelPlan_2026-03-29.md)
+- [gitSyncPhase1Plan_2026-03-30](./gitSyncPhase1Plan_2026-03-30.md)
 - [gitSyncPhase2GuardedActionsPlan_2026-03-30](./gitSyncPhase2GuardedActionsPlan_2026-03-30.md)
-- [deferredTechReevaluationPlan_2026-03-30](./deferredTechReevaluationPlan_2026-03-30.md)
-- [contextStackReevaluationPlan_2026-03-30](./contextStackReevaluationPlan_2026-03-30.md)
-- [contextPackP0Phase1Plan_2026-03-30](./contextPackP0Phase1Plan_2026-03-30.md)
-- [contextBudgetControlUiPlan_2026-03-30](./contextBudgetControlUiPlan_2026-03-30.md)
-- [contextHubMinimalIntegrationPlan_2026-03-30](./contextHubMinimalIntegrationPlan_2026-03-30.md)
-- [contextHubExplicitHandoffPlan_2026-03-30](./contextHubExplicitHandoffPlan_2026-03-30.md)
-- [agentIdentityFramingPlan_2026-03-30](./agentIdentityFramingPlan_2026-03-30.md)
-- [agentIdentityValidationPlan_2026-03-30](./agentIdentityValidationPlan_2026-03-30.md)
-- [messageAuthorAttributionPlan_2026-03-30](./messageAuthorAttributionPlan_2026-03-30.md)
-- [longTermMemoryRoadmapPlan_2026-03-30](./longTermMemoryRoadmapPlan_2026-03-30.md)
+- [handoffTruncationFixPlan_2026-03-30](./handoffTruncationFixPlan_2026-03-30.md)
+- [harnessEngineeringAdoptionPlan](./harnessEngineeringAdoptionPlan.md)
+- [knowledgeSourcesSettingsShellPlan_2026-03-30](./knowledgeSourcesSettingsShellPlan_2026-03-30.md)
+- [liveRuntimeTraceParityValidationPlan_2026-03-30](./liveRuntimeTraceParityValidationPlan_2026-03-30.md)
 - [longTermMemoryPhase1CompressionPlan_2026-03-30](./longTermMemoryPhase1CompressionPlan_2026-03-30.md)
-- [compressedMemoryOperationalPolishPlan_2026-03-30](./compressedMemoryOperationalPolishPlan_2026-03-30.md)
-- [structuredMemorySourceStrengtheningPlan_2026-03-30](./structuredMemorySourceStrengtheningPlan_2026-03-30.md)
-- [contextPackAlgorithmPhase1Plan_2026-03-30](./contextPackAlgorithmPhase1Plan_2026-03-30.md)
-- [conversationRetrievalPhase1Plan_2026-03-30](./conversationRetrievalPhase1Plan_2026-03-30.md)
-- [conversationRetrievalChunkingPlan_2026-03-30](./conversationRetrievalChunkingPlan_2026-03-30.md)
-- [conversationRetrievalRankingPolishPlan_2026-03-30](./conversationRetrievalRankingPolishPlan_2026-03-30.md)
-- [unifiedMemoryPolicyPhase1Plan_2026-03-30](./unifiedMemoryPolicyPhase1Plan_2026-03-30.md)
-- [unifiedMemoryPolicyThresholdTuningPlan_2026-03-30](./unifiedMemoryPolicyThresholdTuningPlan_2026-03-30.md)
+- [longTermMemoryRoadmapPlan_2026-03-30](./longTermMemoryRoadmapPlan_2026-03-30.md)
+- [masterTestPlan](./masterTestPlan.md)
 - [memoryPolicyTraceSurfacePlan_2026-03-30](./memoryPolicyTraceSurfacePlan_2026-03-30.md)
 - [memorySectionBudgetBreakdownPlan_2026-03-30](./memorySectionBudgetBreakdownPlan_2026-03-30.md)
-- [topHeavySectionTuningPlan_2026-03-30](./topHeavySectionTuningPlan_2026-03-30.md)
+- [messageAuthorAttributionPlan_2026-03-30](./messageAuthorAttributionPlan_2026-03-30.md)
+- [messagePairDeletionPlan](./messagePairDeletionPlan.md)
+- [messageSearchAdoptionPlan](./messageSearchAdoptionPlan.md)
+- [modelsCommandCatalogPlan](./modelsCommandCatalogPlan.md)
 - [modeSpecificSectionHeuristicsPlan_2026-03-30](./modeSpecificSectionHeuristicsPlan_2026-03-30.md)
-- [autoModeHeuristicPolishPlan_2026-03-30](./autoModeHeuristicPolishPlan_2026-03-30.md)
+- [naturalLanguageHandoffPlan](./naturalLanguageHandoffPlan.md)
+- [opusRefactorPlan](./opusRefactorPlan.md)
+- [orchestratedWorkflowPipelinePlan](./orchestratedWorkflowPipelinePlan.md)
+- [ownerAgentAssignmentPlan](./ownerAgentAssignmentPlan.md)
+- [panelDrawerUxPlan](./panelDrawerUxPlan.md)
+- [personaBaselineReviewPlan_2026-03-29](./personaBaselineReviewPlan_2026-03-29.md)
+- [personaBehaviorValidationPlan_2026-03-30](./personaBehaviorValidationPlan_2026-03-30.md)
+- [personaCliValidationPlan_2026-03-30](./personaCliValidationPlan_2026-03-30.md)
+- [personaRuntimeBindingPlan_2026-03-29](./personaRuntimeBindingPlan_2026-03-29.md)
+- [personaVsHandoffValidationPlan_2026-03-30](./personaVsHandoffValidationPlan_2026-03-30.md)
+- [planBasedFollowupPlan](./planBasedFollowupPlan.md)
+- [postParityRuntimeValidationSweepPlan_2026-03-30](./postParityRuntimeValidationSweepPlan_2026-03-30.md)
+- [progressFirstStreamingPlan](./progressFirstStreamingPlan.md)
 - [projectFirstStartupUxPlan_2026-03-30](./projectFirstStartupUxPlan_2026-03-30.md)
-- [roundtableCompletionOrderPlan_2026-03-30](./roundtableCompletionOrderPlan_2026-03-30.md)
+- [projectOnboardingLifecyclePlan](./projectOnboardingLifecyclePlan.md)
+- [projectScopedConcurrencyPlan](./projectScopedConcurrencyPlan.md)
+- [promptQualityAdoptionPlan_2026-03-30](./promptQualityAdoptionPlan_2026-03-30.md)
+- [rawqAutomationPlan](./rawqAutomationPlan.md)
+- [rawqCodeReviewGraphIntegrationPlan](./rawqCodeReviewGraphIntegrationPlan.md)
+- [rawqEngineParityPlan](./rawqEngineParityPlan.md)
+- [rawqIntegrationPlan](./rawqIntegrationPlan.md)
+- [rawqRequiredSidecarPlan](./rawqRequiredSidecarPlan.md)
+- [realWorkflowMemoryQualityValidationPlan_2026-03-30](./realWorkflowMemoryQualityValidationPlan_2026-03-30.md)
+- [resumeContinuationEngineParityPlan](./resumeContinuationEngineParityPlan.md)
 - [roundtableBlindVerifierPhasePlan_2026-03-30](./roundtableBlindVerifierPhasePlan_2026-03-30.md)
+- [roundtableCompletionOrderPlan_2026-03-30](./roundtableCompletionOrderPlan_2026-03-30.md)
+- [roundtableCreationConfigPlan](./roundtableCreationConfigPlan.md)
 - [roundtableParticipantRoleBlindUiPlan_2026-03-30](./roundtableParticipantRoleBlindUiPlan_2026-03-30.md)
 - [roundtableParticipantSurfaceVisibilityPlan_2026-03-30](./roundtableParticipantSurfaceVisibilityPlan_2026-03-30.md)
 - [roundtableRoleTerminologySeparationPlan_2026-03-30](./roundtableRoleTerminologySeparationPlan_2026-03-30.md)
 - [runtimeFeatureValidationPlan_2026-03-30](./runtimeFeatureValidationPlan_2026-03-30.md)
-- [postParityRuntimeValidationSweepPlan_2026-03-30](./postParityRuntimeValidationSweepPlan_2026-03-30.md)
-- [liveRuntimeTraceParityValidationPlan_2026-03-30](./liveRuntimeTraceParityValidationPlan_2026-03-30.md)
-- [realWorkflowMemoryQualityValidationPlan_2026-03-30](./realWorkflowMemoryQualityValidationPlan_2026-03-30.md)
-- [promptQualityAdoptionPlan_2026-03-30](./promptQualityAdoptionPlan_2026-03-30.md)
-- [backgroundAgentExecutionPlan](./backgroundAgentExecutionPlan.md)
+- [runtimeSettingsImplementationPlan_2026-03-30](./runtimeSettingsImplementationPlan_2026-03-30.md)
+- [scalabilityRefactorPlan](./scalabilityRefactorPlan.md)
+- [settingsShellIaPlan_2026-03-29](./settingsShellIaPlan_2026-03-29.md)
+- [settingsSkillsKnowledgeSourcesPlan_2026-03-29](./settingsSkillsKnowledgeSourcesPlan_2026-03-29.md)
 - [sidebarThreeSectionPlan](./sidebarThreeSectionPlan.md)
+- [sidebarWorkspaceHierarchyPlan_2026-03-29](./sidebarWorkspaceHierarchyPlan_2026-03-29.md)
 - [sidecarMigrationPlan](./sidecarMigrationPlan.md)
+- [skillRegistryPlan](./skillRegistryPlan.md)
+- [skillsEngineParityPlan](./skillsEngineParityPlan.md)
+- [skillsUiVisibilityPlan](./skillsUiVisibilityPlan.md)
+- [streamingEngineParityPlan](./streamingEngineParityPlan.md)
+- [structuredMemorySourceStrengtheningPlan_2026-03-30](./structuredMemorySourceStrengtheningPlan_2026-03-30.md)
 - [tauri2PluginAdoptionPlan](./tauri2PluginAdoptionPlan.md)
 - [threadContextInheritancePlan](./threadContextInheritancePlan.md)
 - [threadLocalRunQueuePlan](./threadLocalRunQueuePlan.md)
 - [threadModelRoundtableRedesign](./threadModelRoundtableRedesign.md)
-- [gitSyncBranchModelPlan_2026-03-29](./gitSyncBranchModelPlan_2026-03-29.md)
+- [tokenCostDbParityPlan_2026-03-30](./tokenCostDbParityPlan_2026-03-30.md)
+- [tokenCostTrackingEngineParityPlan](./tokenCostTrackingEngineParityPlan.md)
+- [toolCallHandlerPlan](./toolCallHandlerPlan.md)
+- [topHeavySectionTuningPlan_2026-03-30](./topHeavySectionTuningPlan_2026-03-30.md)
+- [tracePanelRuntimeFirstPlan_2026-03-29](./tracePanelRuntimeFirstPlan_2026-03-29.md)
+- [unifiedMemoryPolicyPhase1Plan_2026-03-30](./unifiedMemoryPolicyPhase1Plan_2026-03-30.md)
+- [unifiedMemoryPolicyThresholdTuningPlan_2026-03-30](./unifiedMemoryPolicyThresholdTuningPlan_2026-03-30.md)
+- [workflowDocumentV2Plan](./workflowDocumentV2Plan.md)
+- [workflowPipelineV2Plan](./workflowPipelineV2Plan.md)
+- [workflowStabilizationPlan](./workflowStabilizationPlan.md)
 - [workspacePanelRedesignPlan](./workspacePanelRedesignPlan.md)

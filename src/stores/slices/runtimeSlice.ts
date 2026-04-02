@@ -77,6 +77,10 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     }
     // Fire-and-forget: compress older messages into long-term memory
     invoke("compress_conversation_memory", { conversationId: threadId }).catch(() => {});
+    // Fire-and-forget: index conversation chunks for vector search
+    invoke("index_conversation_chunks", { conversationId: threadId }).catch(() => {});
+    // Fire-and-forget: refresh auto session links (uses FTS5 + vector signals)
+    invoke("refresh_session_links", { conversationId: threadId }).catch(() => {});
     // Fire-and-forget: re-index project code (agent may have created/modified files)
     const projectKey = get().selectedProjectKey;
     if (projectKey) {

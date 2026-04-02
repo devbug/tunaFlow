@@ -202,6 +202,15 @@ pub fn run() {
             // Conversation Memory
             commands::conversation_memory::get_conversation_memory_status,
             commands::conversation_memory::compress_conversation_memory,
+            commands::conversation_memory::force_recompress_memory,
+            // Session Discovery
+            commands::session_discovery::get_session_links,
+            commands::session_discovery::refresh_session_links,
+            commands::session_discovery::toggle_manual_session_link,
+            // Vector Search
+            commands::vector_search::index_conversation_chunks,
+            commands::vector_search::search_conversation_vectors,
+            commands::vector_search::get_vector_index_status,
             // Context Hub
             commands::context_hub::context_hub_health,
             commands::context_hub::context_hub_search,

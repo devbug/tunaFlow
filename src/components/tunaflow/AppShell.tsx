@@ -11,6 +11,7 @@ import { ProjectStartup } from "./ProjectStartup";
 import { FileViewer } from "./chat/FileViewer";
 import { FileViewerContext } from "./chat/fileViewerContext";
 import { Toaster } from "sonner";
+import { CommandPalette } from "./CommandPalette";
 
 // ─── Panel width constraints ─────────────────────────────────────────────────
 const SIDEBAR_MIN = 220;
@@ -210,6 +211,7 @@ export function AppShell() {
         />
       )}
     </div>
+    <CommandPalette />
     </FileViewerContext.Provider>
   );
 }

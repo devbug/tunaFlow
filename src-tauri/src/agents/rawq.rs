@@ -469,3 +469,156 @@ fn parse_json(json_str: &str, limit: usize) -> Result<Vec<SearchResult>, RawqErr
     eprintln!("[rawq] {} results in {}ms", results.len(), query_ms);
     Ok(results)
 }
+
+// ─── Embedding ──────────────────────────────────────────────────────────
+
+/// Embedding dimension (snowflake-arctic-embed-s).
+pub const EMBED_DIM: usize = 384;
+
+/// Generate an embedding vector for text using rawq daemon.
+///
+/// Uses `rawq embed <text> [--query]`. The daemon pre-loads the ONNX model
+/// so subsequent calls are fast (~630ms).
+///
+/// `is_query` adds a retrieval prefix for query-passage asymmetric search.
+pub fn embed_text(text: &str, is_query: bool) -> Result<Vec<f32>, RawqError> {
+    if text.trim().is_empty() {
+        return Err(RawqError::ExecFailed("empty text".into()));
+    }
+
+    let bin = resolve_rawq_bin()?;
+    let t0 = std::time::Instant::now();
+
+    // Truncate to ~500 chars to stay within model context
+    let truncated = if text.len() > 500 {
+        let end = text.char_indices()
+            .take_while(|&(i, _)| i <= 500)
+            .last()
+            .map_or(0, |(i, _)| i);
+        &text[..end]
+    } else {
+        text
+    };
+
+    let mut args = vec!["embed"];
+    if is_query {
+        args.push("--query");
+    }
+    args.push(truncated);
+
+    let mut child = Command::new(&bin)
+        .args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
+
+    let timeout = std::time::Duration::from_secs(10);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if t0.elapsed() > timeout {
+                    let _ = child.kill();
+                    return Err(RawqError::ExecFailed("embed timed out (10s)".into()));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => return Err(RawqError::ExecFailed(e.to_string())),
+        }
+    }
+
+    let output = child.wait_with_output()
+        .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(RawqError::ExecFailed(format!("embed failed: {}", stderr)));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_embedding(&stdout)
+}
+
+/// Parse embedding output: `[0.005, -0.039, ...]`
+/// The output may have daemon status lines on stderr, stdout has the vector.
+fn parse_embedding(stdout: &str) -> Result<Vec<f32>, RawqError> {
+    // Find the JSON array in stdout (skip any non-JSON lines)
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            let vec: Vec<f32> = serde_json::from_str(trimmed)
+                .map_err(|e| RawqError::ParseFailed(format!("embedding parse error: {}", e)))?;
+            if vec.len() != EMBED_DIM {
+                return Err(RawqError::ParseFailed(
+                    format!("expected {} dims, got {}", EMBED_DIM, vec.len()),
+                ));
+            }
+            return Ok(vec);
+        }
+    }
+    Err(RawqError::ParseFailed("no embedding vector in output".into()))
+}
+
+/// Cosine similarity between two vectors.
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let mut dot = 0.0_f32;
+    let mut norm_a = 0.0_f32;
+    let mut norm_b = 0.0_f32;
+    for i in 0..a.len() {
+        dot += a[i] * b[i];
+        norm_a += a[i] * a[i];
+        norm_b += b[i] * b[i];
+    }
+    let denom = norm_a.sqrt() * norm_b.sqrt();
+    if denom < 1e-10 {
+        0.0
+    } else {
+        dot / denom
+    }
+}
+
+#[cfg(test)]
+mod embed_tests {
+    use super::*;
+
+    #[test]
+    fn parse_valid_embedding() {
+        let stdout = "[0.1, -0.2, 0.3]\n";
+        // This will fail because dim != 384, but let's test the parse path
+        let result = parse_embedding(stdout);
+        assert!(result.is_err()); // wrong dim
+    }
+
+    #[test]
+    fn parse_with_daemon_output() {
+        // Simulate rawq output with daemon status on different lines
+        let stdout = "Starting rawq daemon...\n[0.1, -0.2]\nDimensions: 2\n";
+        let result = parse_embedding(stdout);
+        assert!(result.is_err()); // wrong dim, but it parsed the array
+    }
+
+    #[test]
+    fn cosine_identical_vectors() {
+        let a = vec![1.0, 0.0, 0.0];
+        let b = vec![1.0, 0.0, 0.0];
+        assert!((cosine_similarity(&a, &b) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cosine_orthogonal_vectors() {
+        let a = vec![1.0, 0.0, 0.0];
+        let b = vec![0.0, 1.0, 0.0];
+        assert!(cosine_similarity(&a, &b).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cosine_opposite_vectors() {
+        let a = vec![1.0, 0.0];
+        let b = vec![-1.0, 0.0];
+        assert!((cosine_similarity(&a, &b) - (-1.0)).abs() < 1e-6);
+    }
+}

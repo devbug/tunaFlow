@@ -1,9 +1,9 @@
-//! Compressed conversation memory — structured summaries of older messages.
+//! Compressed conversation memory — topic-based structured summaries.
 //!
 //! When a conversation grows beyond the recent window, older messages are
-//! compressed into a structured summary stored in `conversation_memory`.
-//! This summary is injected into ContextPack as a separate section,
-//! providing continuity without expanding the recent window.
+//! compressed into topic-segmented summaries stored in `conversation_memory`.
+//! Each topic becomes a separate row, enabling granular retrieval and
+//! better long-term memory for multi-phase conversations.
 
 use rusqlite::{params, Connection};
 use uuid::Uuid;
@@ -16,45 +16,62 @@ const COMPRESSION_THRESHOLD: i64 = 12;
 /// Number of recent messages to keep as working memory (not compressed).
 const RECENT_WINDOW: i64 = 6;
 
-/// Structured summary format for compressed memory.
+/// Topic-segmented summary prompt. Asks the LLM to produce a JSON array.
 const SUMMARY_PROMPT: &str = "\
-Summarize the following conversation into a structured memory document.
-Use these exact sections:
+Analyze the following conversation and produce a JSON array of topic-based summaries.
 
-## Participants
-Which agents (by profile name and engine) participated? List each with a one-line summary of their contribution.
+Each element must have these fields:
+- \"topic\": short topic label (2-5 words, e.g. \"DB schema design\", \"FTS5 retrieval\")
+- \"phase\": one of \"exploration\", \"implementation\", \"review\", \"debugging\", \"planning\", \"discussion\"
+- \"summary\": structured summary for this topic (under 500 characters)
 
-## Task Overview
-What the user is working on and the main goal.
-
-## Current State
-Where things stand right now.
-
-## Important Discoveries
-Key findings, results, or learnings from the conversation.
-
-## Decisions
-Choices that were made and their rationale.
-
-## Open Questions
-Unresolved issues or pending items.
-
-## Context to Preserve
-Any specific details, names, values, or constraints that must not be lost.
+The summary for each topic should cover:
+- What was discussed/decided
+- Key findings or outcomes
+- Any unresolved issues
 
 Rules:
+- Output ONLY the JSON array, no markdown fences, no explanation.
+- Identify 1-5 distinct topics. If the conversation has one focus, output a single-element array.
 - Be concise but preserve specifics (names, numbers, file paths, agent names).
-- Each section should be 1-3 bullet points max.
-- Total summary should be under 2000 characters.
-- The Participants section is mandatory — never omit agent names from the summary.
+- Include participant information (agent names/engines) in at least the first topic's summary.
+- Total output should be under 2000 characters.
 - Write in the same language the conversation uses.
+
+Example output:
+[{\"topic\":\"DB migration v21\",\"phase\":\"implementation\",\"summary\":\"Added topic/phase/provenance columns to conversation_memory. Session_links table created for auto-discovery. Migration tested.\"}]
 
 ---
 
 ";
 
+/// A single topic from compressed memory.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryTopic {
+    pub topic: String,
+    pub phase: Option<String>,
+    pub summary: String,
+}
+
+/// Memory status for a conversation.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryStatus {
+    /// "not_generated" | "fresh" | "stale" | "below_threshold"
+    pub state: String,
+    pub source_count: Option<i64>,
+    pub message_count: i64,
+    pub created_at: Option<i64>,
+    pub updated_at: Option<i64>,
+    pub new_messages_since: i64,
+    pub summary_length: Option<usize>,
+    pub topic_count: usize,
+    pub provenance: Option<String>,
+    pub model_used: Option<String>,
+}
+
 /// Check if a conversation needs memory compression.
-/// Returns true if total messages exceed threshold and no recent memory exists.
 pub fn needs_compression(conn: &Connection, conversation_id: &str) -> bool {
     let msg_count: i64 = conn
         .query_row(
@@ -69,18 +86,18 @@ pub fn needs_compression(conn: &Connection, conversation_id: &str) -> bool {
     }
 
     // Check if we already have a recent enough memory
-    let existing: Option<(i64, i64)> = conn
+    let existing: Option<i64> = conn
         .query_row(
-            "SELECT source_count, updated_at FROM conversation_memory
-             WHERE conversation_id = ?1
-             ORDER BY updated_at DESC LIMIT 1",
+            "SELECT MAX(source_count) FROM conversation_memory
+             WHERE conversation_id = ?1",
             [conversation_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| row.get(0),
         )
-        .ok();
+        .ok()
+        .flatten();
 
     match existing {
-        Some((prev_count, _)) => {
+        Some(prev_count) => {
             // Re-compress if significantly more messages since last compression
             msg_count - prev_count >= COMPRESSION_THRESHOLD / 2
         }
@@ -88,30 +105,55 @@ pub fn needs_compression(conn: &Connection, conversation_id: &str) -> bool {
     }
 }
 
-/// Load the most recent compressed memory for a conversation.
-pub fn load_compressed_memory(conn: &Connection, conversation_id: &str) -> Option<String> {
-    conn.query_row(
-        "SELECT summary FROM conversation_memory
+/// Load compressed memory topics for a conversation.
+pub fn load_compressed_memory_topics(conn: &Connection, conversation_id: &str) -> Vec<MemoryTopic> {
+    let mut stmt = match conn.prepare(
+        "SELECT topic, phase, summary FROM conversation_memory
          WHERE conversation_id = ?1
-         ORDER BY updated_at DESC LIMIT 1",
-        [conversation_id],
-        |row| row.get(0),
-    )
-    .ok()
+         ORDER BY created_at ASC",
+    ) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+
+    stmt.query_map([conversation_id], |row| {
+        Ok(MemoryTopic {
+            topic: row.get(0)?,
+            phase: row.get(1)?,
+            summary: row.get(2)?,
+        })
+    })
+    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+    .unwrap_or_default()
 }
 
-/// Memory status for a conversation.
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryStatus {
-    /// "not_generated" | "fresh" | "stale" | "failed"
-    pub state: String,
-    pub source_count: Option<i64>,
-    pub message_count: i64,
-    pub created_at: Option<i64>,
-    pub updated_at: Option<i64>,
-    pub new_messages_since: i64,
-    pub summary_length: Option<usize>,
+/// Load compressed memory as a single formatted string (backward-compatible).
+pub fn load_compressed_memory(conn: &Connection, conversation_id: &str) -> Option<String> {
+    let topics = load_compressed_memory_topics(conn, conversation_id);
+    if topics.is_empty() {
+        return None;
+    }
+    Some(format_topics_as_section(&topics))
+}
+
+/// Format topic list into a readable section for ContextPack injection.
+pub fn format_topics_as_section(topics: &[MemoryTopic]) -> String {
+    if topics.len() == 1 {
+        // Single topic: just the summary (no subsection headers)
+        return topics[0].summary.clone();
+    }
+
+    let mut out = String::new();
+    for t in topics {
+        if let Some(ref phase) = t.phase {
+            out.push_str(&format!("### {} ({})\n", t.topic, phase));
+        } else {
+            out.push_str(&format!("### {}\n", t.topic));
+        }
+        out.push_str(&t.summary);
+        out.push_str("\n\n");
+    }
+    out.trim_end().to_string()
 }
 
 /// Get the compressed memory status for a conversation.
@@ -124,18 +166,28 @@ pub fn get_memory_status(conn: &Connection, conversation_id: &str) -> MemoryStat
         )
         .unwrap_or(0);
 
-    let existing: Option<(i64, i64, i64, String)> = conn
+    // Get the most recent topic row for metadata
+    let existing: Option<(i64, i64, i64, String, String, Option<String>)> = conn
         .query_row(
-            "SELECT source_count, created_at, updated_at, summary FROM conversation_memory
+            "SELECT source_count, created_at, updated_at, summary, provenance, model_used
+             FROM conversation_memory
              WHERE conversation_id = ?1
              ORDER BY updated_at DESC LIMIT 1",
             [conversation_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
         )
         .ok();
 
+    let topic_count: usize = conn
+        .query_row(
+            "SELECT COUNT(*) FROM conversation_memory WHERE conversation_id = ?1",
+            [conversation_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0) as usize;
+
     match existing {
-        Some((src_count, created, updated, summary)) => {
+        Some((src_count, created, updated, summary, provenance, model_used)) => {
             let new_since = msg_count - src_count;
             let state = if new_since >= COMPRESSION_THRESHOLD / 2 {
                 "stale"
@@ -150,13 +202,16 @@ pub fn get_memory_status(conn: &Connection, conversation_id: &str) -> MemoryStat
                 updated_at: Some(updated),
                 new_messages_since: new_since.max(0),
                 summary_length: Some(summary.len()),
+                topic_count,
+                provenance: Some(provenance),
+                model_used,
             }
         }
         None => {
             let state = if msg_count > COMPRESSION_THRESHOLD {
-                "not_generated"   // threshold exceeded but never compressed
+                "not_generated"
             } else {
-                "below_threshold" // not enough messages yet
+                "below_threshold"
             };
             MemoryStatus {
                 state: state.to_string(),
@@ -166,9 +221,132 @@ pub fn get_memory_status(conn: &Connection, conversation_id: &str) -> MemoryStat
                 updated_at: None,
                 new_messages_since: 0,
                 summary_length: None,
+                topic_count: 0,
+                provenance: None,
+                model_used: None,
             }
         }
     }
+}
+
+/// Parse LLM output into topic list. Falls back to single "general" topic.
+fn parse_topics(raw: &str) -> Vec<MemoryTopic> {
+    // Try to extract JSON array from the response
+    let trimmed = raw.trim();
+
+    // Try direct parse
+    if let Ok(topics) = serde_json::from_str::<Vec<MemoryTopic>>(trimmed) {
+        if !topics.is_empty() {
+            return topics;
+        }
+    }
+
+    // Try extracting from markdown code fence
+    if let Some(start) = trimmed.find('[') {
+        if let Some(end) = trimmed.rfind(']') {
+            let json_str = &trimmed[start..=end];
+            if let Ok(topics) = serde_json::from_str::<Vec<MemoryTopic>>(json_str) {
+                if !topics.is_empty() {
+                    return topics;
+                }
+            }
+        }
+    }
+
+    // Fallback: treat entire response as a single general topic
+    eprintln!("[memory] topic parse failed, falling back to single topic");
+    vec![MemoryTopic {
+        topic: "general".to_string(),
+        phase: None,
+        summary: trimmed.to_string(),
+    }]
+}
+
+/// Build transcript from older messages for compression.
+fn build_transcript(conn: &Connection, conversation_id: &str) -> Result<(String, i64), AppError> {
+    let total: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
+            [conversation_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    if total <= RECENT_WINDOW {
+        return Ok((String::new(), total));
+    }
+
+    let older_count = total - RECENT_WINDOW;
+    let mut stmt = conn.prepare(
+        "SELECT role, content, engine, persona FROM messages
+         WHERE conversation_id = ?1
+         ORDER BY timestamp ASC
+         LIMIT ?2",
+    )?;
+    let rows: Vec<(String, String, Option<String>, Option<String>)> = stmt
+        .query_map(params![conversation_id, older_count], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    if rows.is_empty() {
+        return Ok((String::new(), total));
+    }
+
+    let mut transcript = String::new();
+    for (role, content, engine, persona) in &rows {
+        let author = match (role.as_str(), persona, engine) {
+            ("assistant", Some(p), Some(e)) if !p.is_empty() => format!("{}:{} ({})", role, p, e),
+            ("assistant", None, Some(e)) if !e.is_empty() => format!("{} ({})", role, e),
+            _ => role.clone(),
+        };
+        let content_preview = if content.len() > 1500 {
+            format!(
+                "{}…",
+                &content[..content
+                    .char_indices()
+                    .take_while(|&(i, _)| i <= 1500)
+                    .last()
+                    .map_or(0, |(i, _)| i)]
+            )
+        } else {
+            content.clone()
+        };
+        transcript.push_str(&format!("[{}] {}\n\n", author, content_preview));
+    }
+
+    Ok((transcript, total))
+}
+
+/// Write topic rows to DB, replacing existing ones for this conversation.
+fn write_topics(
+    conn: &Connection,
+    conversation_id: &str,
+    topics: &[MemoryTopic],
+    total: i64,
+    provenance: &str,
+    model_used: &str,
+) -> Result<(), AppError> {
+    let now = now_epoch_ms();
+    conn.execute(
+        "DELETE FROM conversation_memory WHERE conversation_id = ?1",
+        [conversation_id],
+    )?;
+    for t in topics {
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO conversation_memory (id, conversation_id, summary, source_count, created_at, updated_at, topic, phase, provenance, model_used)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?8, ?9)",
+            params![id, conversation_id, t.summary, total, now, t.topic, t.phase, provenance, model_used],
+        )?;
+    }
+    Ok(())
 }
 
 /// Tauri command: get memory status for a conversation.
@@ -184,69 +362,22 @@ pub fn get_conversation_memory_status(
 /// Tauri command: trigger memory compression for a conversation.
 ///
 /// Lock strategy: read data with short lock → release → call Claude (slow) → re-lock to write.
-/// This prevents blocking the entire app during the Claude API call.
 #[tauri::command]
 pub fn compress_conversation_memory(
     conversation_id: String,
     state: tauri::State<crate::db::DbState>,
 ) -> Result<bool, AppError> {
     // Phase 1: check + gather data (short lock)
-    let (transcript, total) = {
+    let transcript = {
         let conn = state.write.lock().map_err(|_| AppError::Lock)?;
         if !needs_compression(&conn, &conversation_id) {
             return Ok(false);
         }
-
-        let total: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
-                [&conversation_id],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        if total <= RECENT_WINDOW {
+        let (t, _) = build_transcript(&conn, &conversation_id)?;
+        if t.is_empty() {
             return Ok(false);
         }
-
-        let older_count = total - RECENT_WINDOW;
-        let mut stmt = conn.prepare(
-            "SELECT role, content, engine, persona FROM messages
-             WHERE conversation_id = ?1
-             ORDER BY timestamp ASC
-             LIMIT ?2",
-        )?;
-        let rows: Vec<(String, String, Option<String>, Option<String>)> = stmt
-            .query_map(params![&conversation_id, older_count], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                ))
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        if rows.is_empty() {
-            return Ok(false);
-        }
-
-        let mut transcript = String::new();
-        for (role, content, engine, persona) in &rows {
-            let author = match (role.as_str(), persona, engine) {
-                ("assistant", Some(p), Some(e)) if !p.is_empty() => format!("{}:{} ({})", role, p, e),
-                ("assistant", None, Some(e)) if !e.is_empty() => format!("{} ({})", role, e),
-                _ => role.clone(),
-            };
-            let content_preview = if content.len() > 1500 {
-                format!("{}…", &content[..content.char_indices().take_while(|&(i, _)| i <= 1500).last().map_or(0, |(i, _)| i)])
-            } else {
-                content.clone()
-            };
-            transcript.push_str(&format!("[{}] {}\n\n", author, content_preview));
-        }
-        (transcript, total)
+        t
         // Lock released here
     };
 
@@ -260,7 +391,7 @@ pub fn compress_conversation_memory(
         project_path: None,
     });
 
-    let summary = match result {
+    let raw_output = match result {
         Ok(out) if !out.content.trim().is_empty() => out.content.trim().to_string(),
         _ => {
             eprintln!("[memory] compression failed for {}", conversation_id);
@@ -268,26 +399,158 @@ pub fn compress_conversation_memory(
         }
     };
 
+    let topics = parse_topics(&raw_output);
+
     // Phase 3: write result (short lock)
     {
         let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-        let id = Uuid::new_v4().to_string();
-        let now = now_epoch_ms();
-        conn.execute(
-            "DELETE FROM conversation_memory WHERE conversation_id = ?1",
-            [&conversation_id],
-        )?;
-        conn.execute(
-            "INSERT INTO conversation_memory (id, conversation_id, summary, source_count, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-            params![id, conversation_id, summary, total, now],
-        )?;
+        let total: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
+                [&conversation_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        write_topics(&conn, &conversation_id, &topics, total, "auto", "claude")?;
         eprintln!(
-            "[memory] compressed → {} chars for {}",
-            summary.len(),
+            "[memory] compressed → {} topics ({} chars) for {}",
+            topics.len(),
+            topics.iter().map(|t| t.summary.len()).sum::<usize>(),
             conversation_id
         );
     }
 
     Ok(true)
+}
+
+/// Tauri command: force recompress memory (bypasses threshold check).
+#[tauri::command]
+pub fn force_recompress_memory(
+    conversation_id: String,
+    state: tauri::State<crate::db::DbState>,
+) -> Result<bool, AppError> {
+    // Phase 1: gather data (short lock)
+    let transcript = {
+        let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+        let (t, _) = build_transcript(&conn, &conversation_id)?;
+        if t.is_empty() {
+            return Ok(false);
+        }
+        t
+    };
+
+    // Phase 2: call Claude WITHOUT holding any lock
+    let prompt = format!("{}{}", SUMMARY_PROMPT, transcript);
+    let result = crate::agents::claude::run(crate::agents::claude::RunInput {
+        prompt,
+        model: None,
+        system_prompt: None,
+        resume_token: None,
+        project_path: None,
+    });
+
+    let raw_output = match result {
+        Ok(out) if !out.content.trim().is_empty() => out.content.trim().to_string(),
+        _ => {
+            eprintln!("[memory] force recompress failed for {}", conversation_id);
+            return Ok(false);
+        }
+    };
+
+    let topics = parse_topics(&raw_output);
+
+    // Phase 3: write result (short lock)
+    {
+        let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+        let total: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
+                [&conversation_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        write_topics(&conn, &conversation_id, &topics, total, "manual", "claude")?;
+        eprintln!(
+            "[memory] force recompressed → {} topics for {}",
+            topics.len(),
+            conversation_id
+        );
+    }
+
+    Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_valid_json_array() {
+        let raw = r#"[{"topic":"DB design","phase":"implementation","summary":"Created tables."},{"topic":"API layer","phase":"exploration","summary":"Discussed endpoints."}]"#;
+        let topics = parse_topics(raw);
+        assert_eq!(topics.len(), 2);
+        assert_eq!(topics[0].topic, "DB design");
+        assert_eq!(topics[0].phase, Some("implementation".to_string()));
+        assert_eq!(topics[1].topic, "API layer");
+    }
+
+    #[test]
+    fn parse_json_with_code_fence() {
+        let raw = "```json\n[{\"topic\":\"test\",\"phase\":\"review\",\"summary\":\"All tests pass.\"}]\n```";
+        let topics = parse_topics(raw);
+        assert_eq!(topics.len(), 1);
+        assert_eq!(topics[0].topic, "test");
+    }
+
+    #[test]
+    fn parse_invalid_json_fallback() {
+        let raw = "This is not JSON at all. Just a plain summary of the conversation.";
+        let topics = parse_topics(raw);
+        assert_eq!(topics.len(), 1);
+        assert_eq!(topics[0].topic, "general");
+        assert_eq!(topics[0].phase, None);
+        assert!(topics[0].summary.contains("plain summary"));
+    }
+
+    #[test]
+    fn parse_empty_array_fallback() {
+        let raw = "[]";
+        let topics = parse_topics(raw);
+        assert_eq!(topics.len(), 1);
+        assert_eq!(topics[0].topic, "general");
+    }
+
+    #[test]
+    fn format_single_topic() {
+        let topics = vec![MemoryTopic {
+            topic: "general".to_string(),
+            phase: None,
+            summary: "A simple summary.".to_string(),
+        }];
+        let out = format_topics_as_section(&topics);
+        assert_eq!(out, "A simple summary.");
+    }
+
+    #[test]
+    fn format_multiple_topics() {
+        let topics = vec![
+            MemoryTopic {
+                topic: "DB design".to_string(),
+                phase: Some("implementation".to_string()),
+                summary: "Created tables.".to_string(),
+            },
+            MemoryTopic {
+                topic: "API".to_string(),
+                phase: None,
+                summary: "Discussed endpoints.".to_string(),
+            },
+        ];
+        let out = format_topics_as_section(&topics);
+        assert!(out.contains("### DB design (implementation)"));
+        assert!(out.contains("### API\n"));
+        assert!(out.contains("Created tables."));
+        assert!(out.contains("Discussed endpoints."));
+    }
 }

@@ -106,6 +106,7 @@ export function TracePanel() {
     state: string; sourceCount: number | null; messageCount: number;
     createdAt: number | null; updatedAt: number | null;
     newMessagesSince: number; summaryLength: number | null;
+    topicCount: number; provenance: string | null; modelUsed: string | null;
   } | null>(null);
 
   const convId = activeBranchId
@@ -242,7 +243,7 @@ export function TracePanel() {
           </div>
         )}
         {memoryStatus && (
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60 flex-wrap">
             <Brain className="w-3 h-3 shrink-0" />
             <span>memory</span>
             <span className={cn(
@@ -253,11 +254,31 @@ export function TracePanel() {
             )}>
               {memoryStatus.state}
             </span>
+            {memoryStatus.topicCount > 0 && (
+              <span className="text-muted-foreground/40">{memoryStatus.topicCount} topic{memoryStatus.topicCount > 1 ? "s" : ""}</span>
+            )}
             {memoryStatus.sourceCount != null && (
               <span className="text-muted-foreground/40">{memoryStatus.sourceCount}/{memoryStatus.messageCount} msgs</span>
             )}
             {memoryStatus.state === "stale" && memoryStatus.newMessagesSince > 0 && (
               <span className="text-amber-500/40">+{memoryStatus.newMessagesSince} new</span>
+            )}
+            {memoryStatus.provenance && memoryStatus.provenance !== "auto" && (
+              <span className="px-1 py-px rounded text-[8px] bg-accent text-muted-foreground/50">{memoryStatus.provenance}</span>
+            )}
+            {(memoryStatus.state === "stale" || memoryStatus.state === "not_generated") && (
+              <button
+                className="px-1.5 py-px rounded text-[8px] font-medium bg-accent hover:bg-accent/80 text-muted-foreground/70 transition-colors"
+                onClick={async () => {
+                  if (!convId) return;
+                  try {
+                    await invoke("force_recompress_memory", { conversationId: convId });
+                    loadMemoryStatus();
+                  } catch (e) { console.error("[TracePanel] recompress failed", e); }
+                }}
+              >
+                {memoryStatus.state === "not_generated" ? "compress" : "recompress"}
+              </button>
             )}
           </div>
         )}

@@ -85,6 +85,12 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     if current < 20 {
         apply_v20(conn)?;
     }
+    if current < 21 {
+        apply_v21(conn)?;
+    }
+    if current < 22 {
+        apply_v22(conn)?;
+    }
     Ok(())
 }
 
@@ -403,6 +409,58 @@ fn apply_v20(conn: &Connection) -> Result<(), AppError> {
 fn apply_v19(conn: &Connection) -> Result<(), AppError> {
     add_column_if_missing(conn, "plans", "revision", "INTEGER NOT NULL DEFAULT 0")?;
     conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (19, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+/// Long-term memory enhancements: topic-based memory, provenance, session_links
+fn apply_v21(conn: &Connection) -> Result<(), AppError> {
+    // Topic-based compressed memory
+    add_column_if_missing(conn, "conversation_memory", "topic", "TEXT NOT NULL DEFAULT 'general'")?;
+    add_column_if_missing(conn, "conversation_memory", "phase", "TEXT")?;
+    add_column_if_missing(conn, "conversation_memory", "message_range", "TEXT")?;
+
+    // Compression provenance tracking
+    add_column_if_missing(conn, "conversation_memory", "provenance", "TEXT NOT NULL DEFAULT 'auto'")?;
+    add_column_if_missing(conn, "conversation_memory", "model_used", "TEXT")?;
+
+    // Auto session discovery — persistent links between related conversations
+    conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS session_links (
+            id              TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
+            linked_conv_id  TEXT NOT NULL,
+            score           REAL NOT NULL DEFAULT 0.0,
+            method          TEXT NOT NULL DEFAULT 'fts5',
+            created_at      INTEGER NOT NULL,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+            FOREIGN KEY (linked_conv_id) REFERENCES conversations(id) ON DELETE CASCADE,
+            UNIQUE(conversation_id, linked_conv_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_session_links_conv ON session_links(conversation_id);
+    ")?;
+
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (21, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+/// Conversation chunks with vector embeddings for semantic search
+fn apply_v22(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS conversation_chunks (
+            id               TEXT PRIMARY KEY,
+            project_key      TEXT NOT NULL,
+            conversation_id  TEXT NOT NULL,
+            kind             TEXT NOT NULL,
+            root_message_id  TEXT,
+            text_preview     TEXT NOT NULL,
+            embedding        BLOB,
+            created_at       INTEGER NOT NULL,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_conv_chunks_project ON conversation_chunks(project_key);
+        CREATE INDEX IF NOT EXISTS idx_conv_chunks_conv ON conversation_chunks(conversation_id);
+    ")?;
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (22, ?1)", [now_epoch()])?;
     Ok(())
 }
 

@@ -109,7 +109,7 @@ pub fn roundtable_run(
     let root_span_id = new_span_id();
     let t0 = std::time::Instant::now();
 
-    let (msgs, round_responses) = execute_round(
+    let (msgs, round_responses) = tokio::runtime::Handle::current().block_on(execute_round(
         &input.participants,
         &[],
         1,
@@ -124,7 +124,7 @@ pub fn roundtable_run(
         &trace_id,
         &root_span_id,
         project_path.as_deref(),
-    )?;
+    ))?;
     all_messages.extend(msgs);
 
     // Archive + root span
@@ -212,7 +212,7 @@ pub fn roundtable_followup(
     let root_span_id = new_span_id();
     let t0 = std::time::Instant::now();
 
-    let (msgs, followup_responses) = execute_round(
+    let (msgs, followup_responses) = tokio::runtime::Handle::current().block_on(execute_round(
         &input.participants,
         &prior_transcript,
         round_num,
@@ -227,7 +227,7 @@ pub fn roundtable_followup(
         &trace_id,
         &root_span_id,
         project_path.as_deref(),
-    )?;
+    ))?;
     all_messages.extend(msgs);
 
     // Archive + root span
@@ -312,7 +312,7 @@ pub fn start_roundtable_run(
     let prompt = input.prompt.clone();
     let ret = header_msg_id.clone();
 
-    std::thread::spawn(move || {
+    tokio::spawn(async move {
         let bg_state = DbState { write: Arc::clone(&write_arc), read: read_arc };
         let bg_cancel = CancelRegistry(cancel_arc);
         let trace_id = new_trace_id();
@@ -322,7 +322,7 @@ pub fn start_roundtable_run(
         let result = execute_round(
             &input.participants, &[], 1, 1, &enriched_prompt, strategy, &rt_mode,
             &cid, &bg_state, &app, &bg_cancel, &trace_id, &root_span_id, project_path.as_deref(),
-        );
+        ).await;
 
         if let Ok(conn) = write_arc.lock() {
             let now = now_epoch_ms();
@@ -392,7 +392,7 @@ pub fn start_roundtable_followup(
     let prompt = input.prompt.clone();
     let ret = header_msg_id.clone();
 
-    std::thread::spawn(move || {
+    tokio::spawn(async move {
         let bg_state = DbState { write: Arc::clone(&write_arc), read: read_arc };
         let bg_cancel = CancelRegistry(cancel_arc);
         let trace_id = new_trace_id();
@@ -402,7 +402,7 @@ pub fn start_roundtable_followup(
         let result = execute_round(
             &input.participants, &prior_transcript, round_num, round_num, &prompt, strategy, &rt_mode,
             &cid, &bg_state, &app, &bg_cancel, &trace_id, &root_span_id, project_path.as_deref(),
-        );
+        ).await;
 
         if let Ok(conn) = write_arc.lock() {
             let now = now_epoch_ms();
