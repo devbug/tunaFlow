@@ -141,13 +141,17 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
   },
 
   loadWorkflowSkills: async () => {
-    const config = await getSetting<Record<string, string[]>>("workflowSkills", {});
+    const pk = get().selectedProjectKey;
+    const key = pk ? `workflowSkills:${pk}` : "workflowSkills";
+    const config = await getSetting<Record<string, string[]>>(key, {});
     set({ workflowSkills: config });
   },
 
   saveWorkflowSkills: (config: Record<string, string[]>) => {
+    const pk = get().selectedProjectKey;
+    const key = pk ? `workflowSkills:${pk}` : "workflowSkills";
     set({ workflowSkills: config });
-    setSetting("workflowSkills", config);
+    setSetting(key, config);
   },
 
   getEffectiveSkills: (planPhase: string | null) => {

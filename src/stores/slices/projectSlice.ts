@@ -109,6 +109,9 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
       return;
     }
 
+    // Load project-scoped workflow skill mappings
+    get().loadWorkflowSkills().catch(() => {});
+
     // Ensure workflow agent templates exist (non-blocking, fire-and-forget)
     invoke<Project>("get_project", { key }).then((p) => {
       if (p.path) invoke("ensure_project_workflow_templates", { projectPath: p.path }).catch(() => {});
