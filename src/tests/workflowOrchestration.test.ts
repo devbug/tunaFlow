@@ -17,6 +17,7 @@ vi.mock("@/lib/api/plans", () => ({
     { id: "st-2", planId: "p-1", idx: 1, title: "Task 2", details: null, status: "todo", createdAt: 0, updatedAt: 0 },
   ])),
   replacePlanSubtasks: vi.fn(() => Promise.resolve([])),
+  listPlanEvents: vi.fn(() => Promise.resolve([])),
 }));
 
 import { invoke } from "@tauri-apps/api/core";
@@ -40,7 +41,6 @@ const mockPlan: Plan = {
   revision: 0,
   versionMajor: 1,
   versionMinor: 0,
-  reworkCount: 0,
   createdAt: 0,
   updatedAt: 0,
 };

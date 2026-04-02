@@ -303,16 +303,19 @@ export async function processReviewVerdict(
       await invoke("archive_branch", { id: plan.reviewBranchId }).catch(() => {});
     }
   } else if (verdict.verdict === "fail") {
-    const reworkCount = await planApi.updatePlanPhase(plan.id, "rework");
+    await planApi.updatePlanPhase(plan.id, "rework");
     await planApi.createPlanEvent(plan.id, "review_failed", "reviewer", detail);
-    // Doom loop detection: if rework_count >= 3, force escalation to subtask_review
-    if (reworkCount >= 3) {
+
+    // Doom loop detection: count review_failed events from plan_events
+    const events = await planApi.listPlanEvents(plan.id);
+    const failCount = events.filter((e) => e.eventType === "review_failed").length;
+    if (failCount >= 3) {
       await planApi.updatePlanPhase(plan.id, "subtask_review");
       await planApi.createPlanEvent(
         plan.id,
         "doom_loop_escalated",
         "system",
-        `Rework cycle ${reworkCount}회 도달 — 설계 재검토로 자동 에스컬레이션`,
+        `Review 실패 ${failCount}회 — 설계 재검토로 자동 에스컬레이션`,
       );
     }
   } else {
