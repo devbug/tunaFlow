@@ -66,6 +66,58 @@ pub fn enforce_total_limit(prompt: Option<String>, max: usize) -> Option<String>
     })
 }
 
+// ─── Dynamic budget allocation ─────────────────────────────────────────────
+
+/// Section budget request for dynamic allocation
+pub struct SectionBudget {
+    pub name: &'static str,
+    /// Actual content length (0 if section is empty)
+    pub content_len: usize,
+    /// Relative importance weight (higher = more budget)
+    pub weight: f32,
+    /// Minimum guaranteed characters (even under pressure)
+    pub min_chars: usize,
+    /// Maximum cap (prevent one section from dominating)
+    pub max_chars: usize,
+}
+
+/// Allocate budget dynamically based on actual content sizes.
+///
+/// Empty sections return 0 budget (released to others).
+/// Non-empty sections get min_chars guaranteed + proportional share of remainder.
+pub fn allocate_budgets(total: usize, sections: &[SectionBudget]) -> Vec<(&'static str, usize)> {
+    // Phase 1: identify non-empty sections, allocate minimums
+    let active: Vec<(usize, &SectionBudget)> = sections.iter()
+        .enumerate()
+        .filter(|(_, s)| s.content_len > 0)
+        .collect();
+
+    let total_min: usize = active.iter().map(|(_, s)| s.min_chars).sum();
+    let remaining = total.saturating_sub(total_min);
+
+    // Phase 2: distribute remaining by weight (proportional)
+    let total_weight: f32 = active.iter().map(|(_, s)| s.weight).sum();
+
+    let mut result: Vec<(&'static str, usize)> = sections.iter()
+        .map(|s| (s.name, 0usize))
+        .collect();
+
+    if total_weight <= 0.0 {
+        return result;
+    }
+
+    for (idx, section) in &active {
+        let base = section.min_chars;
+        let share = if total_weight > 0.0 {
+            ((remaining as f32) * section.weight / total_weight) as usize
+        } else { 0 };
+        let allocated = (base + share).min(section.max_chars).min(section.content_len + 200); // +200 for headers
+        result[*idx].1 = allocated;
+    }
+
+    result
+}
+
 /// Standard fallback error message for agent failures.
 pub fn fallback_error(engine: &str, err: &crate::errors::AppError) -> String {
     format!(

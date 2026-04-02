@@ -374,6 +374,22 @@ pub fn assemble_prompt(
 
     let total_budget = data.context_budget_cap.unwrap_or(guardrail::MAX_TOTAL_PROMPT);
 
+    // Dynamic budget allocation — measure actual content, distribute proportionally
+    let budget_alloc = guardrail::allocate_budgets(total_budget, &[
+        guardrail::SectionBudget { name: "plan",       content_len: data.plan_section.as_ref().map_or(0, |s| s.len()),     weight: 1.0, min_chars: 500,  max_chars: guardrail::MAX_PLAN_SECTION },
+        guardrail::SectionBudget { name: "plan-doc",   content_len: data.plan_document.as_ref().map_or(0, |s| s.len()),    weight: 2.0, min_chars: 1000, max_chars: 6000 },
+        guardrail::SectionBudget { name: "findings",   content_len: data.findings_section.as_ref().map_or(0, |s| s.len()), weight: 1.0, min_chars: 500,  max_chars: guardrail::MAX_FINDINGS_SECTION },
+        guardrail::SectionBudget { name: "artifacts",  content_len: data.artifacts_section.as_ref().map_or(0, |s| s.len()),weight: 0.8, min_chars: 300,  max_chars: guardrail::MAX_ARTIFACTS_SECTION },
+        guardrail::SectionBudget { name: "skills",     content_len: if data.active_skills.is_empty() { 0 } else { 2000 },  weight: 1.0, min_chars: 500,  max_chars: guardrail::MAX_SKILLS_SECTION },
+        guardrail::SectionBudget { name: "rawq",       content_len: if data.retrieval_chunks.is_empty() { 0 } else { 1000 }, weight: 0.8, min_chars: 500, max_chars: guardrail::MAX_RAWQ_SECTION },
+        guardrail::SectionBudget { name: "retrieval",  content_len: data.retrieval_chunks.len() * 300,                     weight: 1.2, min_chars: 500,  max_chars: guardrail::MAX_RETRIEVAL_SECTION },
+        guardrail::SectionBudget { name: "compressed", content_len: data.compressed_memory.as_ref().map_or(0, |s| s.len()),weight: 1.0, min_chars: 500,  max_chars: guardrail::MAX_COMPRESSED_MEMORY_SECTION },
+        guardrail::SectionBudget { name: "cross",      content_len: if data.cross_session_data.is_empty() { 0 } else { 1000 }, weight: 0.6, min_chars: 300, max_chars: guardrail::MAX_CROSS_SESSION_SECTION },
+    ]);
+    let dyn_cap = |name: &str| -> usize {
+        budget_alloc.iter().find(|(n, _)| *n == name).map_or(2000, |(_, c)| *c)
+    };
+
     // Determine context mode — user override takes priority, then auto heuristic
     let (ctx_mode, auto_reason) = match data.context_mode_override.as_deref() {
         Some("full") => (ContextMode::Full, "user-override"),
@@ -574,27 +590,32 @@ pub fn assemble_prompt(
     if ctx_mode >= ContextMode::Standard {
         if let Some(s) = guardrail::truncate_section(
             data.plan_section.clone(),
-            guardrail::MAX_PLAN_SECTION,
+            dyn_cap("plan"),
         ) {
             sections.push(s);
             included_sections.push("plan".into());
         }
         // Plan document (full markdown from project docs/plans/)
         if let Some(doc) = &data.plan_document {
-            let truncated = if doc.len() > 4000 { format!("{}\n\n[... truncated]", &doc[..4000]) } else { doc.clone() };
+            let doc_cap = dyn_cap("plan-doc");
+            let truncated = if doc.len() > doc_cap {
+                let mut end = doc_cap;
+                while end > 0 && !doc.is_char_boundary(end) { end -= 1; }
+                format!("{}\n\n[... truncated]", &doc[..end])
+            } else { doc.clone() };
             sections.push(format!("## Plan Document\n\n{}", truncated));
             included_sections.push("plan-document".into());
         }
         if let Some(s) = guardrail::truncate_section(
             data.findings_section.clone(),
-            guardrail::MAX_FINDINGS_SECTION,
+            dyn_cap("findings"),
         ) {
             sections.push(s);
             included_sections.push("findings".into());
         }
         if let Some(s) = guardrail::truncate_section(
             data.artifacts_section.clone(),
-            guardrail::MAX_ARTIFACTS_SECTION,
+            dyn_cap("artifacts"),
         ) {
             sections.push(s);
             included_sections.push("artifacts".into());
@@ -668,7 +689,7 @@ pub fn assemble_prompt(
     if ctx_mode >= ContextMode::Full || !data.active_skills.is_empty() {
         if let Some(s) = guardrail::truncate_section(
             build_skills_section(&data.active_skills, &data.prompt),
-            guardrail::MAX_SKILLS_SECTION,
+            dyn_cap("skills"),
         ) {
             sections.push(s);
             included_sections.push("skills".into());
@@ -677,7 +698,7 @@ pub fn assemble_prompt(
     // rawq: mode-independent — prompt_needs_rawq() internally decides
     if let Some(s) = guardrail::truncate_section(
         build_rawq_section(data.project_path.as_deref(), &data.prompt),
-        guardrail::MAX_RAWQ_SECTION,
+        dyn_cap("rawq"),
     ) {
         sections.push(s);
         included_sections.push("rawq".into());
