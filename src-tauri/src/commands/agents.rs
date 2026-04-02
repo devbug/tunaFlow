@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::agents::{claude, codex, gemini, opencode};
+use crate::agents::{claude, codex, gemini, gemini_sdk, opencode};
 use crate::db::DbState;
 use crate::errors::AppError;
 use crate::guardrail;
@@ -153,21 +153,41 @@ pub async fn start_gemini_stream(
     let ret = prep.msg_id.clone();
     let PreparedRun { msg_id, job_id, enriched_prompt, project_path, ctx_meta, .. } = prep;
 
-    std::thread::spawn(move || {
-        let pa = app.clone(); let pi = msg_id.clone();
-        let c2 = app.clone(); let ci = msg_id.clone();
-        let t0 = std::time::Instant::now();
-        let rr = gemini::stream_run(
-            claude::RunInput { prompt: enriched_prompt, model: mo.clone(), system_prompt: None, resume_token: None, project_path },
-            move |t| { let _ = pa.emit("gemini:progress", ChunkPayload { message_id: pi.clone(), text: t }); },
-            move |t| { let _ = c2.emit("gemini:chunk", ChunkPayload { message_id: ci.clone(), text: t }); },
-            { let c = cid.clone(); let r = cancel_arc; move || { if let Ok(mut s) = r.lock() { s.remove(&c) } else { false } } },
-        );
-        let dur = t0.elapsed().as_millis();
-        if let Ok(conn) = write_arc.lock() {
-            finalize_engine_run(&conn, "gemini", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
-        }
-    });
+    if gemini_sdk::is_available() {
+        // SDK path — async, native streaming, accurate token tracking
+        let system_prompt = prep.system_context;
+        tokio::spawn(async move {
+            let pa = app.clone(); let pi = msg_id.clone();
+            let c2 = app.clone(); let ci = msg_id.clone();
+            let t0 = std::time::Instant::now();
+            let rr = gemini_sdk::stream_run(
+                claude::RunInput { prompt: enriched_prompt, model: mo.clone(), system_prompt, resume_token: None, project_path },
+                move |t| { let _ = pa.emit("gemini:progress", ChunkPayload { message_id: pi.clone(), text: t }); },
+                move |t| { let _ = c2.emit("gemini:chunk", ChunkPayload { message_id: ci.clone(), text: t }); },
+            ).await;
+            let dur = t0.elapsed().as_millis();
+            if let Ok(conn) = write_arc.lock() {
+                finalize_engine_run(&conn, "gemini", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
+            }
+        });
+    } else {
+        // CLI fallback
+        std::thread::spawn(move || {
+            let pa = app.clone(); let pi = msg_id.clone();
+            let c2 = app.clone(); let ci = msg_id.clone();
+            let t0 = std::time::Instant::now();
+            let rr = gemini::stream_run(
+                claude::RunInput { prompt: enriched_prompt, model: mo.clone(), system_prompt: None, resume_token: None, project_path },
+                move |t| { let _ = pa.emit("gemini:progress", ChunkPayload { message_id: pi.clone(), text: t }); },
+                move |t| { let _ = c2.emit("gemini:chunk", ChunkPayload { message_id: ci.clone(), text: t }); },
+                { let c = cid.clone(); let r = cancel_arc; move || { if let Ok(mut s) = r.lock() { s.remove(&c) } else { false } } },
+            );
+            let dur = t0.elapsed().as_millis();
+            if let Ok(conn) = write_arc.lock() {
+                finalize_engine_run(&conn, "gemini", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
+            }
+        });
+    }
     Ok(StartRunResult { message_id: ret })
 }
 
