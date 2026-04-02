@@ -323,14 +323,19 @@ export function PlanCard({
                       await planApi.createPlanEvent(plan.id, "rework_requested", "user");
                       handlePlanUpdate({ phase: "implementation" });
                       await openThread(plan.implementationBranchId!);
-                      // Send review findings to Developer
+                      // Send review findings to Developer with budget pressure
                       const findings = reviewVerdict?.findings.join("\n- ") ?? "";
+                      const failCount = events.filter((e) => e.eventType === "review_failed").length;
+                      const pressure = failCount >= 2
+                        ? `\n> ⚠️ 이전 ${failCount}회 Review 실패. ${failCount >= 3 ? "이번이 마지막 기회입니다." : "다음 실패 시 설계 재검토로 에스컬레이션됩니다."}`
+                        : "";
                       const reworkPrompt = [
                         `[Rework] Review에서 다음 사항이 지적되었습니다:`,
                         findings ? `- ${findings}` : "(findings 없음)",
                         "",
                         `위 사항을 수정하고 완료되면 알려주세요.`,
-                      ].join("\n");
+                        pressure,
+                      ].filter(Boolean).join("\n");
                       const shadowConvId = `branch:${plan.implementationBranchId}`;
                       const saved = useChatStore.getState().getConversationEngine(shadowConvId);
                       await useChatStore.getState().sendThreadMessage(reworkPrompt, saved?.engine ?? "claude");

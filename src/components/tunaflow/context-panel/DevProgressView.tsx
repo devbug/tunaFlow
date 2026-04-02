@@ -331,6 +331,14 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
                   }) ?? [];
                   const recItems = reviewVerdict?.recommendations.map((r) => `• ${r.slice(0, 100)}`) ?? [];
 
+                  // Budget pressure: count previous review failures
+                  const events = await planApi.listPlanEvents(plan.id);
+                  const failCount = events.filter((e) => e.eventType === "review_failed").length;
+                  const pressureWarning =
+                    failCount >= 2
+                      ? `\n> ⚠️ 이전 ${failCount}회 Review 실패. ${failCount >= 3 ? "이번이 마지막 기회입니다." : "다음 실패 시 설계 재검토로 에스컬레이션됩니다."}`
+                      : "";
+
                   const reworkPrompt = [
                     `### 🔄 Rework`,
                     ``,
@@ -339,7 +347,8 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
                     ...(recItems.length > 0 ? [``, `**Recommendations**:`, ...recItems.map((r) => `- ${r}`)] : []),
                     ``,
                     `> 완료 조건: 위 항목 모두 해결 후 완료를 알려주세요.`,
-                  ].join("\n");
+                    pressureWarning,
+                  ].filter(Boolean).join("\n");
                   const shadowConvId = `branch:${plan.implementationBranchId}`;
                   const saved = useChatStore.getState().getConversationEngine(shadowConvId);
                   await sendThreadMessage(reworkPrompt, saved?.engine ?? "claude");

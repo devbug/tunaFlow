@@ -2,9 +2,10 @@ import { useState, useEffect } from "react";
 import { copyToClipboard } from "@/lib/clipboard";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
-import { X, Search, FileText, ChevronRight, Copy, Send, Archive } from "lucide-react";
+import { X, Search, FileText, ChevronRight, Copy, Send, Archive, ChevronDown } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
 import { getSetting, setSetting } from "@/lib/appStore";
+import { SKILL_SETS, expandSkillRefs } from "@/lib/skillSets";
 
 // ─── Workflow Skills Config ──────────────────────────────────────────────────
 
@@ -15,15 +16,15 @@ const WORKFLOW_PHASES = [
 ] as const;
 
 function WorkflowSkillsConfig() {
-  const skills = useChatStore((s) => s.skills);
   const workflowSkills = useChatStore((s) => s.workflowSkills);
   const saveWorkflowSkills = useChatStore((s) => s.saveWorkflowSkills);
+  const [expandedPhase, setExpandedPhase] = useState<string | null>(null);
 
-  const toggle = (phase: string, skillName: string) => {
+  const toggleRef = (phase: string, ref: string) => {
     const current = workflowSkills[phase] ?? [];
-    const updated = current.includes(skillName)
-      ? current.filter((s) => s !== skillName)
-      : [...current, skillName];
+    const updated = current.includes(ref)
+      ? current.filter((s) => s !== ref)
+      : [...current, ref];
     saveWorkflowSkills({ ...workflowSkills, [phase]: updated });
   };
 
@@ -31,47 +32,63 @@ function WorkflowSkillsConfig() {
     <div className="rounded-lg border border-border/30 bg-background/50 p-4 space-y-3">
       <div>
         <h3 className="text-[13px] font-medium text-foreground">Workflow Skills</h3>
-        <p className="text-[11px] text-muted-foreground/60 mt-0.5">워크플로우 단계별 자동 스킬 주입. 수동 선택(Settings &gt; Skills)과 합산됩니다.</p>
+        <p className="text-[11px] text-muted-foreground/60 mt-0.5">워크플로우 단계별 스킬 세트. 수동 선택과 합산됩니다.</p>
       </div>
-      {skills.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground/40">~/.tunaflow/skills/에 스킬이 없습니다.</p>
-      ) : (
-        <div className="space-y-3">
-          {WORKFLOW_PHASES.map(({ key, label, desc }) => {
-            const active = workflowSkills[key] ?? [];
-            return (
-              <div key={key} className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] font-medium text-foreground/80">{label}</span>
-                  <span className="text-[10px] text-muted-foreground/40">{desc}</span>
-                  {active.length > 0 && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">{active.length}</span>
+      <div className="space-y-3">
+        {WORKFLOW_PHASES.map(({ key, label, desc }) => {
+          const refs = workflowSkills[key] ?? [];
+          const expandedCount = expandSkillRefs(refs).length;
+          const isExpanded = expandedPhase === key;
+          return (
+            <div key={key} className="space-y-1.5">
+              <button
+                className="flex items-center gap-2 w-full text-left"
+                onClick={() => setExpandedPhase(isExpanded ? null : key)}
+              >
+                <ChevronDown className={cn("w-3 h-3 text-muted-foreground/40 transition-transform", isExpanded && "rotate-180")} />
+                <span className="text-[12px] font-medium text-foreground/80">{label}</span>
+                <span className="text-[10px] text-muted-foreground/40">{desc}</span>
+                {expandedCount > 0 && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium ml-auto">{expandedCount} skills</span>
+                )}
+              </button>
+              {isExpanded && (
+                <div className="pl-5 space-y-2">
+                  {/* Skill Sets */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {SKILL_SETS.map((set) => {
+                      const setRef = `set:${set.id}`;
+                      const isActive = refs.includes(setRef);
+                      return (
+                        <button
+                          key={set.id}
+                          onClick={() => toggleRef(key, setRef)}
+                          title={`${set.description}\n${set.skills.join(", ")}`}
+                          className={cn(
+                            "px-2.5 py-1 rounded-md text-[11px] transition-colors border",
+                            isActive
+                              ? "bg-primary/15 text-primary border-primary/30 font-medium"
+                              : "bg-accent/30 text-muted-foreground/60 border-transparent hover:text-foreground/80 hover:border-border/30"
+                          )}
+                        >
+                          {set.label}
+                          <span className="ml-1 text-[9px] opacity-50">{set.skills.length}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Active refs summary */}
+                  {refs.length > 0 && (
+                    <div className="text-[10px] text-muted-foreground/40">
+                      {refs.map((r) => r.startsWith("set:") ? r.slice(4) : r).join(", ")}
+                    </div>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-1">
-                  {skills.map((s) => {
-                    const isActive = active.includes(s.name);
-                    return (
-                      <button
-                        key={s.name}
-                        onClick={() => toggle(key, s.name)}
-                        className={cn(
-                          "px-2 py-0.5 rounded text-[10px] transition-colors",
-                          isActive
-                            ? "bg-primary/20 text-primary font-medium"
-                            : "bg-accent/50 text-muted-foreground/60 hover:text-foreground/80"
-                        )}
-                      >
-                        {s.name.replace(/^[^/]+\//, "")}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

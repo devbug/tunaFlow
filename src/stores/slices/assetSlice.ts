@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getSetting, setSetting } from "@/lib/appStore";
+import { expandSkillRefs } from "@/lib/skillSets";
 import type {
   SetState,
   GetState,
@@ -156,19 +157,17 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
 
   getEffectiveSkills: (planPhase: string | null) => {
     const { activeSkills, workflowSkills } = get();
-    // Determine which phase to use for skill lookup
     const phase = planPhase ?? "chat";
-    // Map workflow phases to skill config keys
     const phaseKey =
       phase === "drafting" || phase === "subtask_review" || phase === "approval"
         ? "chat"
         : phase === "rework"
           ? "implementation"
-          : phase; // "implementation", "review", "chat", "done"
-    const phaseSkills = workflowSkills[phaseKey] ?? [];
-    // Union: manual + phase-based (deduplicated)
-    const combined = new Set([...activeSkills, ...phaseSkills]);
-    return [...combined];
+          : phase;
+    const phaseRefs = workflowSkills[phaseKey] ?? [];
+    // Expand set: refs and individual skills, then union with manual activeSkills
+    const expanded = expandSkillRefs([...activeSkills, ...phaseRefs]);
+    return expanded;
   },
 
   toggleSkill: (name: string) => {
