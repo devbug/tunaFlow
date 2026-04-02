@@ -21,13 +21,32 @@ function hasMarkdownSignal(content: string): boolean {
   if (content.length < 100) return false;
   return /^#{1,3} |```|\n- |\n\d+\. |<!-- tunaflow:|\*\*[^*]+\*\*/m.test(content);
 }
+
+/** Clean tunaflow markers from message display:
+ *  - verdict blocks (<!-- tunaflow:review-verdict --> ... <!-- /tunaflow:review-verdict -->) → hidden (shown in ReviewVerdictCard)
+ *  - impl-plan blocks (<!-- tunaflow:impl-plan --> ... <!-- /tunaflow:impl-plan -->) → hidden (shown in ImplPlanCard)
+ *  - single markers → inline code for visibility
+ */
+function vizMarkers(text: string): string {
+  return text
+    // Remove full verdict/impl-plan blocks (rendered separately in PlanCard)
+    .replace(/<!-- ?tunaflow:review-verdict ?-->[\s\S]*?<!-- ?\/?tunaflow:review-verdict ?-->/g, "")
+    .replace(/<!-- ?tunaflow:impl-plan ?-->[\s\S]*?<!-- ?\/?tunaflow:impl-plan ?-->/g, "")
+    // Remaining single markers → inline code
+    .replace(
+      /(?<!`)<!-- ?(tunaflow:[a-z_-]+(?::\d+)?|subtask-done:\d+|impl-complete) ?-->(?!`)/g,
+      "`<!-- $1 -->`",
+    );
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const REMARK_PLUGINS: any[] = [[remarkGfm, { singleTilde: false }]];
 
 function MarkdownBody({ content, className, conversationId }: { content: string; className?: string; conversationId?: string }) {
+  const processed = useMemo(() => vizMarkers(content), [content]);
   const segments = useMemo(
-    () => (hasPlanProposal(content) ? splitPlanProposals(content) : null),
-    [content],
+    () => (hasPlanProposal(processed) ? splitPlanProposals(processed) : null),
+    [processed],
   );
 
   if (segments && conversationId) {
@@ -49,7 +68,7 @@ function MarkdownBody({ content, className, conversationId }: { content: string;
   return (
     <div className={cn(PROSE_CLS, className)}>
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
-        {content}
+        {processed}
       </ReactMarkdown>
     </div>
   );
