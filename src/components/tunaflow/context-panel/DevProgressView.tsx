@@ -126,7 +126,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
     setBusy(true);
     try {
       await openThread(plan.implementationBranchId);
-      const prompt = `Subtask ${index + 1} "${subtask.title}"을(를) 다시 구현해주세요.\n\n상세 설계:\n${subtask.details ?? "(없음)"}\n\n완료 후 \`<!-- tunaflow:subtask-done:${index + 1} -->\`을 포함하세요.`;
+      const prompt = `Subtask ${index + 1} "${subtask.title}"을(를) 다시 구현해주세요.\n\n상세 설계:\n${subtask.details ?? "(없음)"}`;
       const shadowConvId = `branch:${plan.implementationBranchId}`;
       const saved = useChatStore.getState().getConversationEngine(shadowConvId);
       await sendThreadMessage(prompt, saved?.engine ?? "claude");
@@ -192,7 +192,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
         ``,
         `Plan 문서와 작업 지시서를 기준으로 구현 결과를 검증하세요.`,
         ``,
-        `> 완료 조건: \`<!-- tunaflow:review-verdict -->\` 제출`,
+        `> 완료 후 리뷰 verdict를 제출하세요.`,
       ].join("\n");
 
       await sendThreadMessage(prompt, selectedProfile.engine);
@@ -338,7 +338,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
                     ...findingItems.map((f) => `- ${f}`),
                     ...(recItems.length > 0 ? [``, `**Recommendations**:`, ...recItems.map((r) => `- ${r}`)] : []),
                     ``,
-                    `> 완료 조건: 위 항목 모두 해결 후 \`<!-- tunaflow:impl-complete -->\` 포함`,
+                    `> 완료 조건: 위 항목 모두 해결 후 완료를 알려주세요.`,
                   ].join("\n");
                   const shadowConvId = `branch:${plan.implementationBranchId}`;
                   const saved = useChatStore.getState().getConversationEngine(shadowConvId);

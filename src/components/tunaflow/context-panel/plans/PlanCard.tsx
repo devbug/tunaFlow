@@ -329,7 +329,7 @@ export function PlanCard({
                         `[Rework] Review에서 다음 사항이 지적되었습니다:`,
                         findings ? `- ${findings}` : "(findings 없음)",
                         "",
-                        `위 사항을 수정하고 완료 시 \`<!-- tunaflow:impl-complete -->\`를 포함하세요.`,
+                        `위 사항을 수정하고 완료되면 알려주세요.`,
                       ].join("\n");
                       const shadowConvId = `branch:${plan.implementationBranchId}`;
                       const saved = useChatStore.getState().getConversationEngine(shadowConvId);

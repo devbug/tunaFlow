@@ -202,10 +202,7 @@ export async function approveAndStartImplementation(
     `**작업 지시서**:`,
     ...taskItems,
     ``,
-    `**규칙**:`,
-    `1. 각 task 파일을 읽고 순서대로 구현`,
-    `2. 각 완료 시 \`<!-- subtask-done:N -->\``,
-    `3. 전체 완료 시 \`<!-- impl-complete -->\``,
+    `각 task 파일을 읽고 순서대로 구현하세요.`,
   ].join("\n");
 
   return { branch, shadowConvId, prompt };
@@ -218,7 +215,7 @@ export async function approveImplPlan(
   plan: Plan,
 ): Promise<string> {
   await planApi.createPlanEvent(plan.id, "impl_approved", "user");
-  return "실행 계획이 승인되었습니다. 구현을 시작하세요. 완료되면 `<!-- tunaflow:impl-complete -->`를 포함하세요.";
+  return "실행 계획이 승인되었습니다. 구현을 시작하세요.";
 }
 
 // ─── Phase D→E: impl-complete → Start Review RT ─────────────────────────────
@@ -266,8 +263,7 @@ export async function startReviewRT(
     `2. 코드 품질 (버그, 보안, 성능)`,
     `3. 테스트 커버리지`,
     "",
-    `\`<!-- tunaflow:review-verdict -->\` 형식으로 판정하세요.`,
-    `verdict: pass | fail | conditional`,
+    `리뷰 결과를 verdict (pass / fail / conditional)로 판정하세요.`,
   ].filter(Boolean).join("\n");
 
   // Save RT config for the review branch
