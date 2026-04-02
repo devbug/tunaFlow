@@ -102,13 +102,21 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       const msgs = await invoke<Message[]>("list_messages", { conversationId: implShadow });
       await syncResultReport(plan.id, msgs, plan.developerEngine ?? undefined);
 
-      // Phase transition
-      await planApi.updatePlanPhase(plan.id, "review");
-      await planApi.createPlanEvent(plan.id, "review_started", "user", `reviewer=${selectedProfile.label}`);
+      // Archive previous review branch if exists
+      if (plan.reviewBranchId) {
+        await invoke("archive_branch", { id: plan.reviewBranchId }).catch(() => {});
+      }
 
-      // Create review branch (single reviewer, not RT)
+      // Phase transition
+      const isRework = plan.phase === "rework" || !!reviewVerdict;
+      const roundLabel = isRework ? `Re-review` : `Review`;
+      await planApi.updatePlanPhase(plan.id, "review");
+      await planApi.createPlanEvent(plan.id, "review_started", "user",
+        `reviewer=${selectedProfile.label}${isRework ? " (rework)" : ""}`);
+
+      // Create new review branch
       const slug = plan.title.replace(/[^\w가-힣-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 80);
-      const input = { conversationId: plan.conversationId, label: `Review: ${plan.title.slice(0, 30)}`, mode: "chat" };
+      const input = { conversationId: plan.conversationId, label: `${roundLabel}: ${plan.title.slice(0, 25)}`, mode: "chat" };
       const branch = await invoke<Branch>("create_branch", { input });
       const shadowConvId = await invoke<string>("open_branch_stream", { branchId: branch.id });
       await planApi.linkPlanBranch(plan.id, "review", branch.id);
@@ -117,9 +125,19 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       await loadBranches(plan.conversationId);
       await openThread(branch.id);
 
-      // Send review prompt
+      // Build review prompt — include previous findings if rework
+      const prevFindings = reviewVerdict && reviewVerdict.findings.length > 0
+        ? [
+            "",
+            `## 이전 Review Findings (수정 확인 필요)`,
+            ...reviewVerdict.findings.map((f) => `- ${f.slice(0, 300)}`),
+            "",
+            `위 사항이 수정되었는지 반드시 확인하세요.`,
+          ].join("\n")
+        : "";
+
       const prompt = [
-        `[Review] "${plan.title}"`,
+        `[${roundLabel}] "${plan.title}"`,
         "",
         `Plan 문서: \`docs/plans/${slug}.md\``,
         `구현 결과: \`docs/plans/${slug}-result.md\``,
@@ -127,7 +145,8 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
         "",
         `Plan 문서와 작업 지시서를 기준으로 구현 결과를 검증하세요.`,
         `\`<!-- tunaflow:review-verdict -->\` 형식으로 verdict를 제출하세요.`,
-      ].join("\n");
+        prevFindings,
+      ].filter(Boolean).join("\n");
 
       await sendThreadMessage(prompt, selectedProfile.engine);
       onPlanUpdate(plan.id, { phase: "review" as PlanPhase, reviewBranchId: branch.id });
