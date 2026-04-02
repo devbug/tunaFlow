@@ -36,48 +36,52 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
     return reviewer?.id ?? profiles[0]?.id ?? "";
   });
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
+  // Scan function — reusable for initial load + polling
+  const scanBranchState = async (cancelled: { current: boolean }) => {
+    if (!plan.implementationBranchId) return;
+    try {
+      const shadowConvId = `branch:${plan.implementationBranchId}`;
+      const msgs = await invoke<Message[]>("list_messages", { conversationId: shadowConvId });
+      if (cancelled.current) return;
+      setCompletedNums(scanCompletedSubtasks(msgs));
+      const complete = msgs.some((m) => m.role === "assistant" && hasImplComplete(m.content));
+      setImplComplete(complete);
 
-    (async () => {
-      const sts = await planApi.listSubtasks(plan.id).catch(() => [] as PlanSubtask[]);
-      if (cancelled) return;
-      setSubtasks(sts);
-
-      // Scan branch messages for subtask-done + impl-complete markers
-      if (plan.implementationBranchId) {
+      // Auto-run tests when implementation is complete (only once)
+      if (complete && !testResult && !testRunning && !cancelled.current) {
         try {
-          const shadowConvId = `branch:${plan.implementationBranchId}`;
-          const msgs = await invoke<Message[]>("list_messages", { conversationId: shadowConvId });
-          if (!cancelled) {
-            setCompletedNums(scanCompletedSubtasks(msgs));
-            const complete = msgs.some((m) => m.role === "assistant" && hasImplComplete(m.content));
-            setImplComplete(complete);
-
-            // Auto-run tests when implementation is complete
-            if (complete && !cancelled) {
-              try {
-                const projectKey = useChatStore.getState().selectedProjectKey;
-                if (projectKey) {
-                  const project = await invoke("get_project", { key: projectKey }) as { path?: string };
-                  if (project?.path) {
-                    setTestRunning(true);
-                    const result = await runProjectTests(project.path);
-                    if (!cancelled) {
-                      setTestResult(result);
-                      setTestRunning(false);
-                    }
-                  }
-                }
-              } catch (e) {
-                console.warn("[tunaflow] test run failed:", e);
+          const projectKey = useChatStore.getState().selectedProjectKey;
+          if (projectKey) {
+            const project = await invoke("get_project", { key: projectKey }) as { path?: string };
+            if (project?.path) {
+              setTestRunning(true);
+              const result = await runProjectTests(project.path);
+              if (!cancelled.current) {
+                setTestResult(result);
                 setTestRunning(false);
               }
             }
           }
-        } catch { /* branch may not exist */ }
+        } catch (e) {
+          console.warn("[tunaflow] test run failed:", e);
+          setTestRunning(false);
+        }
       }
+    } catch (e) { console.warn("[tunaflow]", e); }
+  };
+
+  // Initial load
+  useEffect(() => {
+    const cancelled = { current: false };
+    setLoading(true);
+
+    (async () => {
+      const sts = await planApi.listSubtasks(plan.id).catch(() => [] as PlanSubtask[]);
+      if (cancelled.current) return;
+      setSubtasks(sts);
+
+      await scanBranchState(cancelled);
+
       // Scan review branch for verdict (rework phase)
       if (plan.reviewBranchId && (plan.phase === "rework" || plan.phase === "review")) {
         try {
@@ -86,7 +90,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
           for (const msg of reviewMsgs) {
             if (msg.role === "assistant" && hasReviewVerdict(msg.content)) {
               const v = extractReviewVerdict(msg.content);
-              if (v && !cancelled) setReviewVerdict(v);
+              if (v && !cancelled.current) setReviewVerdict(v);
               break;
             }
           }
@@ -96,7 +100,14 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       setLoading(false);
     })();
 
-    return () => { cancelled = true; };
+    // Poll every 5 seconds for progress updates while in implementation/rework
+    const interval = setInterval(() => {
+      if (plan.phase === "implementation" || plan.phase === "rework") {
+        scanBranchState(cancelled);
+      }
+    }, 5000);
+
+    return () => { cancelled.current = true; clearInterval(interval); };
   }, [plan.id, plan.implementationBranchId, plan.phase]);
 
   const handleOpenBranch = () => {
