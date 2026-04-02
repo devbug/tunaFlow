@@ -4,5 +4,6 @@ pub mod context_hub;
 pub mod gemini;
 pub mod gemini_sdk;
 pub mod loader;
+pub mod openai_sdk;
 pub mod opencode;
 pub mod rawq;

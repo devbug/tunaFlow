@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::agents::{claude, codex, gemini, gemini_sdk, opencode};
+use crate::agents::{claude, codex, gemini, gemini_sdk, openai_sdk, opencode};
 use crate::db::DbState;
 use crate::errors::AppError;
 use crate::guardrail;
@@ -209,20 +209,40 @@ pub async fn start_codex_run(
     let ret = prep.msg_id.clone();
     let PreparedRun { msg_id, job_id, enriched_prompt, project_path, ctx_meta, .. } = prep;
 
-    std::thread::spawn(move || {
-        let chunk_mid = msg_id.clone(); let chunk_app = app.clone();
-        let progress_mid = msg_id.clone(); let progress_app = app.clone();
-        let t0 = std::time::Instant::now();
-        let rr = codex::stream_run(
-            claude::RunInput { prompt: enriched_prompt, model: mo.clone(), system_prompt: None, resume_token: None, project_path },
-            |event_type| { let _ = progress_app.emit("codex:progress", ChunkPayload { message_id: progress_mid.clone(), text: format!("codex: {}", event_type) }); },
-            |accumulated| { let _ = chunk_app.emit("codex:chunk", ChunkPayload { message_id: chunk_mid.clone(), text: accumulated.to_string() }); },
-        );
-        let dur = t0.elapsed().as_millis();
-        if let Ok(conn) = write_arc.lock() {
-            finalize_engine_run(&conn, "codex", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
-        }
-    });
+    if openai_sdk::is_available() {
+        // SDK path — OpenAI Chat Completions API
+        let system_prompt = prep.system_context;
+        tokio::spawn(async move {
+            let pa = app.clone(); let pi = msg_id.clone();
+            let c2 = app.clone(); let ci = msg_id.clone();
+            let t0 = std::time::Instant::now();
+            let rr = openai_sdk::stream_run(
+                claude::RunInput { prompt: enriched_prompt, model: mo.clone(), system_prompt, resume_token: None, project_path },
+                move |t| { let _ = pa.emit("codex:progress", ChunkPayload { message_id: pi.clone(), text: t }); },
+                move |t| { let _ = c2.emit("codex:chunk", ChunkPayload { message_id: ci.clone(), text: t }); },
+            ).await;
+            let dur = t0.elapsed().as_millis();
+            if let Ok(conn) = write_arc.lock() {
+                finalize_engine_run(&conn, "codex", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
+            }
+        });
+    } else {
+        // Codex CLI fallback
+        std::thread::spawn(move || {
+            let chunk_mid = msg_id.clone(); let chunk_app = app.clone();
+            let progress_mid = msg_id.clone(); let progress_app = app.clone();
+            let t0 = std::time::Instant::now();
+            let rr = codex::stream_run(
+                claude::RunInput { prompt: enriched_prompt, model: mo.clone(), system_prompt: None, resume_token: None, project_path },
+                |event_type| { let _ = progress_app.emit("codex:progress", ChunkPayload { message_id: progress_mid.clone(), text: format!("codex: {}", event_type) }); },
+                |accumulated| { let _ = chunk_app.emit("codex:chunk", ChunkPayload { message_id: chunk_mid.clone(), text: accumulated.to_string() }); },
+            );
+            let dur = t0.elapsed().as_millis();
+            if let Ok(conn) = write_arc.lock() {
+                finalize_engine_run(&conn, "codex", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
+            }
+        });
+    }
     Ok(StartRunResult { message_id: ret })
 }
 
