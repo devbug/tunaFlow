@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::agents::{claude, codex, gemini, gemini_sdk, openai_sdk, opencode};
+use crate::agents::{anthropic_sdk, claude, codex, gemini, gemini_sdk, openai_sdk, opencode};
 use crate::db::DbState;
 use crate::errors::AppError;
 use crate::guardrail;
@@ -114,22 +114,46 @@ pub async fn start_claude_stream(
     let PreparedRun { msg_id, job_id, project_path, ctx_meta, .. } = prep;
     let plen = pr.len() + system_prompt.as_ref().map_or(0, |s| s.len());
 
-    std::thread::spawn(move || {
-        let pa = app.clone(); let pi = msg_id.clone();
-        let c2 = app.clone(); let ci = msg_id.clone();
-        let t0 = std::time::Instant::now();
-        let rr = claude::stream_run(
-            claude::RunInput { prompt: pr, model: mo.clone(), system_prompt, resume_token, project_path },
-            move |t| { let _ = pa.emit("claude:progress", ChunkPayload { message_id: pi.clone(), text: t }); },
-            move |t| { let _ = c2.emit("claude:chunk", ChunkPayload { message_id: ci.clone(), text: t }); },
-            { let c = cid.clone(); let r = cancel_arc; move || { if let Ok(mut s) = r.lock() { s.remove(&c) } else { false } } },
-        );
-        let dur = t0.elapsed().as_millis();
-        guardrail::log_run("claude-bg", mo.as_deref(), dur, plen, rr.is_ok());
-        if let Ok(conn) = write_arc.lock() {
-            finalize_engine_run(&conn, "claude-code", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
-        }
-    });
+    // Claude: CLI preferred (file editing, MCP, terminal).
+    // SDK only when ANTHROPIC_API_KEY is set AND conversation is a branch (Developer/Reviewer).
+    let use_sdk = anthropic_sdk::is_available() && cid.starts_with("branch:");
+
+    if use_sdk {
+        let sp = system_prompt;
+        tokio::spawn(async move {
+            let pa = app.clone(); let pi = msg_id.clone();
+            let c2 = app.clone(); let ci = msg_id.clone();
+            let t0 = std::time::Instant::now();
+            let rr = anthropic_sdk::stream_run(
+                claude::RunInput { prompt: pr, model: mo.clone(), system_prompt: sp, resume_token: None, project_path },
+                move |t| { let _ = pa.emit("claude:progress", ChunkPayload { message_id: pi.clone(), text: t }); },
+                move |t| { let _ = c2.emit("claude:chunk", ChunkPayload { message_id: ci.clone(), text: t }); },
+            ).await;
+            let dur = t0.elapsed().as_millis();
+            guardrail::log_run("claude-sdk", mo.as_deref(), dur, plen, rr.is_ok());
+            if let Ok(conn) = write_arc.lock() {
+                finalize_engine_run(&conn, "claude-code", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
+            }
+        });
+    } else {
+        // CLI path — full Claude Code features
+        std::thread::spawn(move || {
+            let pa = app.clone(); let pi = msg_id.clone();
+            let c2 = app.clone(); let ci = msg_id.clone();
+            let t0 = std::time::Instant::now();
+            let rr = claude::stream_run(
+                claude::RunInput { prompt: pr, model: mo.clone(), system_prompt, resume_token, project_path },
+                move |t| { let _ = pa.emit("claude:progress", ChunkPayload { message_id: pi.clone(), text: t }); },
+                move |t| { let _ = c2.emit("claude:chunk", ChunkPayload { message_id: ci.clone(), text: t }); },
+                { let c = cid.clone(); let r = cancel_arc; move || { if let Ok(mut s) = r.lock() { s.remove(&c) } else { false } } },
+            );
+            let dur = t0.elapsed().as_millis();
+            guardrail::log_run("claude-bg", mo.as_deref(), dur, plen, rr.is_ok());
+            if let Ok(conn) = write_arc.lock() {
+                finalize_engine_run(&conn, "claude-code", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
+            }
+        });
+    }
     Ok(StartRunResult { message_id: ret })
 }
 

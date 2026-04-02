@@ -1,3 +1,4 @@
+pub mod anthropic_sdk;
 pub mod claude;
 pub mod codex;
 pub mod context_hub;
