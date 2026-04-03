@@ -14,46 +14,70 @@ use super::persist::persist_single;
 const LOCAL_MODE: &str = "lite";
 const LOCAL_BUDGET_CAP: usize = 15_000;
 
-/// Build a lightweight ContextPack section for an RT participant.
-/// Commercial engines get auto mode, local engines get lite mode with reduced budget.
-fn build_rt_context_pack(
-    state: &DbState,
-    conversation_id: &str,
-    topic: &str,
-    engine_key: &str,
-    project_path: Option<&str>,
-) -> Option<String> {
-    let conn = match state.read.lock() {
-        Ok(c) => c,
-        Err(_) => return None,
-    };
+/// Cached ContextPack results — built once per round, reused across participants.
+/// Two variants: auto mode (commercial engines) and lite mode (local engines).
+struct RtContextCache {
+    auto_context: Option<String>,
+    lite_context: Option<String>,
+}
 
-    let is_local = matches!(engine_key, "ollama" | "opencode");
-    let mode = if is_local { Some(LOCAL_MODE) } else { None };  // None = auto
-    let cap = if is_local { Some(LOCAL_BUDGET_CAP) } else { None };
+impl RtContextCache {
+    /// Build both variants once from DB. Subsequent lookups are free.
+    fn build(
+        state: &DbState,
+        conversation_id: &str,
+        topic: &str,
+        project_path: Option<&str>,
+        has_local: bool,
+    ) -> Self {
+        let conn = match state.read.lock() {
+            Ok(c) => c,
+            Err(_) => return Self { auto_context: None, lite_context: None },
+        };
 
-    let (enriched, _system, _meta) = build_normalized_prompt_with_budget(
-        &conn,
-        conversation_id,
-        topic,
-        project_path,
-        &[],   // no active skills for RT
-        &[],   // no cross-session
-        None,  // no persona fragment (identity is handled separately)
-        mode,
-        cap,
-    );
+        let auto_context = Self::extract_context(
+            &conn, conversation_id, topic, project_path, None, None,
+        );
 
-    // Extract only the context sections (everything before the user prompt)
-    // The enriched prompt has format: [context sections]\n\n---\n\n[user prompt]
-    // We want just the context sections to prepend to the RT prompt
-    if let Some(pos) = enriched.rfind("\n\n---\n\n") {
-        let context = enriched[..pos].trim();
-        if !context.is_empty() {
-            return Some(format!("## Project Context\n\n{}", context));
-        }
+        let lite_context = if has_local {
+            Self::extract_context(
+                &conn, conversation_id, topic, project_path,
+                Some(LOCAL_MODE), Some(LOCAL_BUDGET_CAP),
+            )
+        } else {
+            None
+        };
+
+        Self { auto_context, lite_context }
     }
-    None
+
+    fn extract_context(
+        conn: &rusqlite::Connection,
+        conversation_id: &str,
+        topic: &str,
+        project_path: Option<&str>,
+        mode: Option<&str>,
+        cap: Option<usize>,
+    ) -> Option<String> {
+        let (enriched, _, _) = build_normalized_prompt_with_budget(
+            conn, conversation_id, topic, project_path,
+            &[], &[], None, mode, cap,
+        );
+        if let Some(pos) = enriched.rfind("\n\n---\n\n") {
+            let context = enriched[..pos].trim();
+            if !context.is_empty() {
+                return Some(format!("## Project Context\n\n{}", context));
+            }
+        }
+        None
+    }
+
+    /// Get cached context for a given engine.
+    fn get(&self, engine_key: &str) -> Option<&str> {
+        let is_local = matches!(engine_key, "ollama" | "opencode");
+        let ctx = if is_local { &self.lite_context } else { &self.auto_context };
+        ctx.as_deref()
+    }
 }
 
 /// Real-time participant execution status — emitted at actual subprocess lifecycle points.
@@ -267,6 +291,10 @@ async fn execute_sequential(
     let mut messages = Vec::new();
     let mut round_responses: Vec<(String, String)> = Vec::new();
 
+    // Build ContextPack cache once for all participants (auto + lite variants)
+    let has_local = participants.iter().any(|p| matches!(p.engine.as_deref(), Some("ollama" | "opencode")));
+    let ctx_cache = RtContextCache::build(state, conversation_id, topic, project_path, has_local);
+
     for p in participants {
         if cancel.check_and_consume(conversation_id) {
             return Err(AppError::Agent("cancelled by user".into()));
@@ -287,16 +315,15 @@ async fn execute_sequential(
             round: round_num, status: "running".into(), blind: p.blind,
         });
 
-        // Build prompt with participant identity + ContextPack
+        // Build prompt with participant identity + cached ContextPack
         let identity = participant_identity(p);
-        let context_pack = build_rt_context_pack(state, conversation_id, topic, engine_key, project_path);
         let mut prompt = if p.blind {
             eprintln!("[rt] blind verifier: {} — no transcript", p.name);
             build_round_prompt_with_identity(topic, &[], &[], Some(&identity))
         } else {
             build_round_prompt_with_identity(topic, transcript, &round_responses, Some(&identity))
         };
-        if let Some(ctx) = context_pack {
+        if let Some(ctx) = ctx_cache.get(engine_key) {
             prompt = format!("{}\n\n---\n\n{}", ctx, prompt);
         }
         let r = run_participant(p, prompt, sources_json, project_path.map(|s| s.to_string())).await;
@@ -357,6 +384,10 @@ async fn execute_parallel(
     };
     let sources_json = serde_json::to_string(&sources).unwrap_or_default();
 
+    // Build ContextPack cache once for all participants (auto + lite variants)
+    let has_local = participants.iter().any(|p| matches!(p.engine.as_deref(), Some("ollama" | "opencode")));
+    let ctx_cache = RtContextCache::build(state, conversation_id, topic, project_path, has_local);
+
     // Spawn all participants as tokio tasks, collect results in completion-order via channel.
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ParticipantResult>(participants.len());
     let participant_count = participants.len();
@@ -368,7 +399,6 @@ async fn execute_parallel(
         let p_clone = p.clone();
         let identity = participant_identity(p);
         let engine_key = p.engine.as_deref().unwrap_or("claude");
-        let context_pack = build_rt_context_pack(state, conversation_id, &topic_owned, engine_key, project_path);
         let tr = transcript_owned.clone();
         let tp = topic_owned.clone();
         let mut pr = if p.blind {
@@ -377,7 +407,7 @@ async fn execute_parallel(
         } else {
             build_round_prompt_with_identity(&tp, &tr, &[], Some(&identity))
         };
-        if let Some(ctx) = context_pack {
+        if let Some(ctx) = ctx_cache.get(engine_key) {
             pr = format!("{}\n\n---\n\n{}", ctx, pr);
         }
         let sj = sources_json.clone();
