@@ -32,7 +32,7 @@ export function ChatPanel() {
   const [rtDialogCheckpoint, setRtDialogCheckpoint] = useState<string | null>(null);
   const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
   const [artifactContent, setArtifactContent] = useState<string | null>(null);
-  const [atBottom, setAtBottom] = useState(true);
+  // atBottom tracking removed — was causing infinite re-render loop with Virtuoso
 
   const currentConv = conversations.find((c) => c.id === selectedConversationId);
   const isRoundtable = currentConv?.mode === "roundtable";
@@ -205,7 +205,6 @@ export function ChatPanel() {
               return renderMessage(index);
             }}
             followOutput={followOutput}
-            atBottomStateChange={setAtBottom}
             atBottomThreshold={100}
             initialTopMostItemIndex={Math.max(0, messages.length - 1)}
             className="h-full"
