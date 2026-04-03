@@ -130,7 +130,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       const prompt = `Subtask ${index + 1} "${subtask.title}"을(를) 다시 구현해주세요.\n\n상세 설계:\n${subtask.details ?? "(없음)"}`;
       const shadowConvId = `branch:${plan.implementationBranchId}`;
       const saved = useChatStore.getState().getConversationEngine(shadowConvId);
-      await sendThreadMessage(prompt, saved?.engine ?? "claude");
+      await sendThreadMessage(prompt, saved?.engine ?? "claude", saved?.model ?? undefined);
     } catch (e) { console.warn("[tunaflow]", e); }
     setBusy(false);
   };
@@ -355,7 +355,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
                   ].filter(Boolean).join("\n");
                   const shadowConvId = `branch:${plan.implementationBranchId}`;
                   const saved = useChatStore.getState().getConversationEngine(shadowConvId);
-                  await sendThreadMessage(reworkPrompt, saved?.engine ?? "claude");
+                  await sendThreadMessage(reworkPrompt, saved?.engine ?? "claude", saved?.model ?? undefined);
                   onPlanUpdate(plan.id, { phase: "implementation" as PlanPhase });
                 } catch (e) { console.warn("[tunaflow]", e); }
                 setBusy(false);

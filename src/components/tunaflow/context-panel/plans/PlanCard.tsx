@@ -338,7 +338,7 @@ export function PlanCard({
                       ].filter(Boolean).join("\n");
                       const shadowConvId = `branch:${plan.implementationBranchId}`;
                       const saved = useChatStore.getState().getConversationEngine(shadowConvId);
-                      await useChatStore.getState().sendThreadMessage(reworkPrompt, saved?.engine ?? "claude");
+                      await useChatStore.getState().sendThreadMessage(reworkPrompt, saved?.engine ?? "claude", saved?.model ?? undefined);
                     }}
                     className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
                   >

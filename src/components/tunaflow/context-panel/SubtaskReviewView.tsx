@@ -63,12 +63,10 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
 
   const isActionable = plan.phase === "subtask_review";
 
-  // Resolve main chat's agent engine (not hardcoded "claude")
-  const mainEngine = (() => {
-    if (!selectedConversationId) return "claude";
-    const saved = getConversationEngine(selectedConversationId);
-    return saved?.engine ?? "claude";
-  })();
+  // Resolve main chat's agent engine + model (not hardcoded "claude")
+  const mainSaved = selectedConversationId ? getConversationEngine(selectedConversationId) : null;
+  const mainEngine = mainSaved?.engine ?? "claude";
+  const mainModel = mainSaved?.model;
 
   const handleApprove = async () => {
     if (!isActionable) return;
@@ -109,7 +107,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
         `> 완료 조건: 변경 내용 요약`,
       ].join("\n");
 
-      await sendThreadMessage(prompt, mainEngine);
+      await sendThreadMessage(prompt, mainEngine, mainModel);
       await planApi.createPlanEvent(plan.id, "plan_sync_requested", "user");
     } catch (e) { console.warn("[tunaflow]", e); }
     setBusy(false);
@@ -148,7 +146,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
         `> 완료 조건: 파일 수정 후 변경 내용 요약`,
       ].join("\n");
 
-      await sendThreadMessage(prompt, mainEngine);
+      await sendThreadMessage(prompt, mainEngine, mainModel);
       await planApi.createPlanEvent(plan.id, "subtask_revision_requested", "user",
         `subtask ${subtaskIdx + 1}: ${opinion.slice(0, 100)}`);
     } catch (e) { console.warn("[tunaflow]", e); }
@@ -179,7 +177,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
         `이 subtask에 대해 논의합니다. 질문하거나 검토 의견을 나눠주세요.`,
       ].join("\n");
 
-      await sendThreadMessage(prompt, mainEngine);
+      await sendThreadMessage(prompt, mainEngine, mainModel);
     } catch (e) { console.warn("[tunaflow]", e); }
     setBusy(false);
   };
@@ -219,7 +217,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
         `> 완료 조건: 파일 작성 후 알려주세요`,
       ].join("\n");
 
-      await sendThreadMessage(prompt, mainEngine);
+      await sendThreadMessage(prompt, mainEngine, mainModel);
       await planApi.createPlanEvent(plan.id, "detail_design_requested", "user",
         `subtask ${subtaskIdx + 1}`);
     } catch (e) { console.warn("[tunaflow]", e); }
