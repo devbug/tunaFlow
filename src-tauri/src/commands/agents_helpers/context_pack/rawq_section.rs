@@ -62,15 +62,19 @@ pub fn build_rawq_section(project_path: Option<&str>, prompt: &str) -> Option<St
         }
     }
 
-    // Detect if prompt is conceptual (favor semantic) or code-specific (favor BM25)
+    // Detect prompt characteristics for search strategy
     let is_conceptual = !CODE_SIGNAL_KEYWORDS.iter().any(|kw| prompt.to_lowercase().contains(kw));
+    let has_korean = prompt.chars().any(|c| ('\u{AC00}'..='\u{D7AF}').contains(&c));
+
     let opts = rawq::SearchOptions {
         limit: RAWQ_MAX_RESULTS + 3,
         threshold: 0.3,
-        rerank: true,
+        // Korean prompts: skip rerank (causes timeout with Korean tokenization)
+        rerank: !has_korean,
         token_budget: None,
         text_weight: Some(if is_conceptual { 0.8 } else { 0.5 }),
-        rrf_weight: if is_conceptual { Some(0.7) } else { None }, // None = auto-detect
+        // Korean prompts: force semantic mode (BM25 is weak for Korean)
+        rrf_weight: if has_korean { Some(0.9) } else if is_conceptual { Some(0.7) } else { None },
         context_lines: 2,
     };
 
