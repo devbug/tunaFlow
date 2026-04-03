@@ -419,7 +419,7 @@ pub fn search_with_options(project_path: &str, query: &str, opts: SearchOptions)
         .spawn()
         .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
 
-    let timeout = std::time::Duration::from_secs(5);
+    let timeout = std::time::Duration::from_secs(3);
     loop {
         match child.try_wait() {
             Ok(Some(_)) => break,
@@ -427,7 +427,7 @@ pub fn search_with_options(project_path: &str, query: &str, opts: SearchOptions)
                 if t0.elapsed() > timeout {
                     let _ = child.kill();
                     eprintln!("[rawq] search timed out after {}ms", t0.elapsed().as_millis());
-                    return Err(RawqError::ExecFailed("search timed out (5s)".into()));
+                    return Err(RawqError::ExecFailed("search timed out (3s)".into()));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
