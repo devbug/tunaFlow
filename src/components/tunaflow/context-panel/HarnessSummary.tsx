@@ -139,61 +139,36 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
         })}
       </div>
 
-      {/* Compact summary card — only when plan exists */}
+      {/* Compact summary — plan count per stage as inline badges */}
       {activePlan && counts && (
-      <div className="rounded-md bg-card/50 border border-border/30 px-2.5 py-2 space-y-1.5">
-        {/* Plan title */}
-        <div className="flex items-center gap-1.5">
-          <ClipboardList className="w-3 h-3 text-primary/60 shrink-0" />
-          <span className="text-[11px] font-medium text-foreground truncate">{activePlan.title}</span>
-        </div>
-
-        {/* Subtask distribution */}
-        <div className="flex items-center gap-2 text-[9px]">
-          {counts.done > 0 && (
-            <span className="flex items-center gap-1 text-status-approved/70">
-              <span className="w-1.5 h-1.5 rounded-full bg-status-approved/50" />
-              {counts.done} done
-            </span>
-          )}
-          {counts.inProgress > 0 && (
-            <span className="flex items-center gap-1 text-primary/70">
-              <span className="w-1.5 h-1.5 rounded-full bg-primary/50" />
-              {counts.inProgress} active
-            </span>
-          )}
-          {counts.approved > 0 && (
-            <span className="flex items-center gap-1 text-agent-gemini/70">
-              <span className="w-1.5 h-1.5 rounded-full bg-agent-gemini/50" />
-              {counts.approved} approved
-            </span>
-          )}
-          {counts.todo > 0 && (
-            <span className="text-muted-foreground/50">{counts.todo} todo</span>
-          )}
-        </div>
-
-        {/* Linked branches + harness artifacts */}
-        <div className="flex items-center gap-2.5 text-[9px] text-muted-foreground/60">
-          {linkedBranches.length > 0 && (
-            <span className="flex items-center gap-1">
-              <GitBranch className="w-2.5 h-2.5" />
-              {linkedBranches.length} dev branch{linkedBranches.length > 1 ? "es" : ""}
-            </span>
-          )}
-          {reviewCount > 0 && (
-            <span className="flex items-center gap-1 text-status-draft/70">
-              <FileSearch className="w-2.5 h-2.5" />
-              {reviewCount} review
-            </span>
-          )}
-          {decisionCount > 0 && (
-            <span className="flex items-center gap-1 text-primary/60">
-              <Gavel className="w-2.5 h-2.5" />
-              {decisionCount} decision
-            </span>
-          )}
-        </div>
+      <div className="flex items-center gap-2 text-[9px] text-muted-foreground/50 px-1">
+        {counts.done > 0 && (
+          <span className="flex items-center gap-1 text-status-approved/60">
+            <span className="w-1.5 h-1.5 rounded-full bg-status-approved/50" />
+            {counts.done} done
+          </span>
+        )}
+        {counts.inProgress > 0 && (
+          <span className="flex items-center gap-1 text-primary/60">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary/50" />
+            {counts.inProgress} active
+          </span>
+        )}
+        {counts.todo > 0 && (
+          <span>{counts.todo} todo</span>
+        )}
+        {reviewCount > 0 && (
+          <span className="flex items-center gap-1 text-status-draft/60">
+            <FileSearch className="w-2.5 h-2.5" />
+            {reviewCount} review
+          </span>
+        )}
+        {decisionCount > 0 && (
+          <span className="flex items-center gap-1 text-primary/60">
+            <Gavel className="w-2.5 h-2.5" />
+            {decisionCount} decision
+          </span>
+        )}
       </div>
       )}
     </div>
