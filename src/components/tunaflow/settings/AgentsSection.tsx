@@ -91,7 +91,10 @@ export function AgentsSection() {
                   <button key={eng}
                     onClick={() => {
                       if (!selectedId) return;
-                      save(profiles.map((p) => p.id === selectedId ? { ...p, engine: eng, model: undefined } : p));
+                      // Find recommended model for the new engine
+                      const recommendedModel = engineModels.find((m) => m.engine === eng && m.recommended)?.id
+                        ?? engineModels.find((m) => m.engine === eng)?.id;
+                      save(profiles.map((p) => p.id === selectedId ? { ...p, engine: eng, model: recommendedModel } : p));
                     }}
                     className={cn(
                       "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors border",
