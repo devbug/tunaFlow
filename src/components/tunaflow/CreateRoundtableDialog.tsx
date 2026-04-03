@@ -13,7 +13,7 @@ const RT_MODES: { id: RtMode; label: string; desc: string }[] = [
   { id: "deliberative", label: "Deliberative", desc: "Round 1 independent, Round 2+ reflects on all" },
 ];
 
-const ENGINES = ["claude", "codex", "gemini", "opencode"] as const;
+const ENGINES = ["claude", "codex", "gemini", "opencode", "ollama"] as const;
 
 interface CreateRoundtableDialogProps {
   open: boolean;
