@@ -117,7 +117,8 @@ pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
     cmd.arg("exec")
         .arg("--json")
         .arg("--skip-git-repo-check")
-        .arg("--color=never");
+        .arg("--color=never")
+        .arg("--ask-for-approval").arg("never");
 
     if let Some(model) = &input.model {
         cmd.arg("--model").arg(model);
@@ -286,7 +287,8 @@ where
     cmd.arg("exec")
         .arg("--json")
         .arg("--skip-git-repo-check")
-        .arg("--color=never");
+        .arg("--color=never")
+        .arg("--ask-for-approval").arg("never");
 
     if let Some(model) = &input.model {
         cmd.arg("--model").arg(model);
