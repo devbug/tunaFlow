@@ -197,11 +197,11 @@ pub fn get_index_status(conn: &Connection, conversation_id: &str) -> VectorIndex
 /// Detect workflow auto-generated prompts that pollute vector search.
 /// These are template messages from tunaFlow UI, not user conversations.
 fn is_workflow_prompt(content: &str) -> bool {
-    let start = &content[..content.len().min(50)];
-    start.starts_with("### 🔧") || start.starts_with("### 📋") || start.starts_with("### 🔍")
-        || start.starts_with("### 🔄") || start.starts_with("### ✏") || start.starts_with("### 💬")
-        || start.starts_with("### 📝") || start.starts_with("### 📌")
-        || start.starts_with("┌─") // legacy ASCII box prompts
+    // starts_with works on the full string — no need to slice
+    content.starts_with("### 🔧") || content.starts_with("### 📋") || content.starts_with("### 🔍")
+        || content.starts_with("### 🔄") || content.starts_with("### ✏") || content.starts_with("### 💬")
+        || content.starts_with("### 📝") || content.starts_with("### 📌")
+        || content.starts_with("┌─") // legacy ASCII box prompts
         || content.contains("<!-- tunaflow:review-verdict -->")
         || content.contains("<!-- tunaflow:impl-plan -->")
         || content.contains("<!-- tunaflow:impl-complete -->")
