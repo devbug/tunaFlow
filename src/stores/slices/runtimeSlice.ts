@@ -194,6 +194,10 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
 
     const unlistenDone = await listen<{ messageId: string; conversationId: string; durationMs?: number; inputTokens?: number; outputTokens?: number; costUsd?: number }>("agent:completed", async (e) => {
       if (e.payload.conversationId !== selectedConversationId) return;
+      // Discard pending chunk BEFORE cleanup — DB reload has final content.
+      // Without this, flushChunk() calls set(status:'streaming') which races
+      // with the later set(messages: enriched) where status='done'.
+      pendingChunk = null;
       cleanup();
       // Save tool steps to progressContent for lazy-load display
       const tsStore = useToolStepsStore.getState();
@@ -222,6 +226,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
 
     const unlistenErr = await listen<{ messageId: string; conversationId: string; error: string }>("agent:error", async (e) => {
       if (e.payload.conversationId !== selectedConversationId) return;
+      pendingChunk = null;
       cleanup();
       const freshMessages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
       set((state) => {
