@@ -246,84 +246,88 @@ fn blob_to_embedding(blob: &[u8]) -> Option<Vec<f32>> {
 /// Phase 1 (read lock): load messages + build chunk texts
 /// Phase 2 (no lock): call rawq embed for each chunk (external process, slow)
 /// Phase 3 (write lock): delete old chunks + insert new ones
+/// Runs on a background thread to avoid blocking the main thread.
 #[tauri::command]
-pub fn index_conversation_chunks(
+pub async fn index_conversation_chunks(
     conversation_id: String,
-    state: tauri::State<crate::db::DbState>,
+    state: tauri::State<'_, crate::db::DbState>,
 ) -> Result<usize, AppError> {
-    // Phase 1: read data (short lock)
-    let (project_key, chunks) = {
-        let conn = state.read.lock().map_err(|_| AppError::Lock)?;
-        let pk: String = conn
-            .query_row(
-                "SELECT project_key FROM conversations WHERE id = ?1",
-                [&conversation_id],
-                |row| row.get(0),
-            )
-            .map_err(|_| AppError::NotFound("conversation not found".into()))?;
+    let db = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        // Phase 1: read data (short lock)
+        let (project_key, chunks) = {
+            let conn = db.read.lock().map_err(|_| AppError::Lock)?;
+            let pk: String = conn
+                .query_row(
+                    "SELECT project_key FROM conversations WHERE id = ?1",
+                    [&conversation_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| AppError::NotFound("conversation not found".into()))?;
 
-        let mut stmt = conn.prepare(
-            "SELECT id, role, content FROM messages WHERE conversation_id = ?1 ORDER BY timestamp ASC",
-        )?;
-        let messages: Vec<(String, String, String)> = stmt
-            .query_map([&conversation_id], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
+            let mut stmt = conn.prepare(
+                "SELECT id, role, content FROM messages WHERE conversation_id = ?1 ORDER BY timestamp ASC",
+            )?;
+            let messages: Vec<(String, String, String)> = stmt
+                .query_map([&conversation_id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
 
-        let mut chunk_texts: Vec<(String, String, String)> = Vec::new();
-        let mut i = 0;
-        while i < messages.len() {
-            let (ref id, ref role, ref content) = messages[i];
-            if is_workflow_prompt(content) { i += 1; continue; }
-            if role == "user" && i + 1 < messages.len() && messages[i + 1].1 == "assistant" {
-                let text = format!("Q: {}\nA: {}", truncate_str(content, 200), truncate_str(&messages[i + 1].2, 200));
-                chunk_texts.push((id.clone(), "pair".to_string(), text));
-                i += 2;
-            } else {
-                let text = truncate_str(content, 300);
-                if text.len() >= 20 { chunk_texts.push((id.clone(), "anchor".to_string(), text)); }
-                i += 1;
+            let mut chunk_texts: Vec<(String, String, String)> = Vec::new();
+            let mut i = 0;
+            while i < messages.len() {
+                let (ref id, ref role, ref content) = messages[i];
+                if is_workflow_prompt(content) { i += 1; continue; }
+                if role == "user" && i + 1 < messages.len() && messages[i + 1].1 == "assistant" {
+                    let text = format!("Q: {}\nA: {}", truncate_str(content, 200), truncate_str(&messages[i + 1].2, 200));
+                    chunk_texts.push((id.clone(), "pair".to_string(), text));
+                    i += 2;
+                } else {
+                    let text = truncate_str(content, 300);
+                    if text.len() >= 20 { chunk_texts.push((id.clone(), "anchor".to_string(), text)); }
+                    i += 1;
+                }
+            }
+            (pk, chunk_texts)
+            // Read lock released here
+        };
+
+        if chunks.is_empty() { return Ok(0); }
+
+        // Phase 2: embed (NO lock held — rawq is external process, can be slow)
+        let mut embedded: Vec<(String, String, String, Vec<u8>)> = Vec::new();
+        for (root_id, kind, text) in &chunks {
+            match rawq::embed_text(text, false) {
+                Ok(v) => {
+                    embedded.push((root_id.clone(), kind.clone(), text.clone(), embedding_to_blob(&v)));
+                }
+                Err(e) => {
+                    eprintln!("[vector] embed failed for chunk {}: {:?}", root_id, e);
+                }
             }
         }
-        (pk, chunk_texts)
-        // Read lock released here
-    };
 
-    if chunks.is_empty() { return Ok(0); }
+        if embedded.is_empty() { return Ok(0); }
 
-    // Phase 2: embed (NO lock held — rawq is external process, can be slow)
-    let mut embedded: Vec<(String, String, String, Vec<u8>)> = Vec::new();
-    for (root_id, kind, text) in &chunks {
-        match rawq::embed_text(text, false) {
-            Ok(v) => {
-                embedded.push((root_id.clone(), kind.clone(), text.clone(), embedding_to_blob(&v)));
-            }
-            Err(e) => {
-                eprintln!("[vector] embed failed for chunk {}: {:?}", root_id, e);
-            }
+        // Phase 3: write results (short lock)
+        let conn = db.write.lock().map_err(|_| AppError::Lock)?;
+        conn.execute("DELETE FROM conversation_chunks WHERE conversation_id = ?1", [&conversation_id])?;
+        let now = now_epoch_ms();
+        let mut indexed = 0;
+        for (root_id, kind, text, blob) in &embedded {
+            let id = uuid::Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO conversation_chunks (id, project_key, conversation_id, kind, root_message_id, text_preview, embedding, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                rusqlite::params![id, project_key, conversation_id, kind, root_id, text, blob, now],
+            )?;
+            indexed += 1;
         }
-    }
-
-    if embedded.is_empty() { return Ok(0); }
-
-    // Phase 3: write results (short lock)
-    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-    conn.execute("DELETE FROM conversation_chunks WHERE conversation_id = ?1", [&conversation_id])?;
-    let now = now_epoch_ms();
-    let mut indexed = 0;
-    for (root_id, kind, text, blob) in &embedded {
-        let id = uuid::Uuid::new_v4().to_string();
-        conn.execute(
-            "INSERT INTO conversation_chunks (id, project_key, conversation_id, kind, root_message_id, text_preview, embedding, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            rusqlite::params![id, project_key, conversation_id, kind, root_id, text, blob, now],
-        )?;
-        indexed += 1;
-    }
-    eprintln!("[vector] indexed {} chunks for {} (from {} texts)", indexed, conversation_id, chunks.len());
-    Ok(indexed)
+        eprintln!("[vector] indexed {} chunks for {} (from {} texts)", indexed, conversation_id, chunks.len());
+        Ok(indexed)
+    }).await.map_err(|_| AppError::Lock)?
 }
 
 /// Search for similar chunks using a text query.

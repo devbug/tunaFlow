@@ -86,12 +86,15 @@ export function ScratchpadSection({
                 <Lightbulb className="w-3 h-3 shrink-0 text-amber-500/50" />
                 <span className="flex-1 truncate">{sp.label}</span>
                 {isRunning && <span className="w-1.5 h-1.5 rounded-full bg-status-approved animate-pulse shrink-0" />}
-                <button
+                <div
+                  role="button"
+                  tabIndex={0}
                   onClick={(e) => { e.stopPropagation(); handleDelete(sp.id); }}
-                  className="p-0.5 rounded opacity-0 group-hover:opacity-100 text-muted-foreground/30 hover:text-destructive transition-all"
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); handleDelete(sp.id); } }}
+                  className="p-0.5 rounded opacity-0 group-hover:opacity-100 text-muted-foreground/30 hover:text-destructive transition-all cursor-pointer"
                 >
                   <Trash2 className="w-2.5 h-2.5" />
-                </button>
+                </div>
               </button>
             );
           })}

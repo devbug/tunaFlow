@@ -40,6 +40,8 @@ pub fn init(db_path: PathBuf) -> Result<(Connection, Connection), AppError> {
     // Write connection — runs migrations, enables WAL + foreign keys
     let write_conn = Connection::open(&db_path)?;
     write_conn.execute_batch("PRAGMA journal_mode = WAL;")?;
+    write_conn.execute_batch("PRAGMA synchronous = NORMAL;")?;
+    write_conn.execute_batch("PRAGMA busy_timeout = 5000;")?;
     write_conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     migrations::run(&write_conn)?;
 
@@ -48,6 +50,7 @@ pub fn init(db_path: PathBuf) -> Result<(Connection, Connection), AppError> {
         &db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
+    read_conn.execute_batch("PRAGMA busy_timeout = 5000;")?;
     read_conn.execute_batch("PRAGMA foreign_keys = ON;")?;
 
     Ok((write_conn, read_conn))

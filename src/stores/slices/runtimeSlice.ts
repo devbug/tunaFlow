@@ -149,11 +149,15 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     };
 
     // Event listeners — progress swaps placeholder, chunk updates content
+    // Guard: skip UI updates if user navigated away (backend still persists to DB)
+    const isStillActive = () => get().selectedConversationId === selectedConversationId;
     const eventPrefix = engine === "claude" ? "claude" : engine;
-    const unlistenProgress = await listen<{ messageId: string; text: string }>(
+    const unlistenProgress = await listen<{ messageId: string; conversationId: string; text: string }>(
       `${eventPrefix}:progress`, (e) => {
-        // Parse tool steps from __STEP__ prefix
+        if (e.payload.conversationId !== selectedConversationId) return;
+        // Parse tool steps from __STEP__ prefix (always, even if navigated away)
         useToolStepsStore.getState().handleProgress(e.payload.messageId, e.payload.text);
+        if (!isStillActive()) return;
         // Swap the placeholder to real messageId (content stays empty → typing indicator)
         set((state) => {
           const hasReal = state.messages.some((m) => m.id === e.payload.messageId);
@@ -167,12 +171,14 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     let pendingChunk: { messageId: string; text: string } | null = null;
     let chunkTimer: ReturnType<typeof setTimeout> | null = null;
     const flushChunk = () => {
-      if (pendingChunk) { replaceOrUpdate(pendingChunk.messageId, pendingChunk.text); pendingChunk = null; }
+      if (pendingChunk && isStillActive()) { replaceOrUpdate(pendingChunk.messageId, pendingChunk.text); }
+      pendingChunk = null;
       chunkTimer = null;
     };
     const unlistenChunk = config.hasChunkEvent
-      ? await listen<{ messageId: string; text: string }>(
+      ? await listen<{ messageId: string; conversationId: string; text: string }>(
           `${eventPrefix}:chunk`, (e) => {
+            if (e.payload.conversationId !== selectedConversationId) return;
             pendingChunk = e.payload;
             if (!chunkTimer) chunkTimer = setTimeout(flushChunk, 200);
           },
@@ -196,21 +202,26 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
         invoke("save_progress_content", { messageId: e.payload.messageId, content: serializeSteps(steps) }).catch(() => {});
         tsStore.clear(e.payload.messageId);
       }
-      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
-      set({ messages });
+      // Only reload messages into UI if user is still viewing this conversation
+      if (isStillActive()) {
+        const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+        set({ messages });
+      }
       get()._endRun(selectedConversationId);
     });
 
     const unlistenErr = await listen<{ messageId: string; conversationId: string; error: string }>("agent:error", async (e) => {
       if (e.payload.conversationId !== selectedConversationId) return;
       cleanup();
-      // Clear streaming placeholders immediately, then reload from DB
-      set((state) => ({
-        error: e.payload.error,
-        messages: state.messages.filter((m) => !m.id.startsWith("temp-thinking-")),
-      }));
-      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
-      set({ messages });
+      if (isStillActive()) {
+        // Clear streaming placeholders immediately, then reload from DB
+        set((state) => ({
+          error: e.payload.error,
+          messages: state.messages.filter((m) => !m.id.startsWith("temp-thinking-")),
+        }));
+        const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+        set({ messages });
+      }
       get()._endRun(selectedConversationId);
     });
 
@@ -315,9 +326,12 @@ async function runRoundtable(
     ],
   }));
 
+  const isStillActive = () => get().selectedConversationId === selectedConversationId;
   let placeholderCleared = false;
   const ulRT = await listen<Message>("roundtable:progress", (event) => {
     const msg = event.payload;
+    if (msg.conversationId !== selectedConversationId) return;
+    if (!isStillActive()) return;
     if (msg.role === "user") return;
     set((state) => {
       if (!placeholderCleared) {
@@ -332,14 +346,21 @@ async function runRoundtable(
   const ulD = await listen<{ conversationId: string }>("agent:completed", async (e) => {
     if (e.payload.conversationId !== selectedConversationId) return;
     cleanup();
-    const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
-    set({ messages }); get()._endRun(selectedConversationId);
+    if (isStillActive()) {
+      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+      set({ messages });
+    }
+    get()._endRun(selectedConversationId);
   });
   const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
     if (e.payload.conversationId !== selectedConversationId) return;
-    cleanup(); set({ error: e.payload.error });
-    const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
-    set({ messages }); get()._endRun(selectedConversationId);
+    cleanup();
+    if (isStillActive()) {
+      set({ error: e.payload.error });
+      const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
+      set({ messages });
+    }
+    get()._endRun(selectedConversationId);
   });
 
   try {

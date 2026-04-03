@@ -125,7 +125,7 @@ function parseProposalBody(raw: string): ParsedPlanProposal {
     non_goals: result.nonGoals,
   });
   if (!validation.success) {
-    console.warn("[planProposalParser] plan-proposal schema validation failed:", validation.error.issues);
+    console.debug("[planProposalParser] plan-proposal schema validation failed:", validation.error.issues);
   }
 
   return result;
@@ -253,7 +253,7 @@ export function extractImplPlan(content: string): ParsedImplPlan | null {
   // Validate against schema
   const validation = ImplPlanSchema.safeParse(implResult);
   if (!validation.success) {
-    console.warn("[planProposalParser] impl-plan schema validation failed:", validation.error.issues);
+    console.debug("[planProposalParser] impl-plan schema validation failed:", validation.error.issues);
   }
 
   return implResult;
@@ -365,7 +365,7 @@ export function extractReviewVerdict(content: string): ParsedReviewVerdict | nul
   }
   const validation = ReviewVerdictSchema.safeParse(schemaInput);
   if (!validation.success) {
-    console.warn("[planProposalParser] review-verdict schema validation failed:", validation.error.issues);
+    console.debug("[planProposalParser] review-verdict schema validation failed:", validation.error.issues);
   }
 
   return reviewResult;

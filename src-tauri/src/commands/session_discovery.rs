@@ -297,24 +297,28 @@ pub fn get_session_links(
 }
 
 /// Refresh auto-discovered session links.
+/// Runs on a background thread to avoid blocking the main thread (FTS5 + rawq embed).
 #[tauri::command]
-pub fn refresh_session_links(
+pub async fn refresh_session_links(
     conversation_id: String,
-    state: tauri::State<crate::db::DbState>,
+    state: tauri::State<'_, crate::db::DbState>,
 ) -> Result<Vec<SessionLink>, AppError> {
-    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    let db = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let conn = db.write.lock().map_err(|_| AppError::Lock)?;
 
-    // Get project_key for this conversation
-    let project_key: String = conn
-        .query_row(
-            "SELECT project_key FROM conversations WHERE id = ?1",
-            [&conversation_id],
-            |row| row.get(0),
-        )
-        .map_err(|_| AppError::NotFound("conversation not found".into()))?;
+        // Get project_key for this conversation
+        let project_key: String = conn
+            .query_row(
+                "SELECT project_key FROM conversations WHERE id = ?1",
+                [&conversation_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| AppError::NotFound("conversation not found".into()))?;
 
-    refresh_links(&conn, &conversation_id, &project_key)?;
-    Ok(load_session_links(&conn, &conversation_id))
+        refresh_links(&conn, &conversation_id, &project_key)?;
+        Ok(load_session_links(&conn, &conversation_id))
+    }).await.map_err(|_| AppError::Lock)?
 }
 
 /// Toggle a manual session link (pin/unpin).

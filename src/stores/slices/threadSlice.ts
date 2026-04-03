@@ -177,11 +177,15 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
       });
     };
 
-    const ulP = await listen<{ messageId: string; text: string }>(progressEvent, (e) => {
+    const ulP = await listen<{ messageId: string; conversationId: string; text: string }>(progressEvent, (e) => {
+      if (e.payload.conversationId !== threadBranchConvId) return;
       useToolStepsStore.getState().handleProgress(e.payload.messageId, e.payload.text);
       replaceOrAdd(e.payload.messageId, "progressContent", e.payload.text);
     });
-    const ulC = chunkEvent ? await listen<{ messageId: string; text: string }>(chunkEvent, (e) => replaceOrAdd(e.payload.messageId, "content", e.payload.text)) : () => {};
+    const ulC = chunkEvent ? await listen<{ messageId: string; conversationId: string; text: string }>(chunkEvent, (e) => {
+      if (e.payload.conversationId !== threadBranchConvId) return;
+      replaceOrAdd(e.payload.messageId, "content", e.payload.text);
+    }) : () => {};
     const cleanup = () => { ulP(); ulC(); ulD(); ulE(); };
 
     const ulD = await listen<{ messageId: string; conversationId: string }>("agent:completed", async (e) => {
@@ -235,6 +239,7 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
     let placeholderCleared = false;
     const ulRT = await listen<Message>("roundtable:progress", (event) => {
       const msg = event.payload;
+      if (msg.conversationId !== threadBranchConvId) return;
       if (msg.role === "user") return;
       set((state) => {
         if (!placeholderCleared) {
@@ -286,6 +291,7 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
     let placeholderCleared = false;
     const ulRT = await listen<Message>("roundtable:progress", (event) => {
       const msg = event.payload;
+      if (msg.conversationId !== threadBranchConvId) return;
       if (msg.role === "user") return;
       set((state) => {
         if (!placeholderCleared) {

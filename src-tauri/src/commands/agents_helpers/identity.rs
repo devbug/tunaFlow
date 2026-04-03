@@ -21,8 +21,9 @@ pub fn build_identity_persona_fragment(
     profile_label: Option<&str>,
     engine: &str,
     persona_fragment: Option<&str>,
+    model: Option<&str>,
 ) -> Option<String> {
-    let identity = build_identity_block(profile_label, engine);
+    let identity = build_identity_block(profile_label, engine, model);
     match persona_fragment {
         Some(pf) if !pf.trim().is_empty() => {
             Some(format!("{}\n\n{}", identity, pf.trim()))
@@ -31,15 +32,19 @@ pub fn build_identity_persona_fragment(
     }
 }
 
-pub fn build_identity_block(profile_label: Option<&str>, engine: &str) -> String {
+pub fn build_identity_block(profile_label: Option<&str>, engine: &str, model: Option<&str>) -> String {
     let profile_line = match profile_label {
         Some(label) if !label.is_empty() => format!("당신의 프로필 이름은 \"{}\"입니다.", label),
         _ => "프로필이 지정되지 않았습니다.".to_string(),
     };
+    let model_line = match model {
+        Some(m) if !m.is_empty() => format!(" 모델은 {}입니다.", m),
+        _ => String::new(),
+    };
     format!(
         "## Identity\n\n\
         {}\n\
-        실행 엔진은 {}입니다.\n\n\
+        실행 엔진은 {}입니다.{}\n\n\
         자기소개 규칙:\n\
         - 사용자에게 보이는 1급 이름은 프로필 이름입니다. 자기소개는 프로필 기준으로 시작하세요.\n\
         - 엔진은 필요할 때만 2순위 정보로 설명하세요.\n\
@@ -56,7 +61,7 @@ pub fn build_identity_block(profile_label: Option<&str>, engine: &str) -> String
         - 구현 요청을 받으면 먼저 계획을 제시하고 사용자 승인을 기다리세요.\n\
         - 승인 없이 코드를 작성하거나 파일을 생성하지 마세요.\n\
         - 프로젝트 디렉토리 외부에 파일을 생성하지 마세요.",
-        profile_line, engine
+        profile_line, engine, model_line
     )
 }
 
@@ -92,18 +97,19 @@ mod tests {
     #[test]
     fn identity_with_profile_and_persona() {
         let result = build_identity_persona_fragment(
-            Some("Architect Claude"), "claude-code", Some("You are a reviewer"),
+            Some("Architect Claude"), "claude-code", Some("You are a reviewer"), Some("claude-opus-4-6"),
         ).unwrap();
         assert!(result.contains("## Identity"));
         assert!(result.contains("Architect Claude"));
         assert!(result.contains("claude-code"));
+        assert!(result.contains("claude-opus-4-6"));
         assert!(result.contains("You are a reviewer"));
     }
 
     #[test]
     fn identity_without_persona() {
         let result = build_identity_persona_fragment(
-            Some("General"), "opencode", None,
+            Some("General"), "opencode", None, None,
         ).unwrap();
         assert!(result.contains("## Identity"));
         assert!(result.contains("General"));
@@ -112,10 +118,11 @@ mod tests {
     #[test]
     fn identity_without_profile() {
         let result = build_identity_persona_fragment(
-            None, "gemini", None,
+            None, "gemini", None, Some("gemini-2.5-pro"),
         ).unwrap();
         assert!(result.contains("프로필이 지정되지 않았습니다"));
         assert!(result.contains("gemini"));
+        assert!(result.contains("gemini-2.5-pro"));
     }
 
     #[test]
@@ -151,14 +158,22 @@ mod tests {
 
     #[test]
     fn identity_block_has_attribution_rules() {
-        let block = build_identity_block(Some("Test"), "claude");
+        let block = build_identity_block(Some("Test"), "claude", None);
         assert!(block.contains("메시지 작성자 규칙"));
         assert!(block.contains("소유권을 주장하지 마세요"));
     }
 
     #[test]
     fn identity_block_user_language() {
-        let block = build_identity_block(Some("Test"), "claude");
+        let block = build_identity_block(Some("Test"), "claude", None);
         assert!(block.contains("사용자의 언어에 맞춰"));
+    }
+
+    #[test]
+    fn identity_block_with_model() {
+        let block = build_identity_block(Some("General"), "ollama", Some("qwen3.5:9b"));
+        assert!(block.contains("ollama"));
+        assert!(block.contains("qwen3.5:9b"));
+        assert!(!block.contains("claude"));
     }
 }

@@ -169,7 +169,7 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
           }, { recursive: true });
           fsWatcherCleanup = () => { stopWatcher(); if (debounceTimer) clearTimeout(debounceTimer); };
         } catch {
-          console.warn("[rawq] fs watcher unavailable — install @tauri-apps/plugin-fs");
+          console.debug("[rawq] fs watcher unavailable — install @tauri-apps/plugin-fs");
         }
       } catch {
         if (get().selectedProjectKey === key) {

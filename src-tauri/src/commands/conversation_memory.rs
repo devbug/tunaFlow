@@ -451,124 +451,131 @@ pub fn get_conversation_memory_status(
 /// Tauri command: trigger memory compression for a conversation.
 ///
 /// Lock strategy: read data with short lock → release → call Claude (slow) → re-lock to write.
+/// Runs on a background thread via spawn_blocking to avoid blocking the main thread.
 #[tauri::command]
-pub fn compress_conversation_memory(
+pub async fn compress_conversation_memory(
     conversation_id: String,
-    state: tauri::State<crate::db::DbState>,
+    state: tauri::State<'_, crate::db::DbState>,
 ) -> Result<bool, AppError> {
-    // Phase 1: check + gather data (short lock)
-    let transcript = {
-        let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-        if !needs_compression(&conn, &conversation_id) {
-            return Ok(false);
+    let db = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        // Phase 1: check + gather data (short lock)
+        let transcript = {
+            let conn = db.write.lock().map_err(|_| AppError::Lock)?;
+            if !needs_compression(&conn, &conversation_id) {
+                return Ok(false);
+            }
+            let (t, _) = build_transcript(&conn, &conversation_id)?;
+            if t.is_empty() {
+                return Ok(false);
+            }
+            t
+            // Lock released here
+        };
+
+        // Phase 2: call Claude WITHOUT holding any lock
+        let prompt = format!("{}{}", SUMMARY_PROMPT, transcript);
+        let result = crate::agents::claude::run(crate::agents::claude::RunInput {
+            prompt,
+            model: None,
+            system_prompt: None,
+            resume_token: None,
+            project_path: None,
+        });
+
+        let raw_output = match result {
+            Ok(out) if !out.content.trim().is_empty() => out.content.trim().to_string(),
+            _ => {
+                eprintln!("[memory] compression failed for {}", conversation_id);
+                return Ok(false);
+            }
+        };
+
+        let topics = parse_topics(&raw_output);
+
+        // Phase 3: write result (short lock)
+        {
+            let conn = db.write.lock().map_err(|_| AppError::Lock)?;
+            let total: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
+                    [&conversation_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+
+            write_topics(&conn, &conversation_id, &topics, total, "auto", "claude")?;
+            eprintln!(
+                "[memory] compressed → {} topics ({} chars) for {}",
+                topics.len(),
+                topics.iter().map(|t| t.summary.len()).sum::<usize>(),
+                conversation_id
+            );
         }
-        let (t, _) = build_transcript(&conn, &conversation_id)?;
-        if t.is_empty() {
-            return Ok(false);
-        }
-        t
-        // Lock released here
-    };
 
-    // Phase 2: call Claude WITHOUT holding any lock
-    let prompt = format!("{}{}", SUMMARY_PROMPT, transcript);
-    let result = crate::agents::claude::run(crate::agents::claude::RunInput {
-        prompt,
-        model: None,
-        system_prompt: None,
-        resume_token: None,
-        project_path: None,
-    });
-
-    let raw_output = match result {
-        Ok(out) if !out.content.trim().is_empty() => out.content.trim().to_string(),
-        _ => {
-            eprintln!("[memory] compression failed for {}", conversation_id);
-            return Ok(false);
-        }
-    };
-
-    let topics = parse_topics(&raw_output);
-
-    // Phase 3: write result (short lock)
-    {
-        let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-        let total: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
-                [&conversation_id],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        write_topics(&conn, &conversation_id, &topics, total, "auto", "claude")?;
-        eprintln!(
-            "[memory] compressed → {} topics ({} chars) for {}",
-            topics.len(),
-            topics.iter().map(|t| t.summary.len()).sum::<usize>(),
-            conversation_id
-        );
-    }
-
-    Ok(true)
+        Ok(true)
+    }).await.map_err(|_| AppError::Lock)?
 }
 
 /// Tauri command: force recompress memory (bypasses threshold check).
 #[tauri::command]
-pub fn force_recompress_memory(
+pub async fn force_recompress_memory(
     conversation_id: String,
-    state: tauri::State<crate::db::DbState>,
+    state: tauri::State<'_, crate::db::DbState>,
 ) -> Result<bool, AppError> {
-    // Phase 1: gather data (short lock)
-    let transcript = {
-        let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-        let (t, _) = build_transcript(&conn, &conversation_id)?;
-        if t.is_empty() {
-            return Ok(false);
+    let db = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        // Phase 1: gather data (short lock)
+        let transcript = {
+            let conn = db.write.lock().map_err(|_| AppError::Lock)?;
+            let (t, _) = build_transcript(&conn, &conversation_id)?;
+            if t.is_empty() {
+                return Ok(false);
+            }
+            t
+        };
+
+        // Phase 2: call Claude WITHOUT holding any lock
+        let prompt = format!("{}{}", SUMMARY_PROMPT, transcript);
+        let result = crate::agents::claude::run(crate::agents::claude::RunInput {
+            prompt,
+            model: None,
+            system_prompt: None,
+            resume_token: None,
+            project_path: None,
+        });
+
+        let raw_output = match result {
+            Ok(out) if !out.content.trim().is_empty() => out.content.trim().to_string(),
+            _ => {
+                eprintln!("[memory] force recompress failed for {}", conversation_id);
+                return Ok(false);
+            }
+        };
+
+        let topics = parse_topics(&raw_output);
+
+        // Phase 3: write result (short lock)
+        {
+            let conn = db.write.lock().map_err(|_| AppError::Lock)?;
+            let total: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
+                    [&conversation_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+
+            write_topics(&conn, &conversation_id, &topics, total, "manual", "claude")?;
+            eprintln!(
+                "[memory] force recompressed → {} topics for {}",
+                topics.len(),
+                conversation_id
+            );
         }
-        t
-    };
 
-    // Phase 2: call Claude WITHOUT holding any lock
-    let prompt = format!("{}{}", SUMMARY_PROMPT, transcript);
-    let result = crate::agents::claude::run(crate::agents::claude::RunInput {
-        prompt,
-        model: None,
-        system_prompt: None,
-        resume_token: None,
-        project_path: None,
-    });
-
-    let raw_output = match result {
-        Ok(out) if !out.content.trim().is_empty() => out.content.trim().to_string(),
-        _ => {
-            eprintln!("[memory] force recompress failed for {}", conversation_id);
-            return Ok(false);
-        }
-    };
-
-    let topics = parse_topics(&raw_output);
-
-    // Phase 3: write result (short lock)
-    {
-        let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-        let total: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
-                [&conversation_id],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        write_topics(&conn, &conversation_id, &topics, total, "manual", "claude")?;
-        eprintln!(
-            "[memory] force recompressed → {} topics for {}",
-            topics.len(),
-            conversation_id
-        );
-    }
-
-    Ok(true)
+        Ok(true)
+    }).await.map_err(|_| AppError::Lock)?
 }
 
 #[cfg(test)]
