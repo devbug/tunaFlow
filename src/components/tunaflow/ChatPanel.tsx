@@ -89,6 +89,22 @@ export function ChatPanel() {
     useChatStore.setState({ scrollToMessageId: null });
   }, [scrollToMessageId, messages]);
 
+  // Scroll to bottom when conversation changes (switch or DB reload after completion)
+  const prevConvRef = useRef(selectedConversationId);
+  const prevCountRef = useRef(messages.length);
+  useEffect(() => {
+    const convChanged = prevConvRef.current !== selectedConversationId;
+    const bulkLoad = !convChanged && messages.length > 0 && prevCountRef.current === 0;
+    prevConvRef.current = selectedConversationId;
+    prevCountRef.current = messages.length;
+    if ((convChanged || bulkLoad) && messages.length > 0) {
+      // Defer to allow Virtuoso to process new data
+      requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, behavior: "auto" });
+      });
+    }
+  }, [selectedConversationId, messages.length]);
+
   // Follow output: auto-scroll to bottom only when already at bottom
   // Returns "auto" instead of "smooth" to avoid animation-triggered re-renders
   const followOutput = useCallback(
