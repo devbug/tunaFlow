@@ -241,10 +241,18 @@ pub fn load_context_data(
                 .unwrap_or_default()
         }).unwrap_or_default();
         let mut fts_chunks = retrieve_relevant_chunks_with_overlap(conn, pk, conversation_id, prompt, &recent_ids, 10, None);
-        eprintln!("[retrieval] FTS5: {} chunks for query=\"{}\"", fts_chunks.len(), &prompt[..prompt.len().min(60)]);
+        // Safe truncation helper for logging (respects char boundaries)
+        let safe_trunc = |s: &str, max: usize| -> String {
+            if s.len() <= max { return s.to_string(); }
+            let mut end = max;
+            while end > 0 && !s.is_char_boundary(end) { end -= 1; }
+            format!("{}…", &s[..end])
+        };
+
+        eprintln!("[retrieval] FTS5: {} chunks for query=\"{}\"", fts_chunks.len(), safe_trunc(prompt, 60));
         for (i, c) in fts_chunks.iter().enumerate() {
-            let preview: String = c.messages.first().map(|(_, t, _, _)| t[..t.len().min(80)].to_string()).unwrap_or_default();
-            eprintln!("[retrieval]   fts[{}] kind={} score={:.3} conv={} text=\"{}\"", i, c.kind, c.score, &c.conversation_id[..8], preview);
+            let preview = c.messages.first().map(|(_, t, _, _)| safe_trunc(t, 80)).unwrap_or_default();
+            eprintln!("[retrieval]   fts[{}] kind={} score={:.3} conv={} text=\"{}\"", i, c.kind, c.score, safe_trunc(&c.conversation_id, 8), preview);
         }
 
         // Boost with vector search results (best-effort, skip if rawq unavailable)
@@ -252,7 +260,7 @@ pub fn load_context_data(
             let vec_results = crate::commands::vector_search::search_similar(conn, &query_emb, pk, conversation_id, 5);
             eprintln!("[retrieval] Vector: {} chunks (threshold 0.3)", vec_results.len());
             for (i, vc) in vec_results.iter().enumerate() {
-                eprintln!("[retrieval]   vec[{}] score={:.3} conv={} text=\"{}\"", i, vc.score, &vc.conversation_id[..vc.conversation_id.len().min(8)], &vc.text_preview[..vc.text_preview.len().min(80)]);
+                eprintln!("[retrieval]   vec[{}] score={:.3} conv={} text=\"{}\"", i, vc.score, safe_trunc(&vc.conversation_id, 8), safe_trunc(&vc.text_preview, 80));
             }
             // RRF merge: add vector-only results that aren't already in FTS results
             let fts_conv_ids: std::collections::HashSet<String> = fts_chunks.iter().map(|c| c.conversation_id.clone()).collect();
