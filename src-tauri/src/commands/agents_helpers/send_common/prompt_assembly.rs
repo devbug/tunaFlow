@@ -3,6 +3,7 @@ use rusqlite::Connection;
 use super::context_loading::{ContextData, load_context_data};
 use super::super::trace_log::ContextPackMeta;
 use super::super::identity::{parse_identity_and_persona, PLATFORM_TIER0};
+use super::super::context_pack::ContextMode;
 
 /// Build a normalized enriched prompt for non-Claude engines.
 ///
@@ -61,39 +62,7 @@ pub fn assemble_prompt(
         budget_alloc.iter().find(|(n, _)| *n == name).map_or(2000, |(_, c)| *c)
     };
 
-    // Determine context mode — user override takes priority, then auto heuristic
-    let (ctx_mode, auto_reason) = match data.context_mode_override.as_deref() {
-        Some("full") => (ContextMode::Full, "user-override"),
-        Some("standard") => (ContextMode::Standard, "user-override"),
-        Some("lite") => (ContextMode::Lite, "user-override"),
-        _ => {
-            let mut score: i32 = 0;
-
-            if data.active_skills.len() >= 3 { score += 2; }
-            else if !data.active_skills.is_empty() { score += 1; }
-            if !data.cross_session_ids.is_empty() { score += 1; }
-            let has_explicit_persona = data.persona_fragment
-                .as_ref()
-                .map(|f| f.contains("## Persona"))
-                .unwrap_or(false);
-            if has_explicit_persona { score += 1; }
-            if data.is_branch { score += 1; }
-            if data.has_active_plan { score += 1; }
-
-            if data.prompt.len() < 50 { score -= 1; }
-            if data.prompt.len() < 20 { score -= 1; }
-
-            let (mode, reason) = if score >= 3 {
-                (ContextMode::Full, "auto:full(skills/cross/plan)")
-            } else if score <= -1 {
-                (ContextMode::Lite, "auto:lite(short-prompt)")
-            } else {
-                (ContextMode::Standard, "auto:standard(baseline)")
-            };
-            eprintln!("[auto_mode] score={} → {:?} reason={}", score, mode, reason);
-            (mode, reason)
-        }
-    };
+    let (ctx_mode, auto_reason) = determine_context_mode(data);
 
     // ─── Mode-specific context assembly profile ──────────────────────────
     #[allow(dead_code)]
@@ -473,6 +442,44 @@ pub fn assemble_prompt(
 
 /// Legacy entry point — delegates to load_context_data + assemble_prompt.
 /// Signature and return type are unchanged; no caller modifications needed.
+/// Determine the context mode based on user override or auto heuristic.
+///
+/// Scoring: skills≥3 (+2), skills>0 (+1), cross_session (+1), explicit persona (+1),
+/// branch (+1), active plan (+1), short prompt (-1/-2).
+/// Full ≥ 3, Lite ≤ -1, Standard otherwise.
+fn determine_context_mode(data: &ContextData) -> (ContextMode, &'static str) {
+    match data.context_mode_override.as_deref() {
+        Some("full") => (ContextMode::Full, "user-override"),
+        Some("standard") => (ContextMode::Standard, "user-override"),
+        Some("lite") => (ContextMode::Lite, "user-override"),
+        _ => {
+            let mut score: i32 = 0;
+            if data.active_skills.len() >= 3 { score += 2; }
+            else if !data.active_skills.is_empty() { score += 1; }
+            if !data.cross_session_ids.is_empty() { score += 1; }
+            let has_explicit_persona = data.persona_fragment
+                .as_ref()
+                .map(|f| f.contains("## Persona"))
+                .unwrap_or(false);
+            if has_explicit_persona { score += 1; }
+            if data.is_branch { score += 1; }
+            if data.has_active_plan { score += 1; }
+            if data.prompt.len() < 50 { score -= 1; }
+            if data.prompt.len() < 20 { score -= 1; }
+
+            let (mode, reason) = if score >= 3 {
+                (ContextMode::Full, "auto:full(skills/cross/plan)")
+            } else if score <= -1 {
+                (ContextMode::Lite, "auto:lite(short-prompt)")
+            } else {
+                (ContextMode::Standard, "auto:standard(baseline)")
+            };
+            eprintln!("[auto_mode] score={} → {:?} reason={}", score, mode, reason);
+            (mode, reason)
+        }
+    }
+}
+
 pub fn build_normalized_prompt_with_budget(
     conn: &Connection,
     conversation_id: &str,
