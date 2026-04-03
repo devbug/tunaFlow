@@ -1,0 +1,323 @@
+use rusqlite::{params, Connection};
+use uuid::Uuid;
+
+use tauri::Emitter;
+
+use crate::db::{migrations::now_epoch_ms, models::Message};
+use crate::db::DbState;
+use crate::errors::AppError;
+
+use super::super::trace_log::{insert_trace_log, insert_trace_log_with_context, new_span_id, new_trace_id, SpanInfo, ContextPackMeta};
+use super::context_loading::{load_context_data, load_project_path};
+use super::prompt_assembly::assemble_prompt;
+
+/// Persist a user message if no pre-existing user_message_id was provided.
+pub fn persist_user_message(
+    conn: &Connection,
+    conversation_id: &str,
+    prompt: &str,
+    user_message_id: &Option<String>,
+) -> Result<(), AppError> {
+    if user_message_id.is_none() {
+        let id = Uuid::new_v4().to_string();
+        let now = now_epoch_ms();
+        conn.execute(
+            "INSERT INTO messages (id, conversation_id, role, content, timestamp, status)
+             VALUES (?1, ?2, 'user', ?3, ?4, 'done')",
+            params![id, conversation_id, prompt, now],
+        )?;
+    }
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Shared Phase 1 (prepare) + Phase 3 (finalize) for start_* commands
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Output from Phase 1: everything needed to run the engine in a background thread.
+pub struct PreparedRun {
+    pub msg_id: String,
+    pub job_id: String,
+    pub enriched_prompt: String,       // context + prompt (for non-Claude engines)
+    pub system_context: Option<String>, // context only (for Claude system_prompt)
+    pub project_path: Option<String>,
+    pub ctx_meta: ContextPackMeta,
+}
+
+/// Phase 1: Persist user message, build context, pre-create streaming message, create job.
+///
+/// Returns PreparedRun with everything needed for the background engine thread.
+/// DB lock is acquired and released within this function.
+pub fn prepare_engine_run(
+    engine_key: &str,
+    input: &super::super::super::agents::SendWithClaudeInput,
+    identity_frag: Option<&str>,
+    state: &DbState,
+) -> Result<PreparedRun, crate::errors::AppError> {
+    // Phase A: DB operations under lock — persist user msg, load context data, pre-create streaming msg
+    let (data, project_path, msg_id) = {
+        let conn = state.write.lock().map_err(|_| crate::errors::AppError::Lock)?;
+        persist_user_message(&conn, &input.conversation_id, &input.prompt, &input.user_message_id)?;
+        let pp = load_project_path(&conn, &input.project_key);
+        let ctx_data = load_context_data(
+            &conn, &input.conversation_id, &input.prompt, pp.as_deref(),
+            &input.active_skills, &input.cross_session_ids, identity_frag,
+            input.context_mode_override.as_deref(), input.context_budget_cap,
+        );
+        let mid = Uuid::new_v4().to_string();
+        let now = now_epoch_ms();
+        conn.execute(
+            "INSERT INTO messages(id,conversation_id,role,content,timestamp,status,engine,model,persona)\
+             VALUES(?1,?2,'assistant','',?3,'streaming',?4,?5,?6)",
+            params![mid, input.conversation_id, now, engine_key, input.model, input.persona_label],
+        )?;
+        (ctx_data, pp, mid)
+        // lock released here
+    };
+
+    // Phase B: Pure prompt assembly — no DB lock held
+    let (enriched_prompt, system_context, ctx_meta) = assemble_prompt(&data, identity_frag);
+
+    let job_id = format!("job-{}", Uuid::new_v4());
+    {
+        let conn = state.write.lock().map_err(|_| crate::errors::AppError::Lock)?;
+        let _ = super::super::super::jobs::create_job(&conn, &job_id, &input.conversation_id, Some(&msg_id), engine_key, "agent");
+    }
+
+    Ok(PreparedRun { msg_id, job_id, enriched_prompt, system_context, project_path, ctx_meta })
+}
+
+/// Phase 3: Persist engine result, update conversation usage, emit events.
+///
+/// Called from the background thread after the engine finishes.
+pub fn finalize_engine_run(
+    conn: &Connection,
+    engine_key: &str,
+    msg_id: &str,
+    conversation_id: &str,
+    job_id: &str,
+    result: &Result<crate::agents::claude::RunOutput, crate::errors::AppError>,
+    duration_ms: u128,
+    ctx_meta: &ContextPackMeta,
+    app: &tauri::AppHandle,
+) {
+    let now = now_epoch_ms();
+    match result {
+        Ok(out) => {
+            let content = if out.content.is_empty() {
+                format!("({} returned no output)", engine_key)
+            } else {
+                out.content.clone()
+            };
+            let _ = conn.execute(
+                "UPDATE messages SET content=?1,status='done',timestamp=?2 WHERE id=?3",
+                params![content, now, msg_id],
+            );
+            // Update conversation usage (tokens + cost + resume token for claude)
+            if out.cost_usd > 0.0 {
+                let _ = conn.execute(
+                    "UPDATE conversations SET total_input_tokens=total_input_tokens+?1,\
+                     total_output_tokens=total_output_tokens+?2,total_cost_usd=total_cost_usd+?3,\
+                     updated_at=?4 WHERE id=?5",
+                    params![out.input_tokens, out.output_tokens, out.cost_usd, now / 1000, conversation_id],
+                );
+            } else {
+                let _ = conn.execute(
+                    "UPDATE conversations SET total_input_tokens=total_input_tokens+?1,\
+                     total_output_tokens=total_output_tokens+?2,updated_at=?3 WHERE id=?4",
+                    params![out.input_tokens, out.output_tokens, now / 1000, conversation_id],
+                );
+            }
+            // Claude-specific: save resume token
+            if let Some(ref sid) = out.session_id {
+                let _ = conn.execute(
+                    "UPDATE conversations SET resume_token=?1,\
+                     resume_token_engine=CASE WHEN ?1 IS NOT NULL THEN ?2 ELSE resume_token_engine END WHERE id=?3",
+                    params![sid, engine_key, conversation_id],
+                );
+            }
+            insert_trace_log_with_context(conn, conversation_id, out.input_tokens, out.output_tokens, out.cost_usd, now,
+                &SpanInfo { trace_id: &new_trace_id(), span_id: new_span_id(), parent_span_id: None,
+                    operation: "agent.stream", engine: engine_key, duration_ms: duration_ms as i64, status: "ok" },
+                ctx_meta);
+            let _ = super::super::super::jobs::complete_job(conn, job_id, "done", None);
+            let _ = app.emit("agent:completed", serde_json::json!({
+                "messageId": msg_id, "conversationId": conversation_id, "engine": engine_key
+            }));
+        }
+        Err(ref e) => {
+            let em = crate::guardrail::fallback_error(engine_key, e);
+            let _ = conn.execute(
+                "UPDATE messages SET content=?1,status='error',timestamp=?2 WHERE id=?3",
+                params![em, now, msg_id],
+            );
+            let _ = super::super::super::jobs::complete_job(conn, job_id, "error", Some(&em));
+            let _ = app.emit("agent:error", serde_json::json!({
+                "messageId": msg_id, "conversationId": conversation_id, "engine": engine_key, "error": em
+            }));
+        }
+    }
+}
+
+/// Result from an agent run, before DB persistence.
+#[allow(dead_code)]
+pub struct AgentRunResult {
+    pub content: String,
+    pub status: String,
+    pub cost_usd: f64,
+    pub in_tokens: i64,
+    pub out_tokens: i64,
+}
+
+/// Persist assistant message and update conversation usage.
+/// Returns the constructed Message for the Tauri response.
+/// If `ctx_meta` is provided, records context metadata in trace_log.
+#[allow(dead_code)]
+pub fn persist_assistant_message(
+    conn: &Connection,
+    conversation_id: &str,
+    engine: &str,
+    model: &Option<String>,
+    run: &AgentRunResult,
+    duration_ms: u128,
+    ctx_meta: Option<&ContextPackMeta>,
+) -> Result<Message, AppError> {
+    let msg_id = Uuid::new_v4().to_string();
+    let now = now_epoch_ms();
+
+    conn.execute(
+        "INSERT INTO messages
+         (id, conversation_id, role, content, timestamp, status, engine, model)
+         VALUES (?1, ?2, 'assistant', ?3, ?4, ?5, ?6, ?7)",
+        params![
+            msg_id,
+            conversation_id,
+            run.content,
+            now,
+            run.status,
+            engine,
+            model,
+        ],
+    )?;
+
+    // Update conversation usage — full version (tokens + cost)
+    if run.in_tokens > 0 || run.out_tokens > 0 || run.cost_usd > 0.0 {
+        conn.execute(
+            "UPDATE conversations SET
+                 total_input_tokens  = total_input_tokens  + ?1,
+                 total_output_tokens = total_output_tokens + ?2,
+                 total_cost_usd      = total_cost_usd      + ?3,
+                 updated_at          = ?4
+             WHERE id = ?5",
+            params![
+                run.in_tokens,
+                run.out_tokens,
+                run.cost_usd,
+                now / 1000,
+                conversation_id,
+            ],
+        )?;
+    } else {
+        // Lightweight update — just touch updated_at
+        conn.execute(
+            "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
+            params![now / 1000, conversation_id],
+        )?;
+    }
+
+    let span = SpanInfo {
+        trace_id: &new_trace_id(),
+        span_id: new_span_id(),
+        parent_span_id: None,
+        operation: "agent.send",
+        engine,
+        duration_ms: duration_ms as i64,
+        status: if run.status == "done" { "ok" } else { "error" },
+    };
+    if let Some(meta) = ctx_meta {
+        insert_trace_log_with_context(conn, conversation_id, run.in_tokens, run.out_tokens, run.cost_usd, now, &span, meta);
+    } else {
+        insert_trace_log(conn, conversation_id, run.in_tokens, run.out_tokens, run.cost_usd, now, &span);
+    }
+
+    Ok(Message {
+        id: msg_id,
+        conversation_id: conversation_id.to_string(),
+        role: "assistant".into(),
+        content: run.content.clone(),
+        timestamp: now,
+        status: run.status.clone(),
+        progress_content: None,
+        engine: Some(engine.into()),
+        model: model.clone(),
+        persona: None,
+    })
+}
+
+/// Same as `persist_assistant_message` but uses a pre-generated message ID.
+/// Required for streaming commands where the ID is emitted to the frontend before DB persist.
+#[allow(dead_code)]
+pub fn persist_assistant_message_with_id(
+    conn: &Connection,
+    msg_id: &str,
+    conversation_id: &str,
+    engine: &str,
+    model: &Option<String>,
+    run: &AgentRunResult,
+    duration_ms: u128,
+    ctx_meta: Option<&ContextPackMeta>,
+) -> Result<Message, AppError> {
+    let now = now_epoch_ms();
+
+    conn.execute(
+        "INSERT INTO messages
+         (id, conversation_id, role, content, timestamp, status, engine, model)
+         VALUES (?1, ?2, 'assistant', ?3, ?4, ?5, ?6, ?7)",
+        params![msg_id, conversation_id, run.content, now, run.status, engine, model],
+    )?;
+
+    if run.in_tokens > 0 || run.out_tokens > 0 || run.cost_usd > 0.0 {
+        conn.execute(
+            "UPDATE conversations SET
+                 total_input_tokens  = total_input_tokens  + ?1,
+                 total_output_tokens = total_output_tokens + ?2,
+                 total_cost_usd      = total_cost_usd      + ?3,
+                 updated_at          = ?4
+             WHERE id = ?5",
+            params![run.in_tokens, run.out_tokens, run.cost_usd, now / 1000, conversation_id],
+        )?;
+    } else {
+        conn.execute(
+            "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
+            params![now / 1000, conversation_id],
+        )?;
+    }
+
+    let span = SpanInfo {
+        trace_id: &new_trace_id(),
+        span_id: new_span_id(),
+        parent_span_id: None,
+        operation: "agent.send",
+        engine,
+        duration_ms: duration_ms as i64,
+        status: if run.status == "done" { "ok" } else { "error" },
+    };
+    if let Some(meta) = ctx_meta {
+        insert_trace_log_with_context(conn, conversation_id, run.in_tokens, run.out_tokens, run.cost_usd, now, &span, meta);
+    } else {
+        insert_trace_log(conn, conversation_id, run.in_tokens, run.out_tokens, run.cost_usd, now, &span);
+    }
+
+    Ok(Message {
+        id: msg_id.to_string(),
+        conversation_id: conversation_id.to_string(),
+        role: "assistant".into(),
+        content: run.content.clone(),
+        timestamp: now,
+        status: run.status.clone(),
+        progress_content: None,
+        engine: Some(engine.into()),
+        model: model.clone(),
+        persona: None,
+    })
+}
