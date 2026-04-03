@@ -233,7 +233,7 @@ tunaFlow/
 
 ### 기타 알려진 이슈
 - window-state: dev 모드 Ctrl+C 종료 시 상태 미저장 (X 버튼으로 닫아야 함)
-- Rust 79 unit test + Frontend 96 test이나, integration test 부재
+- Rust 83 unit test + Frontend 96 test이나, integration test 부재
 - ~~RT에서 `run()` 동기 사용~~ — ✅ tokio async 전환 완료 (세션 7)
 - 긴 multi-agent 대화 (24+ 메시지) 실사용 검증 미완
 - Tool steps: Gemini CLI 버전에 따라 `tool_use` 이벤트 미지원 가능 (tool_result만 올 수 있음)
@@ -342,7 +342,7 @@ tunaFlow/
 | 4 | 2026-03-31 | Multi-agent context 3-layer, retrieval 품질 튜닝, Gemini auto/fnm/nvm, streaming UX 정리, project scaffold, deps Phase 1-4.2, rawq fs watcher |
 | 5 | 2026-04-01 | 오케스트레이션 워크플로 파이프라인 Phase A-E 전체 완료 (DB v18, 마커 파서 4종, Approval Gate, Test Runner, Review RT, Verdict, Rework 루프) |
 | 6 | 2026-04-02 | zod 스키마 검증 인프라, OpenAI Compatible 엔진 (Ollama), Tool Steps 가시화, silent error 표면화, Developer/Reviewer 프롬프트 수정 |
-| 7 | 2026-04-02~03 | 문서 정리, 장기기억 Phase 1-4 (토픽 메모리/세션 발견/Vector DB), virtuoso, cmdk, tokio async RT, rawq 고도화, doom loop 감지, 채팅 가독성, 워크플로우 스킬 자동 주입, 마커 strip, chops ContextPack 주입 |
+| 7 | 2026-04-02~03 | 장기기억 4단계, Vector DB, virtuoso/cmdk, tokio async, rawq 고도화, 워크플로우 스킬/doom loop/가독성, 코드 리팩토링 Tier1, 실사용 검증 40+ 버그 수정 (model/Virtuoso/marker/FTS5/rawq/Mutex) |
 
 ---
 
