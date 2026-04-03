@@ -140,6 +140,17 @@ export function useSendActions({
     loadEngineModels,
   } = useChatStore();
 
+  // Resolve model at send time: profile model > selectedModel > undefined
+  const resolveModel = (): string | undefined => {
+    const store = useChatStore.getState();
+    const profileId = store.selectedProfileId;
+    if (profileId) {
+      const profile = store.agentProfiles.find((p) => p.id === profileId);
+      if (profile?.model) return profile.model;
+    }
+    return selectedModel || undefined;
+  };
+
   // In thread mode, use thread's shadow conversation for RT detection
   const effectiveConvId = threadMode ? threadBranchConvId : selectedConversationId;
   const effectiveMessages = threadMode ? threadMessages : messages;
@@ -279,9 +290,11 @@ export function useSendActions({
       }
     } else if (threadMode) {
       // Thread mode: route through sendThreadMessage
-      await sendThreadMessage(prompt, engine, selectedModel || undefined);
+      const model = resolveModel();
+      await sendThreadMessage(prompt, engine, model);
     } else {
-      await sendWithEngine(engine ?? "claude", prompt, selectedModel || undefined);
+      const model = resolveModel();
+      await sendWithEngine(engine ?? "claude", prompt, model);
     }
   };
 

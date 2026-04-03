@@ -85,15 +85,10 @@ export const createConversationSlice = (set: SetState, get: GetState): Conversat
     });
     import("@/lib/appStore").then(({ setSetting }) => setSetting("lastConversationId", id)).catch(() => {});
 
-    // Restore per-conversation engine/profile state
-    const saved = get().getConversationEngine(id);
-    if (saved) {
-      get().selectProfile(saved.profileId);
-      if (!saved.profileId) {
-        // Custom mode — clear persona (profile effect won't fire)
-        set({ personaFragment: null, personaLabel: null });
-      }
-    }
+    // NOTE: per-conversation engine/model restore is handled by
+    // NewMessageInput's restore useEffect (effectiveConvForRestore dependency).
+    // Do NOT call selectProfile here — it triggers profile useEffect which
+    // races with restore useEffect and overrides the saved model.
 
     try {
       const [messages, branches, memos, artifacts] = await Promise.all([

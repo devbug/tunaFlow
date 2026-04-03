@@ -47,10 +47,12 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
   // Track whether we're restoring from conversation state (skip profile override)
   const restoringRef = useRef(false);
 
+
   // Apply profile on initial load or when selectedProfileId changes
   // Skip if restoring per-conversation state (prevents model override race)
   useEffect(() => {
-    if (restoringRef.current) { restoringRef.current = false; return; }
+    console.warn(`[profile-effect] restoring=${restoringRef.current} profileId=${selectedProfileId} profiles=${profiles.length}`);
+    if (restoringRef.current) { restoringRef.current = false; console.warn("[profile-effect] SKIPPED (restoring)"); return; }
     if (selectedProfileId && profiles.length > 0) {
       const profile = profiles.find((p) => p.id === selectedProfileId);
       if (profile) {
@@ -80,10 +82,9 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
     if (!effectiveConvForRestore) return;
     const saved = useChatStore.getState().getConversationEngine(effectiveConvForRestore);
     if (saved) {
+      console.warn(`[restore-effect] saved=${JSON.stringify(saved)}`);
       setEngine(saved.engine as Engine);
       if (saved.model) setSelectedModel(saved.model);
-      // Always set restoring flag — even if profileId matches, profile useEffect
-      // may fire later (async profiles load) and override the restored model
       restoringRef.current = true;
       if (saved.profileId !== useChatStore.getState().selectedProfileId) {
         selectProfile(saved.profileId);
@@ -198,11 +199,25 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
     [engineModels, engine],
   );
 
-  // 엔진 변경 시 추천 모델로 자동 선택
+  // 엔진 변경 또는 모델 목록 로드 시 모델 자동 선택
+  // convEngineMap에 저장된 model 최우선, 없으면 추천 모델
   useEffect(() => {
+    if (currentModels.length === 0) return;
+    // Don't auto-select until a conversation is loaded — restore useEffect will handle it
+    const convId = threadMode ? threadBranchConvIdForRestore : selectedConversationId;
+    if (!convId) return;
+    // Check saved model first
+    const saved = useChatStore.getState().getConversationEngine(convId);
+    if (saved?.model && currentModels.some((m) => m.id === saved.model)) {
+      if (selectedModel !== saved.model) setSelectedModel(saved.model);
+      return;
+    }
+    // Current model is valid for this engine — keep it
+    if (selectedModel && currentModels.some((m) => m.id === selectedModel)) return;
+    // No saved model — use recommended
     const rec = currentModels.find((m) => m.recommended);
     setSelectedModel(rec?.id ?? currentModels[0]?.id ?? "");
-  }, [engine, currentModels.length]);
+  }, [engine, currentModels.length, selectedConversationId]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -276,8 +291,8 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
                   onSelectProfile={handleProfileSelect}
                 />
               )}
-              {/* Custom mode: show engine/model selectors */}
-              {(!selectedProfileId || profiles.length === 0) && (
+              {/* Custom mode: show engine/model selectors (only after profiles loaded) */}
+              {profiles.length > 0 && !selectedProfileId && (
                 <>
                   <EngineSelector engine={engine} setEngine={(e) => {
                     setEngine(e);

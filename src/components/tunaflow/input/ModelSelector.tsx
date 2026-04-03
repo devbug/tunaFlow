@@ -17,6 +17,7 @@ export function ModelSelector({ currentModels, selectedModel, setSelectedModel }
         onChange={(e) => setSelectedModel(e.target.value)}
         className="bg-transparent rounded px-1 py-0.5 text-[10px] outline-none text-muted-foreground/50 max-w-[120px]"
       >
+        {!selectedModel && <option value="">Engine default</option>}
         {currentModels.map((m) => (
           <option key={m.id} value={m.id}>
             {m.recommended ? "★ " : ""}{m.label}
