@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { cn } from "@/lib/utils";
-import type { Message } from "@/types";
+import type { Message, Branch } from "@/types";
 import { useChatStore } from "@/stores/chatStore";
 import { MessageItem } from "./MessageItem";
 import { RoundtableView } from "./RoundtableView";
@@ -112,11 +112,9 @@ export function ChatPanel() {
     []
   );
 
-  // Render a single message item — uses refs for messages/branches to keep callback stable
+  // Render a single message item
   const renderMessage = useCallback(
-    (index: number) => {
-      const msgs = messagesRef.current;
-      const brs = branchesRef.current;
+    (index: number, _data: unknown, { msgs, brs }: { msgs: Message[]; brs: Branch[] }) => {
       const msg = msgs[index];
       if (!msg) return null;
       const prev = index > 0 ? msgs[index - 1] : null;
@@ -224,6 +222,7 @@ export function ChatPanel() {
           <Virtuoso
             ref={virtuosoRef}
             totalCount={messages.length}
+            context={{ msgs: messages, brs: branches }}
             itemContent={renderMessage}
             followOutput={followOutput}
             atBottomThreshold={100}
