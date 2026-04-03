@@ -81,6 +81,10 @@ export interface ChatState {
   threadMessages: Message[];
   threadBranchLabel: string | null;
   threadParentMessage: Message | null;
+  /** RT participant real-time status — populated by threadSlice during RT runs */
+  rtParticipantStatuses: Map<string, { name: string; engine: string; model: string | null; round: number; status: "running" | "done" | "error"; updatedAt: number }>;
+  /** Which conversation the rtParticipantStatuses belong to */
+  rtStatusConversationId: string | null;
   memos: Memo[];
   artifacts: Artifact[];
   skills: SkillDef[];

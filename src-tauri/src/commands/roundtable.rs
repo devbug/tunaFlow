@@ -62,11 +62,11 @@ fn next_round_number(conn: &rusqlite::Connection, conversation_id: &str) -> u32 
 
 /// Start a roundtable: always executes exactly 1 round (round 1).
 #[tauri::command]
-pub fn roundtable_run(
+pub async fn roundtable_run(
     input: RoundtableRunInput,
-    state: State<DbState>,
+    state: State<'_, DbState>,
     app: tauri::AppHandle,
-    cancel: State<CancelRegistry>,
+    cancel: State<'_, CancelRegistry>,
 ) -> Result<Vec<Message>, AppError> {
     let rt_mode = input.mode.as_deref().unwrap_or("sequential");
     let (strategy, mode_label) = parse_strategy(rt_mode);
@@ -109,7 +109,7 @@ pub fn roundtable_run(
     let root_span_id = new_span_id();
     let t0 = std::time::Instant::now();
 
-    let (msgs, round_responses) = tokio::runtime::Handle::current().block_on(execute_round(
+    let (msgs, round_responses) = execute_round(
         &input.participants,
         &[],
         1,
@@ -124,7 +124,7 @@ pub fn roundtable_run(
         &trace_id,
         &root_span_id,
         project_path.as_deref(),
-    ))?;
+    ).await?;
     all_messages.extend(msgs);
 
     // Archive + root span
@@ -156,11 +156,11 @@ pub fn roundtable_run(
 /// Follow-up on an existing roundtable: loads prior transcript, runs 1 round
 /// with the given participants (which may differ from previous rounds).
 #[tauri::command]
-pub fn roundtable_followup(
+pub async fn roundtable_followup(
     input: RoundtableRunInput,
-    state: State<DbState>,
+    state: State<'_, DbState>,
     app: tauri::AppHandle,
-    cancel: State<CancelRegistry>,
+    cancel: State<'_, CancelRegistry>,
 ) -> Result<Vec<Message>, AppError> {
     let rt_mode = input.mode.as_deref().unwrap_or("sequential");
     let (strategy, mode_label) = parse_strategy(rt_mode);
@@ -200,7 +200,7 @@ pub fn roundtable_followup(
             params![id, input.conversation_id, input.prompt, now],
         )?;
 
-        round_num = next_round_number(&conn, &input.conversation_id) + 1;
+        round_num = next_round_number(&conn, &input.conversation_id);
         let header = format!("--- Round {} · {} · {} ---", round_num, mode_label, names);
         let header_msg = persist_header(&conn, &input.conversation_id, &header)?;
         let _ = app.emit("roundtable:progress", &header_msg);
@@ -212,7 +212,7 @@ pub fn roundtable_followup(
     let root_span_id = new_span_id();
     let t0 = std::time::Instant::now();
 
-    let (msgs, followup_responses) = tokio::runtime::Handle::current().block_on(execute_round(
+    let (msgs, followup_responses) = execute_round(
         &input.participants,
         &prior_transcript,
         round_num,
@@ -227,7 +227,7 @@ pub fn roundtable_followup(
         &trace_id,
         &root_span_id,
         project_path.as_deref(),
-    ))?;
+    ).await?;
     all_messages.extend(msgs);
 
     // Archive + root span
@@ -271,13 +271,13 @@ pub fn cancel_running(
 // Background RT commands
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Background roundtable run — returns immediately, executes in background thread.
+/// Background roundtable run — returns immediately, executes in background task.
 #[tauri::command]
-pub fn start_roundtable_run(
+pub async fn start_roundtable_run(
     input: RoundtableRunInput,
     app: AppHandle,
-    state: State<DbState>,
-    cancel: State<CancelRegistry>,
+    state: State<'_, DbState>,
+    cancel: State<'_, CancelRegistry>,
 ) -> Result<StartRunResult, AppError> {
     let rt_mode = input.mode.as_deref().unwrap_or("sequential").to_string();
     let (strategy, mode_label) = parse_strategy(&rt_mode);
@@ -351,11 +351,11 @@ pub fn start_roundtable_run(
 
 /// Background roundtable followup — returns immediately.
 #[tauri::command]
-pub fn start_roundtable_followup(
+pub async fn start_roundtable_followup(
     input: RoundtableRunInput,
     app: AppHandle,
-    state: State<DbState>,
-    cancel: State<CancelRegistry>,
+    state: State<'_, DbState>,
+    cancel: State<'_, CancelRegistry>,
 ) -> Result<StartRunResult, AppError> {
     let rt_mode = input.mode.as_deref().unwrap_or("sequential").to_string();
     let (strategy, mode_label) = parse_strategy(&rt_mode);
@@ -374,7 +374,7 @@ pub fn start_roundtable_followup(
         let now = now_epoch_ms();
         conn.execute("INSERT INTO messages (id, conversation_id, role, content, timestamp, status) VALUES (?1, ?2, 'user', ?3, ?4, 'done')", params![id, input.conversation_id, input.prompt, now])?;
 
-        let rn = next_round_number(&conn, &input.conversation_id) + 1;
+        let rn = next_round_number(&conn, &input.conversation_id);
         let header = format!("--- Round {} · {} · {} ---", rn, mode_label, names);
         let header_msg = persist_header(&conn, &input.conversation_id, &header)?;
         let _ = app.emit("roundtable:progress", &header_msg);

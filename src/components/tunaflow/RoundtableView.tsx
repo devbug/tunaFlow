@@ -2,23 +2,12 @@ import { cn, AGENT_DOT_COLORS, normalizeEngine } from "@/lib/utils";
 import type { Message, RoundtableParticipant } from "@/types";
 import { Users, Loader2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { useState, useEffect, useRef } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { useState, useEffect } from "react";
 import { useChatStore } from "@/stores/chatStore";
+import type { RtParticipantStatus } from "@/stores/slices/threadSlice";
 
 import { groupIntoRounds, getParticipants, parsePromptSources } from "./roundtable/rtUtils";
 import { RtMessageCard } from "./roundtable/RtMessageCard";
-
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-interface ParticipantStatus {
-  name: string;
-  engine: string;
-  model: string | null;
-  round: number;
-  status: "running" | "done" | "error";
-  updatedAt: number;
-}
 
 interface RoundtableViewProps {
   messages: Message[];
@@ -60,39 +49,10 @@ export function RoundtableView({ messages, conversationId, onBranch, onBranchRT,
       .catch(() => setRtParticipants([]));
   }, [targetConvId]);
 
-  // ─── Real-time participant telemetry ─────────────────────────────
-  const [pStatuses, setPStatuses] = useState<Map<string, ParticipantStatus>>(new Map());
-  const statusesRef = useRef(pStatuses);
-  statusesRef.current = pStatuses;
-
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-
-    listen<{ conversationId: string; name: string; engine: string; model?: string; round: number; status: string }>(
-      "roundtable:participant_status",
-      (event) => {
-        if (cancelled) return;
-        const { conversationId, name, engine, model, round, status } = event.payload;
-        if (conversationId !== targetConvId) return;
-        setPStatuses((prev) => {
-          const next = new Map(prev);
-          next.set(name, { name, engine, model: model ?? null, round, status: status as ParticipantStatus["status"], updatedAt: Date.now() });
-          return next;
-        });
-      },
-    ).then((fn) => { unlisten = fn; });
-
-    return () => { cancelled = true; unlisten?.(); };
-  }, [targetConvId]);
-
-  // Clear statuses when RT finishes
-  useEffect(() => {
-    if (!isRunning && pStatuses.size > 0) {
-      const timer = setTimeout(() => setPStatuses(new Map()), 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [isRunning]);
+  // ─── Real-time participant telemetry (from store, scoped by conversationId) ──
+  const allStatuses = useChatStore((s) => s.rtParticipantStatuses);
+  const statusConvId = useChatStore((s) => s.rtStatusConversationId);
+  const pStatuses = statusConvId === targetConvId ? allStatuses : new Map();
 
   const userMessages = messages.filter((m) => m.role === "user");
   const originalTopic = userMessages.length > 0 ? userMessages[0].content : null;

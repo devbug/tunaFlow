@@ -334,6 +334,7 @@ async function runRoundtable(
     if (!isStillActive()) return;
     if (msg.role === "user") return;
     set((state) => {
+      if (state.messages.some((m) => m.id === msg.id)) return state;
       if (!placeholderCleared) {
         placeholderCleared = true;
         return { messages: [...state.messages.filter((m) => !m.id.startsWith("temp-thinking-")), msg] };
