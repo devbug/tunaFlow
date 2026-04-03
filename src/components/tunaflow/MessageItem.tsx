@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -94,7 +94,13 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
 
   // Tool steps — live from store during streaming, from progressContent after completion
   const liveSteps = useToolStepsStore((s) => s.stepsMap[message.id]);
-  const elapsed = useToolStepsStore((s) => s.startTimeMap[message.id] ? Date.now() - s.startTimeMap[message.id] : 0);
+  const startTime = useToolStepsStore((s) => s.startTimeMap[message.id] ?? 0);
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!isStreaming || !startTime) { setElapsed(0); return; }
+    const interval = setInterval(() => setElapsed(Date.now() - startTime), 1000);
+    return () => clearInterval(interval);
+  }, [isStreaming, startTime]);
   const toolSteps = useMemo(() => {
     if (isStreaming && liveSteps?.length) return liveSteps;
     if (!isStreaming && message.progressContent) return deserializeSteps(message.progressContent);
