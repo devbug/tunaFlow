@@ -191,20 +191,8 @@ export function ChatPanel() {
         ) : (
           <Virtuoso
             ref={virtuosoRef}
-            totalCount={messages.length + (showTyping ? 1 : 0)}
-            itemContent={(index) => {
-              // Typing indicator as last virtual item
-              if (index === messages.length) {
-                return (
-                  <div className="flex items-center gap-1 px-4 py-3 text-muted-foreground text-xs">
-                    <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-                    <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-                    <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-                  </div>
-                );
-              }
-              return renderMessage(index);
-            }}
+            totalCount={messages.length}
+            itemContent={renderMessage}
             followOutput={followOutput}
             atBottomThreshold={100}
             initialTopMostItemIndex={Math.max(0, messages.length - 1)}
@@ -219,7 +207,18 @@ export function ChatPanel() {
                 ) : (
                   <div className="pt-3" />
                 ),
-              Footer: () => <div className="pb-1" />,
+              Footer: () => (
+                <>
+                  {showTyping && (
+                    <div className="flex items-center gap-1 px-4 py-3 text-muted-foreground text-xs">
+                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
+                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
+                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="pb-1" />
+                </>
+              ),
             }}
           />
         )}
