@@ -63,20 +63,23 @@ pub fn index_conversation(
         return Ok(0);
     }
 
-    // Build chunks: user+assistant pairs
+    // Build chunks: user+assistant pairs (skip workflow auto-generated prompts)
     let mut chunks: Vec<(String, String, String)> = Vec::new(); // (root_msg_id, kind, text)
     let mut i = 0;
     while i < messages.len() {
         let (ref id, ref role, ref content) = messages[i];
+        // Skip workflow auto-generated messages (pollute vector space with template text)
+        if is_workflow_prompt(content) {
+            i += 1;
+            continue;
+        }
         if role == "user" && i + 1 < messages.len() && messages[i + 1].1 == "assistant" {
-            // Pair chunk
             let user_text = truncate_str(content, 200);
             let asst_text = truncate_str(&messages[i + 1].2, 200);
             let text = format!("Q: {}\nA: {}", user_text, asst_text);
             chunks.push((id.clone(), "pair".to_string(), text));
             i += 2;
         } else {
-            // Single message anchor
             let text = truncate_str(content, 300);
             if text.len() >= 20 {
                 chunks.push((id.clone(), "anchor".to_string(), text));
@@ -190,6 +193,19 @@ pub fn get_index_status(conn: &Connection, conversation_id: &str) -> VectorIndex
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────
+
+/// Detect workflow auto-generated prompts that pollute vector search.
+/// These are template messages from tunaFlow UI, not user conversations.
+fn is_workflow_prompt(content: &str) -> bool {
+    let start = &content[..content.len().min(50)];
+    start.starts_with("### 🔧") || start.starts_with("### 📋") || start.starts_with("### 🔍")
+        || start.starts_with("### 🔄") || start.starts_with("### ✏") || start.starts_with("### 💬")
+        || start.starts_with("### 📝") || start.starts_with("### 📌")
+        || start.starts_with("┌─") // legacy ASCII box prompts
+        || content.contains("<!-- tunaflow:review-verdict -->")
+        || content.contains("<!-- tunaflow:impl-plan -->")
+        || content.contains("<!-- tunaflow:impl-complete -->")
+}
 
 fn truncate_str(s: &str, max_chars: usize) -> String {
     if s.len() <= max_chars {

@@ -257,7 +257,13 @@ fn build_discovery_query(text: &str) -> String {
         "이", "그", "저", "것", "수", "등", "및", "또", "더",
     ];
 
-    let words: Vec<&str> = text
+    // Strip FTS5 operator characters (quotes, parens, etc.)
+    let cleaned: String = text.chars()
+        .map(|c| if c == '"' || c == '\'' || c == '(' || c == ')' || c == '*' || c == '?' || c == '!' || c == '.' || c == ',' || c == ':' || c == ';' {
+            ' '
+        } else { c })
+        .collect();
+    let words: Vec<&str> = cleaned
         .split_whitespace()
         .filter(|w| w.len() >= 2)
         .filter(|w| !STOPWORDS.contains(&w.to_lowercase().as_str()))
@@ -265,7 +271,7 @@ fn build_discovery_query(text: &str) -> String {
         .collect();
 
     if words.is_empty() {
-        let fallback: Vec<&str> = text
+        let fallback: Vec<&str> = cleaned
             .split_whitespace()
             .filter(|w| w.len() >= 3)
             .take(6)

@@ -348,16 +348,21 @@ const STOPWORDS: &[&str] = &[
 ];
 
 /// Build FTS5 query from natural language.
-/// Filters stopwords, extracts meaningful words, joins with OR.
+/// Strips punctuation/quotes, filters stopwords, extracts meaningful words, joins with OR.
 fn build_fts_query(query: &str) -> String {
-    let words: Vec<&str> = query.split_whitespace()
+    // Strip characters that FTS5 interprets as operators or syntax
+    let cleaned: String = query.chars()
+        .map(|c| if c == '"' || c == '\'' || c == '(' || c == ')' || c == '*' || c == '?' || c == '!' || c == '.' || c == ',' || c == ':' || c == ';' {
+            ' '
+        } else { c })
+        .collect();
+    let words: Vec<&str> = cleaned.split_whitespace()
         .filter(|w| w.len() >= 2)
         .filter(|w| !STOPWORDS.contains(&w.to_lowercase().as_str()))
         .take(8)
         .collect();
     if words.is_empty() {
-        // Fallback: if all words were stopwords, use original words ≥3 chars
-        let fallback: Vec<&str> = query.split_whitespace()
+        let fallback: Vec<&str> = cleaned.split_whitespace()
             .filter(|w| w.len() >= 3)
             .take(4)
             .collect();
