@@ -118,7 +118,7 @@ pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
         .arg("--json")
         .arg("--skip-git-repo-check")
         .arg("--color=never")
-        .arg("--ask-for-approval").arg("never");
+        .arg("--full-auto");
 
     if let Some(model) = &input.model {
         cmd.arg("--model").arg(model);
@@ -288,7 +288,7 @@ where
         .arg("--json")
         .arg("--skip-git-repo-check")
         .arg("--color=never")
-        .arg("--ask-for-approval").arg("never");
+        .arg("--full-auto");
 
     if let Some(model) = &input.model {
         cmd.arg("--model").arg(model);
