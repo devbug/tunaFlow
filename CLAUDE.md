@@ -342,7 +342,7 @@ tunaFlow/
 | 4 | 2026-03-31 | Multi-agent context 3-layer, retrieval 품질 튜닝, Gemini auto/fnm/nvm, streaming UX 정리, project scaffold, deps Phase 1-4.2, rawq fs watcher |
 | 5 | 2026-04-01 | 오케스트레이션 워크플로 파이프라인 Phase A-E 전체 완료 (DB v18, 마커 파서 4종, Approval Gate, Test Runner, Review RT, Verdict, Rework 루프) |
 | 6 | 2026-04-02 | zod 스키마 검증 인프라, OpenAI Compatible 엔진 (Ollama), Tool Steps 가시화, silent error 표면화, Developer/Reviewer 프롬프트 수정 |
-| 7 | 2026-04-02~03 | 장기기억 4단계, Vector DB, virtuoso/cmdk, tokio async, rawq 고도화, 워크플로우 스킬/doom loop/가독성, 코드 리팩토링 Tier1, 실사용 검증 40+ 버그 수정 (model/Virtuoso/marker/FTS5/rawq/Mutex) |
+| 7 | 2026-04-02~03 | 장기기억 4단계, Vector DB, virtuoso/cmdk, tokio async, rawq 고도화, 워크플로우 스킬/doom loop/가독성, 코드 리팩토링 Tier1, 실사용 검증 50+ 버그 수정 (model race/Virtuoso/marker/FTS5/rawq/Mutex/stagger) |
 
 ---
 
@@ -391,10 +391,14 @@ tunaFlow/
 - **마커 strip**: syncResultReport에서 tunaflow 마커 제거, Reviewer 모순 해소
 - **chops ContextPack 자동 주입**: context-hub 라이브러리 문서 → Standard+ 자동 삽입
 
-### P0: 실사용 검증
-- 워크플로우 풀사이클 (Plan→Dev→Review→Done) 3회+ 실행
-- 장기기억 (토픽/세션/벡터) 품질 확인
-- chops 활성화 상태에서 라이브러리 문서 주입 확인
+### ✅ 완료: 실사용 검증 (세션 7, 6+ 풀사이클)
+- 워크플로우 15+ 버그 수정, 장기기억 품질 튜닝, rawq 94초→500ms
+- 모델 선택 경쟁 조건 해결 (resolveModel)
+- 미해결: `docs/reference/knownIssues_2026-04-03.md` 참조
+
+### P0: 동시 실행 이벤트 격리
+- 두 대화 동시 에이전트 실행 시 chunk 이벤트 교차 오염
+- 이벤트 페이로드에 conversationId 추가 또는 동시 실행 방지
 
 ### P1: 구조 개선
 - **ContextPack DB/assembly 완전 분리** (논리적 2-phase 분리 완료, 파일 분리는 후순위)
