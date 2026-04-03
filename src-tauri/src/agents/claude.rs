@@ -66,32 +66,6 @@ fn extract_thinking(msg: &StreamAssistantMsg) -> Option<String> {
         })
 }
 
-/// Extract tool_use invocations from assistant message (for progress display).
-fn extract_tool_uses(msg: &StreamAssistantMsg) -> Vec<String> {
-    msg.content
-        .as_ref()
-        .map(|blocks| {
-            blocks.iter()
-                .filter(|b| b.block_type == "tool_use")
-                .filter_map(|b| {
-                    let name = b.name.as_deref()?;
-                    // Summarize input — show first ~80 chars of stringified input
-                    let input_summary = b.input.as_ref().map(|v| {
-                        let s = v.to_string();
-                        if s.len() > 80 {
-                            // Find a valid UTF-8 char boundary near 80 bytes
-                            let mut end = 80;
-                            while end > 0 && !s.is_char_boundary(end) { end -= 1; }
-                            format!("{}…", &s[..end])
-                        } else { s }
-                    }).unwrap_or_default();
-                    Some(format!("🔧 {} {}", name, input_summary))
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 fn extract_text(msg: &StreamAssistantMsg) -> String {
     msg.content
         .as_ref()

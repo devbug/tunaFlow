@@ -21,6 +21,7 @@ fn ollama_base_url() -> String {
 }
 
 /// Check if Ollama is reachable (TCP connect check, no reqwest::blocking needed).
+#[allow(dead_code)]
 pub fn is_available() -> bool {
     use std::net::TcpStream;
     // Parse host:port from OLLAMA_HOST
