@@ -5,7 +5,7 @@ import { useChatStore } from "@/stores/chatStore";
 import { Check, RotateCcw, ClipboardList, FileText, ArrowLeft, ChevronDown, ChevronRight, PenLine } from "lucide-react";
 import type { Plan, PlanPhase, PlanSubtask, Branch } from "@/types";
 import * as planApi from "@/lib/api/plans";
-import { syncPlanDocument } from "@/lib/workflowOrchestration";
+import { slugifyPlanTitle, syncPlanDocument } from "@/lib/workflowOrchestration";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { markdownComponents } from "../chat/MarkdownComponents";
@@ -47,7 +47,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
         if (!projectKey) return;
         const project = await invoke("get_project", { key: projectKey }) as { path?: string };
         if (!project?.path) return;
-        const slug = plan.title.replace(/[^\w가-힣-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 80);
+        const slug = slugifyPlanTitle(plan.title);
         const files: Record<number, string> = {};
         for (let i = 1; i <= 50; i++) {
           const taskPath = `${project.path}/docs/plans/${slug}-task-${String(i).padStart(2, "0")}.md`;
@@ -84,7 +84,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
     if (!isActionable) return;
     setBusy(true);
     try {
-      const slug = plan.title.replace(/[^\w가-힣-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 80);
+      const slug = slugifyPlanTitle(plan.title);
 
       // Create a branch for plan document sync
       const branchLabel = `Plan 문서 반영: ${plan.title.slice(0, 20)}`;
@@ -132,7 +132,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       await openThread(branch.id);
 
       // Send lightweight revision prompt — agent reads the file directly
-      const slug = plan.title.replace(/[^\w가-힣-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 80);
+      const slug = slugifyPlanTitle(plan.title);
       const taskFile = `docs/plans/${slug}-task-${String(subtaskIdx + 1).padStart(2, "0")}.md`;
       const prompt = [
         `### ✏️ Subtask 수정 요청`,
@@ -166,7 +166,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       await loadBranches(plan.conversationId);
       await openThread(branch.id);
 
-      const slug = plan.title.replace(/[^\w가-힣-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 80);
+      const slug = slugifyPlanTitle(plan.title);
       const taskFile = `docs/plans/${slug}-task-${String(subtaskIdx + 1).padStart(2, "0")}.md`;
       const prompt = [
         `### 💬 Subtask 논의`,
@@ -199,7 +199,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       await loadBranches(plan.conversationId);
       await openThread(branch.id);
 
-      const slug = plan.title.replace(/[^\w가-힣-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 80);
+      const slug = slugifyPlanTitle(plan.title);
       const taskFile = `docs/plans/${slug}-task-${String(subtaskIdx + 1).padStart(2, "0")}.md`;
       const prompt = [
         `### 📝 작업 지시서 작성`,

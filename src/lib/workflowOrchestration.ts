@@ -8,6 +8,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Branch, Plan, Message, RoundtableParticipant } from "@/types";
 import * as planApi from "./api/plans";
+
+/** Generate ASCII-only slug from plan title for file paths. No Korean/CJK. */
+export function slugifyPlanTitle(title: string): string {
+  const slug = title
+    .replace(/[^a-zA-Z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase()
+    .slice(0, 80);
+  return slug || "plan";
+}
 import { extractImplPlan, hasImplComplete, hasReviewVerdict, extractReviewVerdict } from "./planProposalParser";
 import type { ParsedImplPlan, ParsedReviewVerdict } from "./planProposalParser";
 
@@ -197,7 +208,7 @@ export async function approveAndStartImplementation(
   );
 
   // Build developer prompt — lightweight, agent reads files directly
-  const slug = plan.title.replace(/[^\w가-힣-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 80);
+  const slug = slugifyPlanTitle(plan.title);
   const subtasks = await planApi.listSubtasks(plan.id);
   const taskFileList = subtasks.map((_, i) =>
     `- \`docs/plans/${slug}-task-${String(i + 1).padStart(2, "0")}.md\``

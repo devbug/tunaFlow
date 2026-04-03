@@ -6,7 +6,7 @@ import { useChatStore } from "@/stores/chatStore";
 import type { ParsedPlanProposal } from "@/lib/planProposalParser";
 import type { Plan, PlanEvent } from "@/types";
 import * as planApi from "@/lib/api/plans";
-import { syncPlanDocument } from "@/lib/workflowOrchestration";
+import { slugifyPlanTitle, syncPlanDocument } from "@/lib/workflowOrchestration";
 
 interface PlanProposalCardProps {
   proposal: ParsedPlanProposal;
@@ -120,7 +120,7 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
       await planApi.createPlanEvent(plan.id, "promoted", "user", "Promoted from chat");
 
       // Auto-request Architect to write plan documents
-      const slug = proposal.title.replace(/[^\w가-힣-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 80);
+      const slug = slugifyPlanTitle(proposal.title);
       const subtaskList = proposal.subtasks.map((s, i) =>
         `${i + 1}. ${s.title}${s.details ? ` — ${s.details}` : ""}`
       ).join("\n");

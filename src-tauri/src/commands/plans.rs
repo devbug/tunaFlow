@@ -518,19 +518,18 @@ pub fn bump_plan_major_version(
 pub fn slugify_pub(title: &str) -> String { slugify(title) }
 
 fn slugify(title: &str) -> String {
+    // ASCII alphanumeric only — no Korean/CJK characters in filenames
     let slug: String = title.chars()
-        .map(|c| if c.is_alphanumeric() || ('\u{AC00}'..='\u{D7AF}').contains(&c) {
-            c.to_lowercase().next().unwrap_or(c)
-        } else { '-' })
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
         .collect();
     let result: String = slug.split('-')
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-");
+    // If title was all non-ASCII (e.g. pure Korean), result is empty — use "plan" as fallback
+    let result = if result.is_empty() { "plan".to_string() } else { result };
     if result.len() > 80 {
-        let mut end = 80;
-        while end > 0 && !result.is_char_boundary(end) { end -= 1; }
-        result[..end].to_string()
+        result[..80].to_string()
     } else { result }
 }
 

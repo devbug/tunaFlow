@@ -8,7 +8,7 @@ import * as planApi from "@/lib/api/plans";
 import { scanCompletedSubtasks, hasImplComplete, hasReviewVerdict, extractReviewVerdict } from "@/lib/planProposalParser";
 import { runProjectTests, type TestRunResult } from "@/lib/api/testRunner";
 import type { ParsedReviewVerdict } from "@/lib/planProposalParser";
-import { syncResultReport } from "@/lib/workflowOrchestration";
+import { slugifyPlanTitle, syncResultReport } from "@/lib/workflowOrchestration";
 import type { Branch } from "@/types";
 import { PlanDocumentModal } from "./PlanDocumentModal";
 
@@ -159,7 +159,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
         `reviewer=${selectedProfile.label}${isRework ? " (rework)" : ""}`);
 
       // Create new review branch
-      const slug = plan.title.replace(/[^\w가-힣-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 80);
+      const slug = slugifyPlanTitle(plan.title);
       const input = { conversationId: plan.conversationId, label: `${roundLabel}: ${plan.title.slice(0, 25)}`, mode: "chat" };
       const branch = await invoke<Branch>("create_branch", { input });
       const shadowConvId = await invoke<string>("open_branch_stream", { branchId: branch.id });
