@@ -360,40 +360,15 @@ export function PlanCard({
           </div>
 
 
-          {/* Event timeline */}
-          {events.length > 0 && (
-            <div className="pl-5">
-              <EventTimeline events={events} />
-            </div>
-          )}
-
-          {/* Branch history tree */}
+          {/* Unified timeline (events + branches, collapsed by default) */}
           {(() => {
             const planBranches = branches.filter(
               (b) => b.id === plan.implementationBranchId || b.id === plan.reviewBranchId
                 || b.label?.startsWith("Impl:") || b.label?.startsWith("Review:") || b.label?.startsWith("Re-review:")
             ).filter((b) => b.conversationId === plan.conversationId);
-            return planBranches.length > 0 ? (
-              <div className="pl-5 mt-2">
-                <p className="text-[9px] text-muted-foreground/40 uppercase tracking-wider font-medium mb-1">Branches</p>
-                <div className="space-y-0.5">
-                  {planBranches.map((b) => (
-                    <button
-                      key={b.id}
-                      onClick={() => openThread(b.id)}
-                      className="flex items-center gap-1.5 w-full text-left px-1.5 py-1 rounded hover:bg-accent/30 transition-colors"
-                    >
-                      <GitBranch className="w-3 h-3 text-muted-foreground/40 shrink-0" />
-                      <span className="text-[10px] text-foreground/70 truncate flex-1">{b.label}</span>
-                      <span className={cn(
-                        "text-[8px] px-1 py-px rounded",
-                        b.status === "archived" ? "text-muted-foreground/30 bg-accent/30" :
-                        b.status === "active" ? "text-primary/60 bg-primary/10" :
-                        "text-muted-foreground/30"
-                      )}>{b.status}</span>
-                    </button>
-                  ))}
-                </div>
+            return (events.length > 0 || planBranches.length > 0) ? (
+              <div className="pl-5">
+                <EventTimeline events={events} branches={planBranches} onOpenBranch={openThread} />
               </div>
             ) : null;
           })()}
