@@ -25,7 +25,7 @@ export const PLAN_PHASE_CFG: Record<PlanPhase, { label: string; cls: string }> =
   rework:          { label: "rework",     cls: "text-status-rejected bg-status-rejected/10 border-status-rejected/20" },
 };
 
-export const OWNER_OPTIONS = ["claude", "codex", "gemini", "opencode"];
+export const OWNER_OPTIONS = ["claude", "codex", "gemini", "opencode", "ollama"];
 
 export const INPUT_CLS =
   "w-full bg-input rounded-md px-2.5 py-1.5 text-xs outline-none text-foreground " +

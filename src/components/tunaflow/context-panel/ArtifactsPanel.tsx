@@ -14,6 +14,7 @@ const FORWARD_ENGINES = [
   { id: "claude", label: "Claude" },
   { id: "codex", label: "Codex" },
   { id: "gemini", label: "Gemini" },
+  { id: "ollama", label: "Ollama" },
 ];
 
 const HARNESS_TYPES = new Set(["task-brief", "test-report", "review-findings", "architect-decision"]);

@@ -6,6 +6,7 @@ const FOLLOWUP_ENGINES = [
   { id: "claude", label: "Claude" },
   { id: "codex", label: "Codex" },
   { id: "gemini", label: "Gemini" },
+  { id: "ollama", label: "Ollama" },
 ];
 
 interface MessageActionsProps {

@@ -6,7 +6,7 @@ import { DEFAULT_PERSONAS } from "@/lib/defaultPersonas";
 import { AgentAvatar } from "../AgentAvatar";
 import type { AgentProfile } from "@/types";
 
-const ENGINES = ["claude", "codex", "gemini", "opencode"] as const;
+const ENGINES = ["claude", "codex", "gemini", "opencode", "ollama"] as const;
 
 export function AgentsSection() {
   const profiles = useChatStore((s) => s.agentProfiles);

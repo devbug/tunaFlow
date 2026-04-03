@@ -238,7 +238,7 @@ export function BranchThreadPanel() {
           {isImplBranch && revisionMode === "select" && linkedPlan && (
             <div className="flex items-center gap-1">
               <select value={revisionEngine} onChange={(e) => setRevisionEngine(e.target.value)} className="text-[9px] bg-input border border-border rounded px-1 py-0.5 outline-none">
-                {["claude", "codex", "gemini", "opencode"].map((e) => <option key={e} value={e}>{e}</option>)}
+                {["claude", "codex", "gemini", "opencode", "ollama"].map((e) => <option key={e} value={e}>{e}</option>)}
               </select>
               <button
                 onClick={async () => {
