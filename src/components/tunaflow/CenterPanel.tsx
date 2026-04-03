@@ -33,6 +33,7 @@ const PHASE_TO_STAGE: Record<string, WorkflowStageId> = {
 export function CenterPanel() {
   const [activeTab, setActiveTab] = useState<CenterTab>("chat");
   const [activeStage, setActiveStage] = useState<WorkflowStageId>("plan");
+  const [planRefreshKey, setPlanRefreshKey] = useState(0);
   const artifacts = useChatStore((s) => s.artifacts);
   const selectedConversationId = useChatStore((s) => s.selectedConversationId);
   const conversations = useChatStore((s) => s.conversations);
@@ -270,6 +271,7 @@ export function CenterPanel() {
                   conversationId={canonicalConvId}
                   activeStage={activeStage}
                   onStageClick={setActiveStage}
+                  refreshKey={planRefreshKey}
                 />
               )}
               <PlansPanel
@@ -277,6 +279,7 @@ export function CenterPanel() {
                 onPhaseChanged={(_id, phase) => {
                   const target = PHASE_TO_STAGE[phase];
                   if (target) setActiveStage(target);
+                  setPlanRefreshKey((k) => k + 1);
                 }}
                 onSwitchToChat={() => setActiveTab("chat")}
               />

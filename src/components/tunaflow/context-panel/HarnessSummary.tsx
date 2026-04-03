@@ -48,9 +48,11 @@ interface HarnessSummaryProps {
   activeStage?: WorkflowStageId;
   /** Stage click handler — used as tab navigation */
   onStageClick?: (stageId: WorkflowStageId) => void;
+  /** Incremented externally to force plan data reload (e.g. on phase change) */
+  refreshKey?: number;
 }
 
-export function HarnessSummary({ conversationId, activeStage, onStageClick }: HarnessSummaryProps) {
+export function HarnessSummary({ conversationId, activeStage, onStageClick, refreshKey }: HarnessSummaryProps) {
   const { branches, artifacts } = useChatStore();
   const runningThreadIds = useChatStore((s) => s.runningThreadIds);
   const [activePlan, setActivePlan] = useState<Plan | null>(null);
@@ -79,10 +81,10 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick }: Ha
     return () => { cancelled = true; };
   }, [conversationId, tick]);
 
-  // Trigger reload when running threads change (agent start/complete)
+  // Trigger reload when running threads change or phase changes externally
   useEffect(() => {
     setTick((t) => t + 1);
-  }, [runningThreadIds.length]);
+  }, [runningThreadIds.length, refreshKey]);
 
   if (loading) return null;
 
