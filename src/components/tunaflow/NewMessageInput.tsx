@@ -74,6 +74,7 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
         saveConversationEngine(effectiveConvForRestore, {
           profileId: defaultProfile.id,
           engine: defaultProfile.engine,
+          model: defaultProfile.model,
         });
       }
     }
