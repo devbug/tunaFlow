@@ -75,19 +75,19 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
         });
       }).catch(() => {});
     }
-    // Fire-and-forget: compress older messages into long-term memory
-    invoke("compress_conversation_memory", { conversationId: threadId }).catch(() => {});
-    // Fire-and-forget: index conversation chunks for vector search
-    invoke("index_conversation_chunks", { conversationId: threadId }).catch(() => {});
-    // Fire-and-forget: refresh auto session links (uses FTS5 + vector signals)
-    invoke("refresh_session_links", { conversationId: threadId }).catch(() => {});
-    // Fire-and-forget: re-index project code (agent may have created/modified files)
-    const projectKey = get().selectedProjectKey;
-    if (projectKey) {
-      invoke("get_project", { key: projectKey }).then((p: any) => {
-        if (p?.path) invoke("start_rawq_index", { projectPath: p.path }).catch(() => {});
-      }).catch(() => {});
-    }
+    // Post-completion background tasks — staggered to avoid blocking main thread.
+    // These are synchronous Tauri commands that can take seconds (Claude API, rawq embed).
+    setTimeout(() => invoke("compress_conversation_memory", { conversationId: threadId }).catch(() => {}), 500);
+    setTimeout(() => invoke("refresh_session_links", { conversationId: threadId }).catch(() => {}), 1500);
+    setTimeout(() => invoke("index_conversation_chunks", { conversationId: threadId }).catch(() => {}), 3000);
+    setTimeout(() => {
+      const projectKey = get().selectedProjectKey;
+      if (projectKey) {
+        invoke("get_project", { key: projectKey }).then((p: any) => {
+          if (p?.path) invoke("start_rawq_index", { projectPath: p.path }).catch(() => {});
+        }).catch(() => {});
+      }
+    }, 5000);
 
     // Drain next queued action for this thread
     const queue = get().messageQueue;
