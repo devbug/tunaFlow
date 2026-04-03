@@ -164,7 +164,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       const branch = await invoke<Branch>("create_branch", { input });
       const shadowConvId = await invoke<string>("open_branch_stream", { branchId: branch.id });
       await planApi.linkPlanBranch(plan.id, "review", branch.id);
-      saveConversationEngine(shadowConvId, { profileId: selectedReviewerId, engine: selectedProfile.engine });
+      saveConversationEngine(shadowConvId, { profileId: selectedReviewerId, engine: selectedProfile.engine, model: selectedProfile.model });
 
       await loadBranches(plan.conversationId);
       await openThread(branch.id);

@@ -33,10 +33,10 @@ export function ApprovalGate({
       await loadBranches(plan.conversationId);
 
       const shadowConvId = `branch:${branch.id}`;
-      saveConversationEngine(shadowConvId, { profileId: selectedProfileId, engine });
+      saveConversationEngine(shadowConvId, { profileId: selectedProfileId, engine, model: selectedProfile?.model });
 
       await openThread(branch.id);
-      await sendThreadMessage(prompt, engine);
+      await sendThreadMessage(prompt, engine, selectedProfile?.model);
     } catch (e) {
       console.error("[ApprovalGate] dev start failed:", e);
       toast.error("Dev 시작 실패: " + (e instanceof Error ? e.message : String(e)));

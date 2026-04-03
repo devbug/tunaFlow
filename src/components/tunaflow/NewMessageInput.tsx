@@ -271,7 +271,7 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
                     // Save to per-conversation/thread map
                     const target = threadMode ? threadBranchConvIdForRestore : selectedConversationId;
                     if (target) {
-                      saveConversationEngine(target, { profileId: null, engine: e });
+                      saveConversationEngine(target, { profileId: null, engine: e, model: selectedModel || undefined });
                     }
                   }} />
                   <ModelSelector

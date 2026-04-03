@@ -99,6 +99,7 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
             get().saveConversationEngine(mainConv.id, {
               profileId: defaultProfile.id,
               engine: defaultProfile.engine,
+              model: defaultProfile.model,
             });
             get().selectProfile(defaultProfile.id);
           }
