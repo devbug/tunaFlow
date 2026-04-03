@@ -277,7 +277,14 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
                   <ModelSelector
                     currentModels={currentModels}
                     selectedModel={selectedModel}
-                    setSelectedModel={setSelectedModel}
+                    setSelectedModel={(m) => {
+                      setSelectedModel(m);
+                      // Persist model change to convEngineMap
+                      const target = threadMode ? threadBranchConvIdForRestore : selectedConversationId;
+                      if (target) {
+                        saveConversationEngine(target, { profileId: selectedProfileId, engine, model: m || undefined });
+                      }
+                    }}
                   />
                 </>
               )}
