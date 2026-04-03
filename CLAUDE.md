@@ -231,13 +231,35 @@ tunaFlow/
 - **chops ContextPack 자동 주입**: context-hub search를 프롬프트 키워드로 호출 → Standard+ 모드 자동 삽입
 - Rust 79 tests, Frontend 96 tests. DB v22.
 
+### ✅ 해결됨 (세션 8-9: 이벤트 격리 + RT 전면 수정 + 스트리밍 안정화)
+- **이벤트 격리**: ChunkPayload에 conversationId 추가, 5엔진 10 emit 지점 + frontend 리스너 필터링
+- **스트리밍 보호**: isStillActive() 가드, _staleConversations 네비게이션 복귀 관리
+- **스트리밍 race condition 근본 해결**: pendingChunk=null before cleanup (flushChunk의 set(status:'streaming')이 done을 덮어쓰는 Zustand 배칭 race)
+- **Virtuoso re-render**: messagesRef → context prop (데이터 변경 시 visible item 자동 갱신)
+- **identity 모델명**: build_identity_block에 model 파라미터 추가
+- **async command**: compress/refresh/index/force_recompress → spawn_blocking
+- **RT tokio panic**: RT command 4개 pub fn → pub async fn
+- **RT 라운드 번호**: next_round_number() + 1 이중 가산 제거
+- **RT Participant Status**: store로 이동 + conversationId 스코핑 + 리스너 ���이밍 해결
+- **RT ContextPack 주입**: 상용 auto / 로컬 lite(15k cap) + RtContextCache 캐싱 (N회→1-2회)
+- **RT 로딩 상태**: 토픽 + "Waiting for participants..." 스피너
+- **ollama 엔진**: 5곳 하드코딩 엔진 목록에 ollama 추가
+- **메시지 duration/token**: agent:completed에 메타데이터 추가 + trace_log LEFT JOIN (DB 영속)
+- **Trace duration 음수**: ms/s 단위 통일
+- **Persona 중복**: profile.label === persona.name 체크
+- **콘솔 경고**: button nesting, parser validation, fs watcher → debug 레벨
+- **SQLite**: synchronous=NORMAL, busy_timeout=5000, DB v23 (trace_log.message_id)
+- Rust 84 tests, Frontend 96 tests. DB v23.
+
 ### 기타 알려진 이슈
 - window-state: dev 모드 Ctrl+C 종료 시 상태 미저장 (X 버튼으로 닫아야 함)
-- Rust 83 unit test + Frontend 96 test이나, integration test 부재
-- ~~RT에서 `run()` 동기 사용~~ — ✅ tokio async 전환 완료 (세션 7)
+- Rust 84 unit test + Frontend 96 test이나, integration test 부재
 - 긴 multi-agent 대화 (24+ 메시지) 실사용 검증 미완
-- Tool steps: Gemini CLI 버전에 따라 `tool_use` 이벤트 미지원 가능 (tool_result만 올 수 있음)
-- ~~docs/plans/ 문서 정리 필요~~ — ✅ 세션 7에서 완료 (index.md 전면 재분류)
+- Tool steps: Gemini CLI 버전에 따라 `tool_use` 이벤트 미지원 가능
+- RT INTENT 표시 오류 (이전 데이터 오염, 새 RT에서 재현 확인 필요)
+- RT에서 ollama 단독 라운드 누락 가능성 (trace JOIN dedup 적용, 재검증 필요)
+- RT 전용 페르소나 미구현 (participant_identity에 행동 지침 없음)
+- 상세: `docs/reference/knownIssues_2026-04-04.md`
 
 ---
 
@@ -343,6 +365,7 @@ tunaFlow/
 | 5 | 2026-04-01 | 오케스트레이션 워크플로 파이프라인 Phase A-E 전체 완료 (DB v18, 마커 파서 4종, Approval Gate, Test Runner, Review RT, Verdict, Rework 루프) |
 | 6 | 2026-04-02 | zod 스키마 검증 인프라, OpenAI Compatible 엔진 (Ollama), Tool Steps 가시화, silent error 표면화, Developer/Reviewer 프롬프트 수정 |
 | 7 | 2026-04-02~03 | 장기기억 4단계, Vector DB, virtuoso/cmdk, tokio async, rawq 고도화, 워크플로우 스킬/doom loop/가독성, 코드 리팩토링 Tier1, 실사용 검증 50+ 버그 수정 (model race/Virtuoso/marker/FTS5/rawq/Mutex/stagger) |
+| 8-9 | 2026-04-03~04 | 이벤트 격리, RT 전면 수정 (async panic/라운드번호/ContextPack 주입+캐싱/participant status), 스트리밍 race condition 근본 해결, Virtuoso re-render, 메시지 duration/token 표시, trace_log JOIN (v23), SQLite PRAGMA, ollama 엔진 전면 추가 |
 
 ---
 
@@ -396,19 +419,26 @@ tunaFlow/
 - 모델 선택 경쟁 조건 해결 (resolveModel)
 - 미해결: `docs/reference/knownIssues_2026-04-03.md` 참조
 
-### P0: 동시 실행 이벤트 격리
-- 두 대화 동시 에이전트 실행 시 chunk 이벤트 교차 오염
-- 이벤트 페이로드에 conversationId 추가 또는 동시 실행 방지
+### ✅ 완료: 이벤트 격리 + 스트리밍 안정화 (세션 8-9)
+- ChunkPayload conversationId, isStillActive() 가드, flushChunk race condition 해결
+- RT 전면 수정 (async panic, 라운드 번호, participant status, ContextPack 주입+캐싱)
+- Virtuoso re-render, 메시지 duration/token, trace_log JOIN, SQLite PRAGMA
+
+### P1: RT 재검증
+- RT INTENT 표시 오류 재현 확인 (새 RT에서)
+- RT ollama 단독 라운드 누락 재현 확인
+- RT 전용 페르소나 설계 (participant_identity에 행동 지침 추가)
 
 ### P1: 구조 개선
 - **ContextPack DB/assembly 완전 분리** (논리적 2-phase 분리 완료, 파일 분리는 후순위)
-- **KnowledgeLayer trait** — 6번째 소스 추가 시 도입 (트리거 조건: `knowledgeLayerArchitectureIdea.md` §6)
-- **code-review-graph** — 워크플로우 3회+ 완료 후 도입 판단 (트리거 조건: `rawqGraphEvolutionStrategyIdea.md` §7)
+- **KnowledgeLayer trait** — 6번째 소스 추가 시 도입
+- **code-review-graph** — 워크플로우 3회+ 완료 후 도입 판단
 
 ### P2: 후순위
 - Gemini SDK 직접 통합 (보조 경로, CLI 기본 유지)
 - Function calling 마커 대체 (SDK 전환 후)
 - smoke test 복구
+- Trace 고도화: 토큰 속도 시각화, 컨텍스트 윈도우 % (`docs/ideas/traceEnhancementAbtopIdea.md`)
 
 ---
 
@@ -425,7 +455,7 @@ cd src-tauri && cargo check   # Rust
 
 # 테스트
 npx vitest run                # Frontend (96 tests)
-cd src-tauri && cargo test --lib  # Rust unit tests (60 tests)
+cd src-tauri && cargo test --lib  # Rust unit tests (84 tests)
 
 # rawq sidecar 준비
 ./scripts/build-rawq.sh       # macOS/Linux
