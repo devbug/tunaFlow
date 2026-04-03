@@ -44,8 +44,13 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
   const saveConversationEngine = useChatStore((s) => s.saveConversationEngine);
   const toggleSkill = useChatStore((s) => s.toggleSkill);
 
+  // Track whether we're restoring from conversation state (skip profile override)
+  const restoringRef = useRef(false);
+
   // Apply profile on initial load or when selectedProfileId changes
+  // BUT skip if we're restoring per-conversation state (to prevent model override)
   useEffect(() => {
+    if (restoringRef.current) { restoringRef.current = false; return; }
     if (selectedProfileId && profiles.length > 0) {
       const profile = profiles.find((p) => p.id === selectedProfileId);
       if (profile) applyProfile(profile);
@@ -62,14 +67,13 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
       setEngine(saved.engine as Engine);
       if (saved.model) setSelectedModel(saved.model);
       if (saved.profileId !== useChatStore.getState().selectedProfileId) {
+        restoringRef.current = true; // Prevent profile useEffect from overriding model
         selectProfile(saved.profileId);
       }
     } else {
-      // No saved profile — apply role-based default
-      // Main chat / subtask discussion → first profile (architect)
-      // Profiles are ordered: architect first by convention
       const defaultProfile = profiles[0];
       if (defaultProfile) {
+        restoringRef.current = true;
         selectProfile(defaultProfile.id);
         saveConversationEngine(effectiveConvForRestore, {
           profileId: defaultProfile.id,
