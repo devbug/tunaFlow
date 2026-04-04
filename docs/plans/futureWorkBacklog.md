@@ -2,7 +2,7 @@
 
 > 대화 중 발견된 개선 사항 중 현재 우선순위가 아닌 것들을 기록.
 > 컨텍스트 유실 방지용. 워크플로우 안정화 후 착수.
-> 최종 갱신: 2026-04-03 (세션 7 반영)
+> 최종 갱신: 2026-04-04 (세션 11 반영)
 
 ---
 
@@ -56,9 +56,9 @@
 - 우선순위: context 부족 체감 시
 
 ### E2E Smoke Test
-- integration test 부재 (Rust 83 + Frontend 96 unit test만)
+- integration test 부재 (Rust 84 + Frontend 96 unit test만)
 - 최소 1개 E2E: Chat → 승격 → Subtask → Approved → Dev → Review → Verdict
-- 우선순위: 워크플로우 안정화 후
+- 우선순위: 워크플로우 안정화 후 (상세: 아래 "테스트 보강" 섹션)
 
 ### ~~RT 동기 실행 → 비동기 전환~~ — ✅ 완료 (세션 7)
 - tokio async 전환 완료 (execute_round, run_participant, spawn_blocking)
@@ -101,3 +101,96 @@
 - HTML comment 마커 → SDK function calling
 - 참고: `docs/plans/toolCallHandlerPlan.md`
 - 우선순위: P1 (SDK 통합 후)
+
+---
+
+## 테스트 보강 (세션 11 전수조사 기반)
+
+> 현재 Rust 84 + Frontend 96 = 180 unit test. integration/E2E 0.
+> 아래 항목은 통합 테스트 추가 세션에서 순서대로 진행.
+
+### P0: 스트리밍/이벤트 흐름 테스트
+- **대상**: `src/stores/slices/runtimeSlice.ts`, `src/stores/slices/threadSlice.ts`
+- **선행 작업**: Tauri `invoke`/`listen` mock 인프라 구축 (vitest)
+- **케이스**:
+  - progress → chunk → completed 순서에서 placeholder 정상 교체
+  - agent:error 시 cleanup + 상태 복구 (messages, runningThreadIds)
+  - conversationId 불일치 이벤트 무시
+  - queue drain이 thread별로 정확히 동작
+  - pendingChunk null 처리 (flushChunk race condition 방어 검증)
+- **이유**: 가장 회귀 위험이 큰 실행 경로. 세션 8-9에서 race condition 수정 이력 있음.
+
+### P0: ContextPack 조립 테스트 (Rust)
+- **대상**: `src-tauri/src/commands/agents_helpers/send_common/prompt_assembly.rs`
+- **기존**: 4개 unit test 존재 → 확장
+- **케이스**:
+  - mode별 섹션 포함/스킵 (Lite: rawq skip, Full: all include)
+  - retrieval/compressed threshold 분기
+  - auto mode 선택 결과 (메시지 수 기반)
+  - section budget breakdown (guardrail 상한 내)
+  - author attribution (`[assistant:ProfileName (engine)]`) 보존
+  - identity block (profile/engine/persona 3층) 정확성
+  - participants meta 섹션 (multi-agent context)
+- **이유**: tunaFlow 핵심 가치. mock 불필요 (pure function).
+
+### P0: RT 프롬프트 조립 테스트 (Rust)
+- **대상**: `src-tauri/src/commands/roundtable_helpers/` (executor.rs, prompt.rs)
+- **케이스**:
+  - blind participant가 이전 transcript 없이 prompt를 받는지
+  - role-based token directive 삽입 확인
+  - sequential에서 prior/current round semantics 유지
+  - completion-order 수집 (deliberative mode)
+- **이유**: 세션 8-9에서 RT 전면 수정, 회귀 가능성 높음. pure function 부분만 unit test.
+
+### P1: 워크플로우 오케스트레이션 테스트 (Frontend)
+- **대상**: `src/lib/workflowOrchestration.ts`
+- **기존**: 170줄 테스트 존재 → 확장
+- **케이스**:
+  - plan proposal → approval → implementation branch 전이
+  - impl-complete → review RT → verdict 전이
+  - rework loop: verdict fail → rework phase → re-impl
+  - doom loop escalation: review_failed 3회 → subtask_review
+  - marker strip (tunaflow 마커 제거 검증)
+  - result report 생성 (rework 후 마지막 메시지만 사용)
+- **이유**: 기능은 크지만 현재 보호막이 약함.
+
+### P1: 장기기억/검색 테스트 (Rust)
+- **대상**: `conversation_memory.rs`, `session_discovery.rs`, `vector_search.rs`
+- **케이스**:
+  - compressed memory 생성 조건 (12+ 메시지 threshold)
+  - topic JSON 파싱 + graceful fallback
+  - FTS5 query builder (stopwords 필터, 한국어 처리)
+  - vector cosine 검색 (이미 3개 테스트, 추가: 빈 결과/다차원)
+  - session_links auto/pinned 정합성
+- **이유**: 세션 7에서 대규모 변경, 순수 로직 부분은 DB 없이 테스트 가능.
+
+### P2: UI 회귀 테스트 (통합 테스트 안정화 후)
+- **대상**: `RoundtableView.tsx`, `RuntimeStatusBar.tsx`, `TracePanel.tsx`
+- **케이스**:
+  - auto mode 표시 포맷
+  - active/skipped section pills 렌더링
+  - memory 상태 badge
+  - RT role/blind badge 렌더링
+- **선행 조건**: React Testing Library 셋업 + 컴포넌트 렌더 mock
+- **우선순위**: P0/P1 테스트 안정화 후
+
+---
+
+## 리팩토링 (통합 테스트 추가 후 착수)
+
+> 세션 11 전수조사에서 식별. 테스트 커버리지 확보 후 진행해야 회귀 안전.
+
+### 대형 컴포넌트 추가 분할
+- **TracePanel.tsx** (656줄): 필터링 로직 → hook 추출, step tree → 별도 컴포넌트
+- **DevProgressView.tsx** (519줄): 서브태스크 할당 UI → 별도 컴포넌트
+- **SkillsPanel.tsx** (516줄): 토글/세트/워크플로우 설정 각각 분리
+- **CenterPanel.tsx** (408줄): 탭 콘텐츠 lazy mount 분리
+- **선행 조건**: 각 컴포넌트의 진입 경로 전수 확인 + 스트리밍 테스트 통과
+- 참고: 세션 11에서 BranchThreadPanel은 PlanRevisionActions 추출 + useMemo 완료
+
+### CLI 바이너리 해석 6중 복제 통합
+- **대상**: claude.rs, codex.rs, gemini.rs, opencode.rs, rawq.rs, context_hub.rs의 resolve_*() 함수
+- **현황**: ~600줄 중복, 각각 미묘하게 다른 fallback 전략 (fnm/nvm, sidecar, PATH 등)
+- **방안**: `agents/resolve.rs` 공용 모듈 추출, `ResolveConfig` 구조체로 엔진별 차이 파라미터화
+- **위험**: 각 엔진의 edge case가 달라 regression 가능성 → 통합 테스트 필수
+- **선행 조건**: 최소 각 엔진별 resolve 성공/실패 unit test 1-2개
