@@ -28,6 +28,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
   const [busy, setBusy] = useState(false);
   const [showDoc, setShowDoc] = useState(false);
   const [testResult, setTestResult] = useState<TestRunResult | null>(null);
+  const [designReviewSuggested, setDesignReviewSuggested] = useState(false);
   const [testRunning, setTestRunning] = useState(false);
   const [reviewVerdict, setReviewVerdict] = useState<ParsedReviewVerdict | null>(null);
   const [reviewMode, setReviewMode] = useState<"idle" | "select">("idle");
@@ -103,6 +104,15 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
             }
           }
         } catch (e) { console.warn("[tunaflow]", e); }
+      }
+
+      // Check for design review suggestion
+      if (plan.phase === "rework") {
+        planApi.listPlanEvents(plan.id).then((events) => {
+          if (!cancelled.current) {
+            setDesignReviewSuggested(events.some((e) => e.eventType === "design_review_suggested"));
+          }
+        }).catch(() => {});
       }
 
       setLoading(false);
@@ -305,6 +315,9 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       {plan.phase === "rework" && (
         <div className="rounded-md border border-status-rejected/30 bg-status-rejected/5 p-2.5 text-[10px] text-status-rejected space-y-2">
           <p className="font-medium">Rework 필요 — Review에서 다음 사항이 지적되었습니다.</p>
+          {designReviewSuggested && (
+            <p className="text-amber-500 font-medium">⚠️ 동일 파일에서 반복 실패 — Rework 대신 설계 재검토를 권장합니다.</p>
+          )}
           {reviewVerdict && reviewVerdict.findings.length > 0 && (
             <ul className="space-y-0.5 text-[9px] text-foreground/60 pl-2">
               {reviewVerdict.findings.map((f, i) => <li key={i}>- {f.slice(0, 200)}</li>)}
@@ -335,22 +348,62 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
                   }) ?? [];
                   const recItems = reviewVerdict?.recommendations.map((r) => `• ${r.slice(0, 100)}`) ?? [];
 
-                  // Budget pressure: count previous review failures
+                  // Budget pressure + previous failure history
                   const events = await planApi.listPlanEvents(plan.id);
-                  const failCount = events.filter((e) => e.eventType === "review_failed").length;
+                  const failEvents = events.filter((e) => e.eventType === "review_failed");
+                  const failCount = failEvents.length;
                   const pressureWarning =
                     failCount >= 2
                       ? `\n> ⚠️ 이전 ${failCount}회 Review 실패. ${failCount >= 3 ? "이번이 마지막 기회입니다." : "다음 실패 시 설계 재검토로 에스컬레이션됩니다."}`
                       : "";
 
+                  // Build previous failure history (exclude current, show last 3)
+                  let historySection = "";
+                  const previousFails = failEvents.slice(0, -1).slice(-3); // exclude latest (= current), keep last 3
+                  if (previousFails.length > 0) {
+                    const historyItems = previousFails.map((ev, i) => {
+                      try {
+                        const d = JSON.parse(ev.detail ?? "{}");
+                        const findings = (d.findings as string[] ?? []).slice(0, 2).map((f: string) => f.slice(0, 80));
+                        return `- ${i + 1}차: ${findings.join("; ") || "상세 없음"} → ❌`;
+                      } catch { return `- ${i + 1}차: (파싱 불가) → ❌`; }
+                    });
+                    historySection = [
+                      `**이전 시도 이력** (${previousFails.length}회 실패):`,
+                      ...historyItems,
+                      ``,
+                    ].join("\n");
+                  }
+
+                  // Target specific subtasks if failedSubtaskIds available
+                  const failedIds = reviewVerdict?.failedSubtaskIds ?? [];
+                  const slug = slugifyPlanTitle(plan.title);
+                  let targetSection = "";
+                  if (failedIds.length > 0 && subtasks.length > 0) {
+                    const targetNames = failedIds
+                      .map((id) => {
+                        const st = subtasks.find((s) => s.idx === id);
+                        return st ? `Task ${String(id).padStart(2, "0")} (${st.title})` : `Task ${String(id).padStart(2, "0")}`;
+                      })
+                      .join(", ");
+                    const otherCount = subtasks.length - failedIds.length;
+                    targetSection = [
+                      `**대상 서브태스크**: ${targetNames}`,
+                      otherCount > 0 ? `**나머지 ${otherCount}개 태스크**: 이미 완료됨 — 수정하지 마세요.` : "",
+                      ``,
+                    ].filter(Boolean).join("\n");
+                  }
+
                   const reworkPrompt = [
                     `### 🔄 Rework`,
                     ``,
+                    historySection,
+                    targetSection,
                     `**수정 항목** (${findingItems.length}건):`,
                     ...findingItems.map((f) => `- ${f}`),
                     ...(recItems.length > 0 ? [``, `**Recommendations**:`, ...recItems.map((r) => `- ${r}`)] : []),
                     ``,
-                    `> 완료 조건: 위 항목 모두 해결 후 완료를 알려주세요.`,
+                    `> 완료 조건: 위 항목 모두 해결 후 완료를 알려주세요.${failedIds.length > 0 ? " 다른 태스크의 코드를 변경하지 마세요." : ""}`,
                     pressureWarning,
                   ].filter(Boolean).join("\n");
                   const shadowConvId = `branch:${plan.implementationBranchId}`;

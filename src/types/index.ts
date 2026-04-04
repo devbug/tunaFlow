@@ -274,6 +274,8 @@ export interface Persona {
   tone: string;
   outputStyle: string;
   promptFragment: string;
+  /** Skills recommended for this persona role — merged with profile.defaultSkills on apply */
+  recommendedSkills?: string[];
 }
 
 // ─── Plan types ────────────────────────────────────────────────────────────
@@ -296,6 +298,8 @@ export interface Plan {
   reviewerEngines?: string;
   implementationBranchId?: string;
   reviewBranchId?: string;
+  /** Follow-up plan lineage — links to the predecessor plan */
+  parentPlanId?: string;
   revision: number;
   versionMajor: number;
   versionMinor: number;
@@ -322,6 +326,10 @@ export interface PlanSubtask {
   outcome?: string;
   ownerAgent?: string;
   lastUpdatedBy?: string;
+  /** JSON array of subtask indices this depends on */
+  dependsOn?: number[];
+  /** Parallel execution group label */
+  parallelGroup?: string;
   createdAt: number;
   updatedAt: number;
 }

@@ -343,16 +343,18 @@ pub fn assemble_prompt(
         sections.push(s);
         included_sections.push("rawq".into());
     }
-    // context-hub (chops): library documentation search — best-effort, skip if unavailable
+    // code-review-graph: structural change impact — best-effort, skip if unavailable
     if ctx_mode >= ContextMode::Standard {
         if let Some(s) = guardrail::truncate_section(
-            build_chops_section(&data.prompt),
-            2000, // max 2k chars for library docs
+            build_crg_section(data.project_path.as_deref().unwrap_or("")),
+            2000,
         ) {
             sections.push(s);
-            included_sections.push("chops".into());
+            included_sections.push("graph".into());
         }
     }
+    // context-hub: now handled via marker-based tool requests (<!-- tunaflow:tool-request:docs:QUERY -->)
+    // Agents request docs on demand instead of automatic injection every turn.
     if !data.cross_session_data.is_empty() {
         if let Some(s) = maybe_compress_section_typed(
             build_cross_session_section(&data.cross_session_data),

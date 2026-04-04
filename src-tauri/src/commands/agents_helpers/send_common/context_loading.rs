@@ -256,6 +256,10 @@ pub fn load_context_data(
         }
 
         // Boost with vector search results (best-effort, skip if rawq unavailable)
+        // Skip vector search for short/simple prompts (avoid cold-start delays)
+        let needs_vector = prompt.chars().count() >= 15
+            && crate::agents::rawq::is_daemon_ready();
+        if needs_vector {
         if let Ok(query_emb) = crate::agents::rawq::embed_text(prompt, true) {
             let vec_results = crate::commands::vector_search::search_similar(conn, &query_emb, pk, conversation_id, 5);
             eprintln!("[retrieval] Vector: {} chunks (threshold 0.3)", vec_results.len());
@@ -277,6 +281,9 @@ pub fn load_context_data(
             }
         } else {
             eprintln!("[retrieval] Vector: skipped (rawq embed unavailable)");
+        }
+        } else {
+            eprintln!("[retrieval] Vector: skipped (prompt too short or daemon not ready)");
         }
         eprintln!("[retrieval] Total: {} chunks after merge", fts_chunks.len());
         fts_chunks

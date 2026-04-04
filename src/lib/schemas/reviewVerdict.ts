@@ -27,6 +27,8 @@ export const ReviewVerdictSchema = z.object({
   rubric: ReviewRubricSchema.optional(),
   findings: z.array(ReviewFindingSchema).default([]),
   recommendations: z.array(z.string()).default([]),
+  /** Subtask indices (1-based) that failed review — used for targeted rework */
+  failedSubtaskIds: z.array(z.number().int().min(1)).default([]),
 });
 
 export type ReviewVerdictInput = z.infer<typeof ReviewVerdictSchema>;
@@ -46,6 +48,7 @@ export function toParsedReviewVerdict(
   };
   findings: string[];
   recommendations: string[];
+  failedSubtaskIds: number[];
   raw: string;
 } {
   return {
@@ -66,6 +69,7 @@ export function toParsedReviewVerdict(
       return parts.join(" ");
     }),
     recommendations: input.recommendations,
+    failedSubtaskIds: input.failedSubtaskIds,
     raw,
   };
 }

@@ -25,6 +25,7 @@ pub use rawq_section::{build_rawq_section, CODE_SIGNAL_KEYWORDS};
 pub use section_builders::{
     build_skills_section,
     build_chops_section,
+    build_crg_section,
     build_cross_session_section,
     build_context_summary,
     build_context_summary_with_authors,

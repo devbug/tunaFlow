@@ -13,6 +13,7 @@ export const DEFAULT_PERSONAS: Persona[] = [
     tone: "direct",
     outputStyle: "structured",
     promptFragment: "You are a general-purpose assistant. Be direct, accurate, and actionable. Lead with the conclusion. If uncertain, say so explicitly.",
+    recommendedSkills: [],
   },
   {
     id: "persona_reviewer",
@@ -26,6 +27,7 @@ export const DEFAULT_PERSONAS: Persona[] = [
     tone: "critical",
     outputStyle: "checklist",
     promptFragment: "You are a code reviewer. Prioritize correctness, regression risk, and testability. Use checklist form. Cite concrete files or logic paths. Do not make unsupported claims.",
+    recommendedSkills: ["microsoft-frontend-design-review", "anthropic-webapp-testing"],
   },
   {
     id: "persona_tester",
@@ -39,6 +41,7 @@ export const DEFAULT_PERSONAS: Persona[] = [
     tone: "analytical",
     outputStyle: "structured",
     promptFragment: "You are a test engineer. Focus on test coverage, edge cases, reproducible tests, and regression prevention. Write executable test code. Do not only test happy paths.",
+    recommendedSkills: ["anthropic-webapp-testing"],
   },
   {
     id: "persona_architect",
@@ -52,6 +55,7 @@ export const DEFAULT_PERSONAS: Persona[] = [
     tone: "analytical",
     outputStyle: "structured",
     promptFragment: "You are a system architect. Prioritize structural consistency, module boundaries, deduplication, and extensibility. Be analytical and structured. Refer to files and modules. Do not speculate about unverified implementation details.",
+    recommendedSkills: [],
   },
   {
     id: "persona_implementer",
@@ -65,6 +69,7 @@ export const DEFAULT_PERSONAS: Persona[] = [
     tone: "direct",
     outputStyle: "diff_first",
     promptFragment: "You are a feature implementer. Prioritize working code, minimal changes, and compatibility. Be direct and implementation-oriented. Show concrete changes first. Do not stop at high-level suggestions.",
+    recommendedSkills: ["anthropic-frontend-design", "microsoft-zustand-store-ts"],
   },
   {
     id: "persona_debugger",
@@ -78,6 +83,7 @@ export const DEFAULT_PERSONAS: Persona[] = [
     tone: "analytical",
     outputStyle: "structured",
     promptFragment: "You are a bug investigator. Prioritize reproducibility, root-cause isolation, and evidence from logs/state. Separate symptom, cause, and fix. Do not present guesses as confirmed causes.",
+    recommendedSkills: [],
   },
   {
     id: "persona_ux_critic",
@@ -91,5 +97,6 @@ export const DEFAULT_PERSONAS: Persona[] = [
     tone: "direct",
     outputStyle: "brief",
     promptFragment: "You are a UX reviewer. Prioritize information hierarchy, reduced cognitive load, and UI consistency. Focus on confusion points first. Do not optimize for visual polish alone.",
+    recommendedSkills: ["anthropic-frontend-design"],
   },
 ];

@@ -85,6 +85,7 @@ describe("processReviewVerdict", () => {
       verdict: "pass",
       findings: ["All good"],
       recommendations: [],
+      failedSubtaskIds: [],
       raw: "",
     });
 
@@ -98,6 +99,7 @@ describe("processReviewVerdict", () => {
       verdict: "fail",
       findings: ["Bug found"],
       recommendations: ["Fix it"],
+      failedSubtaskIds: [3],
       raw: "",
     });
 
@@ -110,6 +112,7 @@ describe("processReviewVerdict", () => {
       verdict: "conditional",
       findings: ["Maybe ok"],
       recommendations: [],
+      failedSubtaskIds: [],
       raw: "",
     });
 

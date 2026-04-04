@@ -159,7 +159,7 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
     const budgetCfg = await getSetting<{ mode: string; totalCap: number }>("contextBudgetConfig", { mode: "auto", totalCap: 60000 });
     // Resolve phase-based workflow skills
     const planPhase = await invoke<string | null>("get_active_plan_phase", { conversationId: threadBranchConvId }).catch(() => null);
-    const effectiveSkills = get().getEffectiveSkills(planPhase);
+    const effectiveSkills = get().getEffectiveSkills(planPhase, prompt);
     const input: SendWithClaudeInput = {
       projectKey: selectedProjectKey,
       conversationId: threadBranchConvId,
@@ -212,7 +212,23 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
         tsStore.clear(e.payload.messageId);
       }
       const threadMessages = await invoke<Message[]>("list_messages", { conversationId: threadBranchConvId! });
-      set({ threadMessages }); get()._endRun(threadBranchConvId!);
+      set({ threadMessages });
+      // Check for tool-request markers → auto follow-up in thread
+      const lastMsg = threadMessages.find((m) => m.id === e.payload.messageId);
+      if (lastMsg?.role === "assistant" && threadBranchConvId) {
+        import("@/lib/planProposalParser").then(async ({ extractToolRequests }) => {
+          const requests = extractToolRequests(lastMsg.content);
+          if (requests.length > 0) {
+            const { executeToolRequests } = await import("@/lib/toolRequestHandler");
+            const followUp = await executeToolRequests(requests);
+            if (followUp) {
+              const saved = get().getConversationEngine(threadBranchConvId!);
+              get().sendThreadMessage(followUp, saved?.engine ?? "claude", saved?.model ?? undefined);
+            }
+          }
+        }).catch((e) => console.warn("[tool-request]", e));
+      }
+      get()._endRun(threadBranchConvId!);
     });
     const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
       if (e.payload.conversationId !== threadBranchConvId) return;

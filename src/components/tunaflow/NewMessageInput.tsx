@@ -39,61 +39,48 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
 
   // Agent Profile state — from Zustand store (shared with Settings)
   const profiles = useChatStore((s) => s.agentProfiles);
-  const selectedProfileId = useChatStore((s) => s.selectedProfileId);
-  const selectProfile = useChatStore((s) => s.selectProfile);
   const saveConversationEngine = useChatStore((s) => s.saveConversationEngine);
   const toggleSkill = useChatStore((s) => s.toggleSkill);
 
-  // Track whether we're restoring from conversation state (skip profile override)
-  const restoringRef = useRef(false);
-
-
-  // Apply profile on initial load or when selectedProfileId changes
-  // Skip if restoring per-conversation state (prevents model override race)
-  useEffect(() => {
-    console.warn(`[profile-effect] restoring=${restoringRef.current} profileId=${selectedProfileId} profiles=${profiles.length}`);
-    if (restoringRef.current) { restoringRef.current = false; console.warn("[profile-effect] SKIPPED (restoring)"); return; }
-    if (selectedProfileId && profiles.length > 0) {
-      const profile = profiles.find((p) => p.id === selectedProfileId);
-      if (profile) {
-        setEngine(profile.engine as Engine);
-        // Only set model from profile if no model is currently selected
-        // (preserves per-conversation model from restore useEffect)
-        if (profile.model && !selectedModel) setSelectedModel(profile.model);
-        // Persona + skills always apply
-        const persona = profile.personaId ? DEFAULT_PERSONAS.find((p) => p.id === profile.personaId) : null;
-        useChatStore.setState({
-          personaFragment: persona?.promptFragment ?? null,
-          personaLabel: persona ? (profile.label === persona.name ? profile.label : `${profile.label} · ${persona.name}`) : profile.label,
-        });
-        const store = useChatStore.getState();
-        const currentSkills = new Set(store.activeSkills);
-        for (const skill of profile.defaultSkills) {
-          if (!currentSkills.has(skill)) toggleSkill(skill);
-        }
-      }
-    }
-  }, [selectedProfileId, profiles]);
-
-  // Restore per-conversation engine state when conversation/thread changes
+  // Derive current profileId from per-conversation state (SSOT: _convEngineMap)
   const threadBranchConvIdForRestore = useChatStore((s) => s.threadBranchConvId);
   const effectiveConvForRestore = threadMode ? threadBranchConvIdForRestore : selectedConversationId;
+  const getConversationEngine = useChatStore((s) => s.getConversationEngine);
+  const selectedProfileId = effectiveConvForRestore
+    ? getConversationEngine(effectiveConvForRestore)?.profileId ?? null
+    : null;
+
+  const applyProfile = (profile: AgentProfile) => {
+    setEngine(profile.engine as Engine);
+    if (profile.model) setSelectedModel(profile.model);
+    const persona = profile.personaId ? DEFAULT_PERSONAS.find((p) => p.id === profile.personaId) : null;
+    useChatStore.setState({
+      personaFragment: persona?.promptFragment ?? null,
+      personaLabel: persona ? (profile.label === persona.name ? profile.label : `${profile.label} · ${persona.name}`) : profile.label,
+    });
+    const store = useChatStore.getState();
+    const currentSkills = new Set(store.activeSkills);
+    const allSkills = new Set([...profile.defaultSkills, ...(persona?.recommendedSkills ?? [])]);
+    for (const skill of allSkills) {
+      if (!currentSkills.has(skill)) toggleSkill(skill);
+    }
+  };
+
+  // Restore per-conversation engine state when conversation/thread changes
   useEffect(() => {
     if (!effectiveConvForRestore) return;
     const saved = useChatStore.getState().getConversationEngine(effectiveConvForRestore);
     if (saved) {
-      console.warn(`[restore-effect] saved=${JSON.stringify(saved)}`);
       setEngine(saved.engine as Engine);
       if (saved.model) setSelectedModel(saved.model);
-      restoringRef.current = true;
-      if (saved.profileId !== useChatStore.getState().selectedProfileId) {
-        selectProfile(saved.profileId);
+      if (saved.profileId) {
+        const profile = profiles.find((p) => p.id === saved.profileId);
+        if (profile) applyProfile(profile);
       }
     } else {
       const defaultProfile = profiles[0];
       if (defaultProfile) {
-        restoringRef.current = true;
-        selectProfile(defaultProfile.id);
+        applyProfile(defaultProfile);
         saveConversationEngine(effectiveConvForRestore, {
           profileId: defaultProfile.id,
           engine: defaultProfile.engine,
@@ -103,30 +90,14 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
     }
   }, [effectiveConvForRestore]);
 
-  const applyProfile = (profile: AgentProfile) => {
-    setEngine(profile.engine as Engine);
-    // Only set model if profile has one AND current selectedModel is empty or from different engine
-    if (profile.model) setSelectedModel(profile.model);
-    // Apply default skills
-    const store = useChatStore.getState();
-    const currentSkills = new Set(store.activeSkills);
-    for (const skill of profile.defaultSkills) {
-      if (!currentSkills.has(skill)) toggleSkill(skill);
-    }
-    // Set persona fragment + label in store for runtime injection + visibility
-    const persona = profile.personaId ? DEFAULT_PERSONAS.find((p) => p.id === profile.personaId) : null;
-    useChatStore.setState({
-      personaFragment: persona?.promptFragment ?? null,
-      personaLabel: persona ? (profile.label === persona.name ? profile.label : `${profile.label} · ${persona.name}`) : profile.label,
-    });
-  };
-
   const handleProfileSelect = (profileId: string | null) => {
-    selectProfile(profileId);
     if (!profileId) {
       useChatStore.setState({ personaFragment: null, personaLabel: null });
+    } else {
+      const profile = profiles.find((p) => p.id === profileId);
+      if (profile) applyProfile(profile);
     }
-    // Save to per-conversation/thread map
+    // Save to per-conversation map only (no global state change)
     const saveTarget = threadMode ? threadBranchConvIdForRestore : selectedConversationId;
     if (saveTarget) {
       const profile = profileId ? profiles.find((p) => p.id === profileId) : null;
@@ -299,10 +270,9 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
                     // Reset persona if engine doesn't match current profile
                     const currentProfile = profiles.find((p) => p.id === selectedProfileId);
                     if (currentProfile && currentProfile.engine !== e) {
-                      selectProfile(null);
                       useChatStore.setState({ personaFragment: null, personaLabel: null });
                     }
-                    // Save to per-conversation/thread map
+                    // Save to per-conversation map
                     const target = threadMode ? threadBranchConvIdForRestore : selectedConversationId;
                     if (target) {
                       saveConversationEngine(target, { profileId: null, engine: e, model: selectedModel || undefined });

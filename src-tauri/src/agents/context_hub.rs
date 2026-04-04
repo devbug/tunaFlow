@@ -78,15 +78,26 @@ fn is_source_allowed(source: &str) -> bool {
 }
 
 /// Resolve the context-hub binary path.
+/// Searches for both "context-hub" and "chub" (the actual CLI binary name).
 fn resolve_bin() -> Result<PathBuf, HubError> {
-    // Check common locations
+    // Check common locations — both "context-hub" and "chub" names
     let candidates: Vec<PathBuf> = {
         let mut c = Vec::new();
         if let Ok(home) = std::env::var("HOME") {
+            // chub (actual binary name from @aisuite/chub package)
+            c.push(PathBuf::from(&home).join(".npm-global").join("bin").join("chub"));
+            c.push(PathBuf::from(&home).join(".local").join("bin").join("chub"));
+            // context-hub (legacy name)
             c.push(PathBuf::from(&home).join(".context-hub").join("bin").join("context-hub"));
             c.push(PathBuf::from(&home).join(".npm-global").join("bin").join("context-hub"));
             c.push(PathBuf::from(&home).join(".cargo").join("bin").join("context-hub"));
+            // fnm/nvm paths
+            if let Ok(fnm) = std::env::var("FNM_MULTISHELL_PATH") {
+                c.push(PathBuf::from(&fnm).join("bin").join("chub"));
+            }
         }
+        c.push(PathBuf::from("/usr/local/bin/chub"));
+        c.push(PathBuf::from("/opt/homebrew/bin/chub"));
         c.push(PathBuf::from("/usr/local/bin/context-hub"));
         c.push(PathBuf::from("/opt/homebrew/bin/context-hub"));
         c
@@ -98,14 +109,18 @@ fn resolve_bin() -> Result<PathBuf, HubError> {
         }
     }
 
-    // Try bare name (PATH fallback)
-    if Command::new("context-hub")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-    {
-        return Ok(PathBuf::from("context-hub"));
+    // Try bare names (PATH fallback) — chub first, then context-hub
+    for name in ["chub", "context-hub"] {
+        if Command::new(name)
+            .arg("--help")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            return Ok(PathBuf::from(name));
+        }
     }
 
     Err(HubError::NotFound)
@@ -120,7 +135,7 @@ pub fn health() -> HealthStatus {
             message: "context-hub not installed".into(),
         },
         Ok(bin) => {
-            match Command::new(&bin).arg("--version").output() {
+            match Command::new(&bin).arg("--cli-version").output() {
                 Ok(output) if output.status.success() => {
                     let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     HealthStatus {
@@ -207,9 +222,9 @@ fn parse_search_results(json_str: &str) -> Result<Vec<SearchResult>, HubError> {
     let mut results = Vec::new();
     for item in results_arr {
         let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let title = item.get("title").or_else(|| item.get("name")).and_then(|v| v.as_str()).unwrap_or("").to_string();
         let source = item.get("source").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let snippet = item.get("snippet").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let snippet = item.get("snippet").or_else(|| item.get("description")).and_then(|v| v.as_str()).unwrap_or("").to_string();
         let score = item.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
         // Policy enforcement: skip results from disallowed sources

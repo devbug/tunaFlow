@@ -82,14 +82,25 @@ export async function syncResultReport(
           .trim();
 
     // Compress impl messages into summary + per-subtask results
-    const assistantMsgs = implMessages.filter((m) => m.role === "assistant");
+    // After rework, only use messages since the last rework prompt (avoid stale content)
+    let lastReworkIdx = -1;
+    for (let i = implMessages.length - 1; i >= 0; i--) {
+      if (implMessages[i].role === "user" && implMessages[i].content.includes("### 🔄 Rework")) {
+        lastReworkIdx = i;
+        break;
+      }
+    }
+    const relevantMessages = lastReworkIdx >= 0
+      ? implMessages.slice(lastReworkIdx + 1)
+      : implMessages;
+    const assistantMsgs = relevantMessages.filter((m) => m.role === "assistant");
     const summary = assistantMsgs.length > 0
       ? stripMarkers(assistantMsgs[assistantMsgs.length - 1].content.slice(0, 2000))
       : "(No implementation output)";
 
     // Extract subtask-done markers to build per-subtask results
     const { scanCompletedSubtasks } = await import("./planProposalParser");
-    const completedNums = scanCompletedSubtasks(implMessages);
+    const completedNums = scanCompletedSubtasks(implMessages); // scan ALL messages for done markers
     const subtaskResults = assistantMsgs
       .slice(-10)
       .map((m) => stripMarkers(m.content.slice(0, 500)))
@@ -208,15 +219,19 @@ export async function approveAndStartImplementation(
   );
 
   // Build developer prompt — lightweight, agent reads files directly
+  // Only include pending subtasks (skip already completed ones)
   const slug = slugifyPlanTitle(plan.title);
   const subtasks = await planApi.listSubtasks(plan.id);
-  const taskFileList = subtasks.map((_, i) =>
-    `- \`docs/plans/${slug}-task-${String(i + 1).padStart(2, "0")}.md\``
-  ).join("\n");
+  const pendingSubtasks = subtasks.filter((s) => s.status !== "done");
+  const targetSubtasks = pendingSubtasks.length > 0 ? pendingSubtasks : subtasks;
 
-  const taskItems = subtasks.map((_, i) =>
-    `- \`docs/plans/${slug}-task-${String(i + 1).padStart(2, "0")}.md\``
+  const taskItems = targetSubtasks.map((s) =>
+    `- \`docs/plans/${slug}-task-${String(s.idx).padStart(2, "0")}.md\` — ${s.title}`
   );
+  const doneCount = subtasks.length - targetSubtasks.length;
+  const doneNote = doneCount > 0
+    ? `\n> ${doneCount}개 태스크는 이미 완료됨 — 해당 코드를 변경하지 마세요.`
+    : "";
   const prompt = [
     `### 🔧 구현 시작`,
     ``,
@@ -225,7 +240,7 @@ export async function approveAndStartImplementation(
     `**작업 지시서**:`,
     ...taskItems,
     ``,
-    `각 task 파일을 읽고 순서대로 구현하세요.`,
+    `각 task 파일을 읽고 순서대로 구현하세요.${doneNote}`,
   ].join("\n");
 
   return { branch, shadowConvId, prompt };
@@ -285,8 +300,10 @@ export async function startReviewRT(
     `1. Plan의 모든 subtask가 구현되었는가?`,
     `2. 코드 품질 (버그, 보안, 성능)`,
     `3. 테스트 커버리지`,
+    `4. 변경 영향 범위 — ContextPack에 graph 섹션이 있으면 impacted files/functions를 확인하세요.`,
     "",
     `리뷰 결과를 verdict (pass / fail / conditional)로 판정하세요.`,
+    `fail 또는 conditional인 경우, 문제가 있는 서브태스크 번호를 \`failed_subtask_ids: [N, M]\` 형식으로 반드시 포함하세요.`,
   ].filter(Boolean).join("\n");
 
   // Save RT config for the review branch
@@ -334,7 +351,30 @@ export async function processReviewVerdict(
 
     // Doom loop detection: count review_failed events from plan_events
     const events = await planApi.listPlanEvents(plan.id);
-    const failCount = events.filter((e) => e.eventType === "review_failed").length;
+    const failEvents = events.filter((e) => e.eventType === "review_failed");
+    const failCount = failEvents.length;
+
+    // At 2 failures: compare findings to detect design vs implementation issue
+    if (failCount >= 2 && failEvents.length >= 2) {
+      try {
+        const prevDetail = JSON.parse(failEvents[0].detail ?? "{}");
+        const prevFiles = new Set((prevDetail.findings as string[] ?? [])
+          .map((f: string) => f.match(/([a-zA-Z0-9_./-]+\.[a-zA-Z]+)/)?.[1])
+          .filter(Boolean));
+        const currFiles = new Set(verdict.findings
+          .map((f: string) => f.match(/([a-zA-Z0-9_./-]+\.[a-zA-Z]+)/)?.[1])
+          .filter(Boolean));
+        const overlap = [...currFiles].filter((f) => prevFiles.has(f)).length;
+        const overlapRatio = currFiles.size > 0 ? overlap / currFiles.size : 0;
+        if (overlapRatio > 0.5) {
+          await planApi.createPlanEvent(
+            plan.id, "design_review_suggested", "system",
+            `동일 파일에서 2회 연속 실패 (겹침 ${Math.round(overlapRatio * 100)}%) — 설계 재검토 권장`,
+          );
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
     if (failCount >= 3) {
       await planApi.updatePlanPhase(plan.id, "subtask_review");
       await planApi.createPlanEvent(
@@ -386,11 +426,38 @@ export async function requestPlanRevision(
 
   const planContext = await buildPlanContext(plan);
 
+  // Build lightweight project analysis for Architect context
+  let projectAnalysis = "";
+  try {
+    const pp = await getProjectPath();
+    if (pp) {
+      const stack = await invoke<{ keywords: string[]; detectedFiles: string[] }>("detect_project_stack", { projectPath: pp }).catch(() => null);
+      if (stack && stack.keywords.length > 0) {
+        const topKeywords = stack.keywords.slice(0, 15).join(", ");
+        projectAnalysis = [
+          `### 프로젝트 분석 (자동)`,
+          `- 감지된 매니페스트: ${stack.detectedFiles.join(", ")}`,
+          `- 주요 기술: ${topKeywords}`,
+          "",
+        ].join("\n");
+      }
+    }
+  } catch { /* best-effort */ }
+
   // System prompt: full context for the Architect (not visible in chat)
   const systemPrompt = [
     `당신은 Architect입니다. Implementation Branch에서 계획 수정 요청이 왔습니다.`,
     `아래 정보를 기반으로 수정된 Plan을 \`<!-- tunaflow:plan-proposal -->\` 형식으로 제안하세요.`,
     `변경 이유를 간단히 설명하고, 기존 subtask 중 유지/수정/삭제할 항목을 명확히 구분하세요.`,
+    "",
+    projectAnalysis,
+    `### 태스크 작성 규칙`,
+    `각 subtask의 작업 지시서에 반드시 포함:`,
+    `1. **변경 대상 파일** — 정확한 경로 (ContextPack의 graph/rawq 섹션 참고)`,
+    `2. **변경 내용** — 추가/수정/삭제할 코드의 의도`,
+    `3. **의존성** — 선행 태스크`,
+    `4. **검증 조건** — Developer가 자가 검증할 수 있는 구체적 기준`,
+    `5. **위험 요소** — 사이드 이펙트 (graph의 impacted files 참고)`,
     "",
     `### 기존 Plan`,
     planContext,

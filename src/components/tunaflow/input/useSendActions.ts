@@ -140,13 +140,15 @@ export function useSendActions({
     loadEngineModels,
   } = useChatStore();
 
-  // Resolve model at send time: profile model > selectedModel > undefined
+  // Resolve model at send time: convEngineMap model > selectedModel > undefined
   const resolveModel = (): string | undefined => {
     const store = useChatStore.getState();
-    const profileId = store.selectedProfileId;
-    if (profileId) {
-      const profile = store.agentProfiles.find((p) => p.id === profileId);
-      if (profile?.model) return profile.model;
+    const convId = threadMode
+      ? store.threadBranchConvId
+      : store.selectedConversationId;
+    if (convId) {
+      const saved = store.getConversationEngine(convId);
+      if (saved?.model) return saved.model;
     }
     return selectedModel || undefined;
   };

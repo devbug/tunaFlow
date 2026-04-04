@@ -251,6 +251,28 @@ tunaFlow/
 - **SQLite**: synchronous=NORMAL, busy_timeout=5000, DB v23 (trace_log.message_id)
 - Rust 84 tests, Frontend 96 tests. DB v23.
 
+### ✅ 해결됨 (세션 10: 스킬 고도화 + 워크플로우 에이전트 고도화)
+- **Trace Phase 1**: tok/s 스파크라인 + 컨텍스트 윈도우 % 프로그레스바 + RuntimeStatusBar % 배지
+- **스킬 4-layer**: A(프로젝트 자동 감지) + B(프로젝트별 영속) + C(프롬프트 동적 활성화) + D(Persona recommendedSkills)
+- **멀티툴 스킬 스캔**: chops 포팅 (MIT) — 12개 도구 경로 + Claude 플러그인 스킬 수집
+- **스킬 레지스트리**: skills.sh API 검색 + 다운로드 설치 + 프로젝트 스킬팩 UI
+- **임베딩 지연 최적화**: is_daemon_ready() 가드 + 단순 쿼리 벡터 검색 스킵
+- **B안 (subtask 타겟 rework)**: ReviewVerdictSchema.failedSubtaskIds + rework 프롬프트 대상 필터링
+- **code-review-graph 통합**: CLI query/impact 추가 + Rust sidecar + ContextPack 주입 + agent:completed 시 auto update
+- **Architect/Developer/Reviewer 고도화**: PLATFORM_TIER0 역할별 규칙 + 역할 템플릿 갱신 (tool-request, failedSubtaskIds, graph, 자가 검증)
+- **전역 selectedProfileId 제거**: _convEngineMap만 SSOT — 리뷰 브랜치 후 프로필 잔존 버그 근본 해결
+- **마커 기반 멀티턴 도구 호출**: `<!-- tunaflow:tool-request:TYPE:QUERY -->` — docs/rawq/graph/plans 4종
+- **후속 플랜 인프라**: plans.parent_plan_id (DB v25) + tool-request:plans:completed
+- **context-hub 수정**: chub 바이너리 인식 + --cli-version + JSON 파싱 호환
+- **Rework 이력 주입**: 이전 review_failed findings 누적 포함
+- **syncResultReport 클린**: rework 후 마지막 Rework 프롬프트 이후 메시지만 사용
+- **Plan Hints 강화**: subtask별 ✅/🔧/⬜ + 그룹/의존성 표시
+- **병렬 서브태스크 그룹**: DB v24 (depends_on + parallel_group)
+- **피드백 판단**: 2회 실패 시 findings 파일 겹침 → design_review_suggested 이벤트
+- **메타에이전트 경량**: requestPlanRevision에 detect_project_stack 자동 주입
+- **코드 리뷰 버그 수정**: background catch → console.error, failCount === 2 → >= 2
+- Rust 84 tests, Frontend 96 tests. DB v25.
+
 ### 기타 알려진 이슈
 - window-state: dev 모드 Ctrl+C 종료 시 상태 미저장 (X 버튼으로 닫아야 함)
 - Rust 84 unit test + Frontend 96 test이나, integration test 부재
@@ -323,8 +345,8 @@ tunaFlow/
 | `branches` | id, conversation_id(FK), label, status, checkpoint_id, mode(chat/roundtable), parent_branch_id, git_branch |
 | `memos` | id, message_id, content, type, tags |
 | `artifacts` | id, conversation_id, type, title, status, subtask_id |
-| `plans` | id, conversation_id, title, status, phase, architect_engine, developer_engine, reviewer_engines, implementation_branch_id, review_branch_id |
-| `plan_subtasks` | id, plan_id(FK), title, status, owner_agent |
+| `plans` | id, conversation_id, title, status, phase, architect_engine, developer_engine, reviewer_engines, implementation_branch_id, review_branch_id, parent_plan_id |
+| `plan_subtasks` | id, plan_id(FK), title, status, owner_agent, depends_on(JSON), parallel_group |
 | `plan_events` | id, plan_id(FK), event_type, actor, detail, created_at (v18) |
 | `trace_log` | id, conversation_id, trace_id, span_id, engine, context_mode, context_sections, context_length, context_truncated, usage_status |
 | `agent_jobs` | id, conversation_id, message_id, engine, kind, status, error |
@@ -366,6 +388,7 @@ tunaFlow/
 | 6 | 2026-04-02 | zod 스키마 검증 인프라, OpenAI Compatible 엔진 (Ollama), Tool Steps 가시화, silent error 표면화, Developer/Reviewer 프롬프트 수정 |
 | 7 | 2026-04-02~03 | 장기기억 4단계, Vector DB, virtuoso/cmdk, tokio async, rawq 고도화, 워크플로우 스킬/doom loop/가독성, 코드 리팩토링 Tier1, 실사용 검증 50+ 버그 수정 (model race/Virtuoso/marker/FTS5/rawq/Mutex/stagger) |
 | 8-9 | 2026-04-03~04 | 이벤트 격리, RT 전면 수정 (async panic/라운드번호/ContextPack 주입+캐싱/participant status), 스트리밍 race condition 근본 해결, Virtuoso re-render, 메시지 duration/token 표시, trace_log JOIN (v23), SQLite PRAGMA, ollama 엔진 전면 추가 |
+| 10 | 2026-04-04 | Trace Phase 1 (tok/s + context %), 스킬 A/B/C/D + 멀티툴 스캔 + 레지스트리 + 스킬팩, 임베딩 지연 최적화, B안 (subtask 타겟 rework), code-review-graph 통합, Architect/Developer/Reviewer 고도화 (PLATFORM_TIER0 + 역할 템플릿), 전역 profileId 제거, 마커 기반 멀티턴 도구 호출 (docs/rawq/graph/plans), 후속 플랜 인프라 (v25), context-hub chub 수정, 코드 리뷰 버그 수정 (DB v25, Rust 84 tests, Frontend 96 tests) |
 
 ---
 
@@ -424,6 +447,18 @@ tunaFlow/
 - RT 전면 수정 (async panic, 라운드 번호, participant status, ContextPack 주입+캐싱)
 - Virtuoso re-render, 메시지 duration/token, trace_log JOIN, SQLite PRAGMA
 
+### ✅ 완료: 스킬 고도화 + 워크플로우 에이전트 고도화 (세션 10)
+- 스킬 4-layer (A/B/C/D) + 멀티툴 스캔 (chops 포팅) + skills.sh 레지스트리 + 프로젝트 스킬팩
+- code-review-graph 통합 (CLI query/impact + Rust sidecar + ContextPack + auto update)
+- 마커 기반 멀티턴 도구 호출 (docs/rawq/graph/plans 4종)
+- Architect/Developer/Reviewer 역할 템플릿 전면 갱신
+- 전역 selectedProfileId 제거, 후속 플랜 인프라 (v25), context-hub chub 수정
+
+### 다음 세션 첫 작업
+1. **실사용 검증** — 세션 10 기능을 tunaInsight에서 테스트 (마커 도구 호출, 스킬팩, 후속 플랜, CRG)
+2. **온보딩 메타에이전트** — 프로젝트 최초 진입 시 분석 + 추천 (아이디어 단계)
+3. **리팩토링** — `docs/ideas/codeReviewRefactoringIdea.md` 기준
+
 ### P1: RT 재검증
 - RT INTENT 표시 오류 재현 확인 (새 RT에서)
 - RT ollama 단독 라운드 누락 재현 확인
@@ -432,13 +467,11 @@ tunaFlow/
 ### P1: 구조 개선
 - **ContextPack DB/assembly 완전 분리** (논리적 2-phase 분리 완료, 파일 분리는 후순위)
 - **KnowledgeLayer trait** — 6번째 소스 추가 시 도입
-- **code-review-graph** — 워크플로우 3회+ 완료 후 도입 판단
 
 ### P2: 후순위
 - Gemini SDK 직접 통합 (보조 경로, CLI 기본 유지)
-- Function calling 마커 대체 (SDK 전환 후)
 - smoke test 복구
-- Trace 고도화: 토큰 속도 시각화, 컨텍스트 윈도우 % (`docs/ideas/traceEnhancementAbtopIdea.md`)
+- Trace Phase 2: Git 상태 + OTel 중첩 스팬
 
 ---
 

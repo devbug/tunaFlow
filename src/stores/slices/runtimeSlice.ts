@@ -77,15 +77,15 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     }
     // Post-completion background tasks — staggered to avoid blocking main thread.
     // These are synchronous Tauri commands that can take seconds (Claude API, rawq embed).
-    setTimeout(() => invoke("compress_conversation_memory", { conversationId: threadId }).catch(() => {}), 500);
-    setTimeout(() => invoke("refresh_session_links", { conversationId: threadId }).catch(() => {}), 1500);
-    setTimeout(() => invoke("index_conversation_chunks", { conversationId: threadId }).catch(() => {}), 3000);
+    setTimeout(() => invoke("compress_conversation_memory", { conversationId: threadId }).catch((e) => console.error("[bg] compress_memory failed:", e)), 500);
+    setTimeout(() => invoke("refresh_session_links", { conversationId: threadId }).catch((e) => console.error("[bg] refresh_session_links failed:", e)), 1500);
+    setTimeout(() => invoke("index_conversation_chunks", { conversationId: threadId }).catch((e) => console.error("[bg] index_chunks failed:", e)), 3000);
     setTimeout(() => {
       const projectKey = get().selectedProjectKey;
       if (projectKey) {
         invoke("get_project", { key: projectKey }).then((p: any) => {
-          if (p?.path) invoke("start_rawq_index", { projectPath: p.path }).catch(() => {});
-        }).catch(() => {});
+          if (p?.path) invoke("start_rawq_index", { projectPath: p.path }).catch((e) => console.error("[bg] rawq_index failed:", e));
+        }).catch((e) => console.error("[bg] get_project failed:", e));
       }
     }, 5000);
 
@@ -221,6 +221,21 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
         stale.add(selectedConversationId);
         return { _staleConversations: stale };
       });
+      // Check for tool-request markers in the completed message → auto follow-up
+      const lastMsg = enriched.find((m) => m.id === messageId);
+      if (lastMsg?.role === "assistant") {
+        import("@/lib/planProposalParser").then(async ({ extractToolRequests }) => {
+          const requests = extractToolRequests(lastMsg.content);
+          if (requests.length > 0) {
+            const { executeToolRequests } = await import("@/lib/toolRequestHandler");
+            const followUp = await executeToolRequests(requests);
+            if (followUp) {
+              get().sendWithEngine(engine, followUp, model);
+            }
+          }
+        }).catch((e) => console.warn("[tool-request]", e));
+      }
+
       get()._endRun(selectedConversationId);
     });
 
@@ -244,7 +259,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
       const bo = await loadBudgetOverrides();
       // Resolve phase-based workflow skills
       const planPhase = await invoke<string | null>("get_active_plan_phase", { conversationId: selectedConversationId }).catch(() => null);
-      const effectiveSkills = get().getEffectiveSkills(planPhase);
+      const effectiveSkills = get().getEffectiveSkills(planPhase, prompt);
       const input: SendWithClaudeInput = {
         projectKey: selectedProjectKey,
         conversationId: selectedConversationId,

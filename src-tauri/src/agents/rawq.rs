@@ -204,6 +204,19 @@ pub fn ensure_daemon() {
     }
 }
 
+/// Check if the rawq daemon is currently running and ready for embed requests.
+/// Returns true if daemon status command succeeds, false otherwise.
+/// Use before embed_text() to avoid cold-start delays.
+pub fn is_daemon_ready() -> bool {
+    let Ok(bin) = resolve_rawq_bin() else { return false; };
+    let status = Command::new(&bin)
+        .args(["daemon", "status"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    matches!(status, Ok(s) if s.success())
+}
+
 /// Stop the rawq daemon if running.
 #[allow(dead_code)]
 pub fn stop_daemon() {

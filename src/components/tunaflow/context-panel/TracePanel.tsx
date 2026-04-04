@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { Activity, Clock, Cpu, DollarSign, RefreshCw, Briefcase, ChevronDown, ChevronRight, Zap, Package, AlertTriangle, Brain } from "lucide-react";
+import { Activity, Clock, Cpu, DollarSign, RefreshCw, Briefcase, ChevronDown, ChevronRight, Zap, Package, AlertTriangle, Brain, Gauge } from "lucide-react";
 
 interface AgentJob {
   id: string;
@@ -35,6 +35,7 @@ interface TraceSpan {
   contextLength: number | null;
   contextHash: string | null;
   contextTruncated: number | null;
+  messageId: string | null;
 }
 
 function formatDuration(ms: number | null): string {
@@ -91,6 +92,147 @@ function formatElapsed(startedAt: number): string {
   return `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
 }
 
+/** Calculate output tokens per second — null if data insufficient */
+function calcTokPerSec(span: TraceSpan): number | null {
+  if (!span.durationMs || span.durationMs <= 0 || span.outputTokens <= 0) return null;
+  return span.outputTokens / (span.durationMs / 1000);
+}
+
+/** Known model context window sizes (tokens). Fallback: 200K */
+const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  // Claude
+  "claude-opus-4-6": 1_000_000,
+  "claude-sonnet-4-6": 200_000,
+  "claude-sonnet-4-5": 200_000,
+  "claude-haiku-4-5": 200_000,
+  // OpenAI
+  "gpt-4o": 128_000,
+  "gpt-4o-mini": 128_000,
+  "gpt-4.1": 1_000_000,
+  "gpt-4.1-mini": 1_000_000,
+  "gpt-4.1-nano": 1_000_000,
+  "o3": 200_000,
+  "o4-mini": 200_000,
+  "codex-mini": 1_000_000,
+  // Gemini
+  "gemini-2.5-pro": 1_000_000,
+  "gemini-2.5-flash": 1_000_000,
+  "gemini-2.0-flash": 1_000_000,
+};
+
+/** Resolve context window limit for a model (fuzzy prefix match, fallback 200K) */
+function getContextLimit(model: string | null | undefined): number {
+  if (!model) return 200_000;
+  // Exact match first
+  if (MODEL_CONTEXT_LIMITS[model]) return MODEL_CONTEXT_LIMITS[model];
+  // Prefix match (e.g. "claude-sonnet-4-6-20260301" → "claude-sonnet-4-6")
+  for (const [key, limit] of Object.entries(MODEL_CONTEXT_LIMITS)) {
+    if (model.startsWith(key)) return limit;
+  }
+  return 200_000;
+}
+
+/** Context usage % color */
+function contextPctColor(pct: number): string {
+  if (pct >= 90) return "bg-red-500";
+  if (pct >= 80) return "bg-orange-500";
+  if (pct >= 60) return "bg-yellow-500";
+  return "bg-emerald-500";
+}
+
+function contextPctTextColor(pct: number): string {
+  if (pct >= 90) return "text-red-400";
+  if (pct >= 80) return "text-orange-400";
+  if (pct >= 60) return "text-yellow-400";
+  return "text-muted-foreground/60";
+}
+
+/** Mini SVG sparkline for token speed history */
+function SpeedSparkline({ spans }: { spans: TraceSpan[] }) {
+  // Collect speed data points (oldest first)
+  const points = spans
+    .map((sp) => ({ speed: calcTokPerSec(sp), engine: sp.engine }))
+    .filter((p): p is { speed: number; engine: string | null } => p.speed !== null)
+    .reverse(); // oldest → newest
+
+  if (points.length < 2) return null;
+
+  const speeds = points.map((p) => p.speed);
+  const maxSpeed = Math.max(...speeds);
+  const minSpeed = Math.min(...speeds);
+  const range = maxSpeed - minSpeed || 1;
+
+  const w = 160;
+  const h = 32;
+  const pad = 2;
+  const innerW = w - pad * 2;
+  const innerH = h - pad * 2;
+
+  const pathPoints = points.map((p, i) => {
+    const x = pad + (i / (points.length - 1)) * innerW;
+    const y = pad + innerH - ((p.speed - minSpeed) / range) * innerH;
+    return `${x},${y}`;
+  });
+
+  const polyline = pathPoints.join(" ");
+  const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground/50">
+        <Gauge className="w-3 h-3 shrink-0" />
+        <span>Token speed</span>
+        <span className="font-mono text-foreground/60">{avgSpeed.toFixed(0)} tok/s avg</span>
+        <span className="text-muted-foreground/30">({points.length} calls)</span>
+      </div>
+      <svg width={w} height={h} className="block">
+        <polyline
+          points={polyline}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-primary/50"
+        />
+        {/* Dots at each point */}
+        {pathPoints.map((pt, i) => {
+          const [x, y] = pt.split(",").map(Number);
+          return <circle key={i} cx={x} cy={y} r="1.5" className="fill-primary/40" />;
+        })}
+      </svg>
+      <div className="flex items-center justify-between text-[7px] text-muted-foreground/30 font-mono" style={{ width: w }}>
+        <span>{minSpeed.toFixed(0)}</span>
+        <span>{maxSpeed.toFixed(0)} tok/s</span>
+      </div>
+    </div>
+  );
+}
+
+/** Context usage progress bar */
+function ContextUsageBar({ inputTokens, model }: { inputTokens: number; model: string | null | undefined }) {
+  if (inputTokens <= 0) return null;
+  const limit = getContextLimit(model);
+  const pct = Math.min((inputTokens / limit) * 100, 100);
+  const limitLabel = limit >= 1_000_000 ? `${(limit / 1_000_000).toFixed(0)}M` : `${(limit / 1_000).toFixed(0)}K`;
+
+  return (
+    <div className="flex items-center gap-1.5 text-[8px]">
+      <span className={cn("font-mono font-semibold min-w-[28px] text-right", contextPctTextColor(pct))}>
+        {pct.toFixed(0)}%
+      </span>
+      <div className="flex-1 h-1.5 bg-accent/60 rounded-full overflow-hidden max-w-[100px]">
+        <div
+          className={cn("h-full rounded-full transition-all", contextPctColor(pct))}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="text-muted-foreground/30 font-mono">{limitLabel}</span>
+      {pct >= 80 && <AlertTriangle className="w-2.5 h-2.5 text-orange-400/70" />}
+    </div>
+  );
+}
+
 export function TracePanel() {
   const selectedConversationId = useChatStore((s) => s.selectedConversationId);
   const activeBranchId = useChatStore((s) => s.activeBranchId);
@@ -111,9 +253,20 @@ export function TracePanel() {
     topicCount: number; provenance: string | null; modelUsed: string | null;
   } | null>(null);
 
+  const messages = useChatStore((s) => s.messages);
+  const threadMessages = useChatStore((s) => s.threadMessages);
+
   const convId = activeBranchId
     ? `branch:${activeBranchId}`
     : selectedConversationId;
+
+  /** Look up model name from messages by messageId */
+  const getModelForSpan = (sp: TraceSpan): string | null => {
+    if (!sp.messageId) return null;
+    const allMsgs = [...messages, ...threadMessages];
+    const msg = allMsgs.find((m) => m.id === sp.messageId);
+    return msg?.model ?? null;
+  };
 
   const loadTraces = async () => {
     if (!convId) return;
@@ -304,6 +457,9 @@ export function TracePanel() {
             </div>
           </div>
 
+          {/* Token speed sparkline */}
+          <SpeedSparkline spans={spans} />
+
           {/* Per-engine breakdown */}
           {engineAggregates.length > 1 && (
             <div className="space-y-0.5">
@@ -410,6 +566,15 @@ export function TracePanel() {
                     {formatDuration(sp.durationMs)}
                   </span>
                   <span>{formatTokens(sp.inputTokens + sp.outputTokens, sp.engine)} tok</span>
+                  {(() => {
+                    const speed = calcTokPerSec(sp);
+                    return speed != null ? (
+                      <span className="flex items-center gap-0.5 text-primary/50 font-mono">
+                        <Gauge className="w-2.5 h-2.5" />
+                        {speed.toFixed(0)} t/s
+                      </span>
+                    ) : null;
+                  })()}
                   <span className="flex items-center gap-0.5">
                     <DollarSign className="w-2.5 h-2.5" />
                     {formatCost(sp.costUsd, sp.engine)}
@@ -452,6 +617,12 @@ export function TracePanel() {
                         </span>
                       )}
                     </div>
+                    {/* Context window usage % */}
+                    {sp.inputTokens > 0 && (
+                      <div className="pl-[18px]">
+                        <ContextUsageBar inputTokens={sp.inputTokens} model={getModelForSpan(sp)} />
+                      </div>
+                    )}
                     {/* Section budget breakdown — from contextHash */}
                     {sp.contextHash && sp.contextHash.startsWith("[") && (() => {
                       try {

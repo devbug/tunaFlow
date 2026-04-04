@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { Zap, ChevronDown, ChevronRight, Search, X } from "lucide-react";
+import { Zap, ChevronDown, ChevronRight, Search, X, Sparkles, Check, Download, Globe, Loader2 } from "lucide-react";
 import type { SkillsSnapshotInfo } from "@/types";
 
 function getVendor(skill: { name: string; vendor?: string | null }): string {
@@ -39,6 +39,248 @@ const PRESETS: Preset[] = [
   { label: "Claude", skills: ["anthropic-claude-api"] },
   { label: "MCP", skills: ["anthropic-mcp-builder"] },
 ];
+
+interface SkillPackRec {
+  keywords: string[];
+  local: string[];
+  registry: RegistrySkill[];
+}
+
+function ProjectSkillPack() {
+  const selectedProjectKey = useChatStore((s) => s.selectedProjectKey);
+  const acceptRecommendedSkills = useChatStore((s) => s.acceptRecommendedSkills);
+  const loadSkills = useChatStore((s) => s.loadSkills);
+  const [pack, setPack] = useState<SkillPackRec | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [dismissed, setDismissed] = useState(false);
+
+  const buildPack = async () => {
+    setLoading(true);
+    try {
+      const project = await invoke<{ path?: string }>("get_project", { key: selectedProjectKey });
+      if (!project.path) { setLoading(false); return; }
+      const result = await invoke<SkillPackRec>("build_skill_pack", { projectPath: project.path });
+      setPack(result);
+      setSelected(new Set(result.local));
+    } catch (e) { console.error("[skill-pack]", e); }
+    setLoading(false);
+  };
+
+  const installAndApply = async () => {
+    if (!pack) return;
+    // Install registry skills first
+    for (const rs of pack.registry) {
+      if (selected.has(rs.name)) {
+        setInstalling(rs.name);
+        try {
+          await invoke("install_registry_skill", { source: rs.source, skillName: rs.skillId || rs.name });
+        } catch (e) { console.error("[install]", e); }
+      }
+    }
+    setInstalling(null);
+    // Reload skills list then activate all selected
+    await loadSkills();
+    acceptRecommendedSkills([...selected]);
+    setDismissed(true);
+  };
+
+  const toggleItem = (name: string) => {
+    setSelected((prev) => { const n = new Set(prev); if (n.has(name)) n.delete(name); else n.add(name); return n; });
+  };
+
+  if (dismissed) return null;
+
+  return (
+    <div className="rounded-md border border-primary/25 bg-primary/5 px-2.5 py-2 space-y-1.5">
+      <div className="flex items-center gap-1.5">
+        <Sparkles className="w-3.5 h-3.5 text-primary/70 shrink-0" />
+        <span className="text-[10px] font-semibold text-foreground/80">프로젝트 스킬팩</span>
+        {!pack && (
+          <button
+            onClick={buildPack}
+            disabled={loading || !selectedProjectKey}
+            className="ml-auto text-[8px] px-1.5 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-30 transition-colors"
+          >
+            {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : "분석"}
+          </button>
+        )}
+      </div>
+
+      {pack && (
+        <>
+          {pack.keywords.length > 0 && (
+            <p className="text-[8px] text-muted-foreground/40">감지: {pack.keywords.slice(0, 8).join(", ")}</p>
+          )}
+
+          {/* Local skills */}
+          {pack.local.length > 0 && (
+            <div className="space-y-0.5">
+              <p className="text-[8px] text-muted-foreground/50 font-medium">로컬 보유</p>
+              <div className="flex flex-wrap gap-1">
+                {pack.local.map((name) => {
+                  const label = name.indexOf("-") > 0 ? name.slice(name.indexOf("-") + 1) : name;
+                  const checked = selected.has(name);
+                  return (
+                    <button key={name} onClick={() => toggleItem(name)}
+                      className={cn("flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded-full border transition-colors",
+                        checked ? "border-primary/40 bg-primary/15 text-primary" : "border-border/30 text-muted-foreground/40 line-through"
+                      )}>
+                      {checked && <Check className="w-2 h-2" />}{label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Registry skills */}
+          {pack.registry.length > 0 && (
+            <div className="space-y-0.5">
+              <p className="text-[8px] text-muted-foreground/50 font-medium">레지스트리에서 설치 가능</p>
+              <div className="flex flex-wrap gap-1">
+                {pack.registry.map((rs) => {
+                  const checked = selected.has(rs.name);
+                  return (
+                    <button key={rs.id} onClick={() => toggleItem(rs.name)}
+                      className={cn("flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded-full border transition-colors",
+                        checked ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-border/30 text-muted-foreground/40 line-through"
+                      )}>
+                      {checked && <Download className="w-2 h-2" />}
+                      {installing === rs.name && <Loader2 className="w-2 h-2 animate-spin" />}
+                      {rs.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {(pack.local.length > 0 || pack.registry.length > 0) && (
+            <div className="flex items-center gap-2 pt-1">
+              <button onClick={installAndApply} disabled={selected.size === 0 || !!installing}
+                className="text-[9px] font-semibold px-2 py-0.5 rounded bg-primary/20 text-primary hover:bg-primary/30 disabled:opacity-30 transition-colors">
+                {installing ? "설치 중..." : `스킬팩 적용 (${selected.size})`}
+              </button>
+              <button onClick={() => setDismissed(true)}
+                className="text-[9px] text-muted-foreground/40 hover:text-muted-foreground/60 transition-colors">
+                무시
+              </button>
+            </div>
+          )}
+
+          {pack.local.length === 0 && pack.registry.length === 0 && (
+            <p className="text-[8px] text-muted-foreground/40">매칭되는 스킬이 없습니다.</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+interface RegistrySkill {
+  id: string;
+  skillId: string;
+  name: string;
+  installs: number;
+  source: string;
+}
+
+function SkillRegistrySearch({ onInstalled }: { onInstalled: () => void }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<RegistrySkill[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  const doSearch = async () => {
+    if (query.length < 2) return;
+    setSearching(true);
+    try {
+      const r = await invoke<RegistrySkill[]>("search_skill_registry", { query });
+      setResults(r);
+    } catch (e) {
+      console.error("[registry]", e);
+      setResults([]);
+    }
+    setSearching(false);
+  };
+
+  const doInstall = async (skill: RegistrySkill) => {
+    setInstalling(skill.id);
+    try {
+      await invoke<string>("install_registry_skill", {
+        source: skill.source,
+        skillName: skill.skillId || skill.name,
+      });
+      onInstalled();
+    } catch (e) {
+      console.error("[registry install]", e);
+    }
+    setInstalling(null);
+  };
+
+  return (
+    <div className="border-t border-border/20 pt-2">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 w-full text-left px-1 py-0.5 rounded hover:bg-accent/30 transition-colors"
+      >
+        {open ? <ChevronDown className="w-3 h-3 text-muted-foreground/50" /> : <ChevronRight className="w-3 h-3 text-muted-foreground/50" />}
+        <Globe className="w-3 h-3 text-muted-foreground/50" />
+        <span className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider">Registry</span>
+      </button>
+
+      {open && (
+        <div className="mt-1.5 px-1 space-y-1.5">
+          <div className="flex gap-1">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && doSearch()}
+              placeholder="Search skills.sh..."
+              className="flex-1 h-6 px-2 text-[10px] bg-muted/30 border border-border/20 rounded text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-border/50"
+            />
+            <button
+              onClick={doSearch}
+              disabled={searching || query.length < 2}
+              className="px-2 h-6 text-[9px] font-medium rounded bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-30 transition-colors"
+            >
+              {searching ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+            </button>
+          </div>
+
+          {results.length > 0 && (
+            <div className="space-y-0.5 max-h-[200px] overflow-y-auto">
+              {results.map((skill) => (
+                <div key={skill.id} className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-accent/40 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-medium text-foreground truncate">{skill.name}</p>
+                    <p className="text-[8px] text-muted-foreground/40 truncate">{skill.source} · {skill.installs > 1000 ? `${(skill.installs / 1000).toFixed(0)}K` : skill.installs} installs</p>
+                  </div>
+                  <button
+                    onClick={() => doInstall(skill)}
+                    disabled={installing === skill.id}
+                    className="p-1 text-primary/50 hover:text-primary transition-colors disabled:opacity-30"
+                    title="Install"
+                  >
+                    {installing === skill.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!searching && results.length === 0 && query.length >= 2 && (
+            <p className="text-[9px] text-muted-foreground/40 px-1">No results</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function SkillsPanel() {
   const skills = useChatStore((s) => s.skills);
@@ -121,6 +363,9 @@ export function SkillsPanel() {
 
   return (
     <div className="space-y-2">
+      {/* ─── Project Skill Pack ─── */}
+      <ProjectSkillPack />
+
       {/* ─── Presets ─── */}
       <div className="flex flex-wrap gap-1 px-1">
         {PRESETS.map((preset) => {
@@ -251,6 +496,9 @@ export function SkillsPanel() {
           </div>
         );
       })}
+
+      {/* ─── Registry search ─── */}
+      <SkillRegistrySearch onInstalled={() => loadSkills()} />
 
       {/* ─── Snapshot metadata footer ─── */}
       {snapshot && (

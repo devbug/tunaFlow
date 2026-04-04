@@ -174,6 +174,10 @@ pub fn run() {
             commands::skills::list_skills,
             commands::skills::get_skill,
             commands::skills::get_skills_snapshot,
+            commands::skills::detect_project_stack,
+            commands::skills::search_skill_registry,
+            commands::skills::install_registry_skill,
+            commands::skills::build_skill_pack,
             // Memo
             commands::memos::list_memos,
             commands::memos::list_memos_by_conversation,

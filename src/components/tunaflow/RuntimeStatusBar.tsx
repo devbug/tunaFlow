@@ -23,6 +23,23 @@ function SkillsBadge() {
   );
 }
 
+/** Known model context window sizes (tokens). Fallback: 200K */
+const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  "claude-opus-4-6": 1_000_000, "claude-sonnet-4-6": 200_000, "claude-sonnet-4-5": 200_000, "claude-haiku-4-5": 200_000,
+  "gpt-4o": 128_000, "gpt-4o-mini": 128_000, "gpt-4.1": 1_000_000, "gpt-4.1-mini": 1_000_000, "gpt-4.1-nano": 1_000_000,
+  "o3": 200_000, "o4-mini": 200_000, "codex-mini": 1_000_000,
+  "gemini-2.5-pro": 1_000_000, "gemini-2.5-flash": 1_000_000, "gemini-2.0-flash": 1_000_000,
+};
+
+function getContextLimit(model: string | null | undefined): number {
+  if (!model) return 200_000;
+  if (MODEL_CONTEXT_LIMITS[model]) return MODEL_CONTEXT_LIMITS[model];
+  for (const [key, limit] of Object.entries(MODEL_CONTEXT_LIMITS)) {
+    if (model.startsWith(key)) return limit;
+  }
+  return 200_000;
+}
+
 interface AgentJob {
   id: string;
   conversationId: string;
@@ -42,6 +59,7 @@ export function RuntimeStatusBar() {
   const [lastContextMode, setLastContextMode] = useState<string | null>(null);
   const [lastContextSections, setLastContextSections] = useState(0);
   const [lastSkippedLayers, setLastSkippedLayers] = useState(0);
+  const [lastContextPct, setLastContextPct] = useState<number | null>(null);
   const [traceOpen, setTraceOpen] = useState(false);
 
   const isRunning = runningThreadIds.length > 0;
@@ -58,15 +76,17 @@ export function RuntimeStatusBar() {
     return () => clearInterval(timer);
   }, [selectedConversationId, runningThreadIds.length]);
 
+  const storeMessages = useChatStore((s) => s.messages);
+
   // Aggregate cost + last context mode from conversation
   useEffect(() => {
-    if (!selectedConversationId) { setTotalCost(0); setLastContextMode(null); return; }
+    if (!selectedConversationId) { setTotalCost(0); setLastContextMode(null); setLastContextPct(null); return; }
     invoke<any[]>("list_traces", { conversationId: selectedConversationId, traceId: null })
       .then((spans) => {
-        const cost = spans.reduce((sum, s) => sum + (s.costUsd ?? 0), 0);
+        const cost = spans.reduce((sum: number, s: any) => sum + (s.costUsd ?? 0), 0);
         setTotalCost(cost);
         // Find latest span with context metadata
-        const withCtx = spans.find((s) => s.contextMode);
+        const withCtx = spans.find((s: any) => s.contextMode);
         if (withCtx) {
           setLastContextMode(withCtx.contextMode);
           try {
@@ -78,9 +98,20 @@ export function RuntimeStatusBar() {
           setLastContextMode(null);
           setLastContextSections(0);
         }
+        // Context window % — from latest span with inputTokens
+        const latestWithTokens = spans.find((s: any) => s.inputTokens > 0);
+        if (latestWithTokens) {
+          const model = latestWithTokens.messageId
+            ? storeMessages.find((m) => m.id === latestWithTokens.messageId)?.model
+            : null;
+          const limit = getContextLimit(model);
+          setLastContextPct(Math.min((latestWithTokens.inputTokens / limit) * 100, 100));
+        } else {
+          setLastContextPct(null);
+        }
       })
-      .catch(() => { setTotalCost(0); setLastContextMode(null); });
-  }, [selectedConversationId, runningThreadIds.length]);
+      .catch(() => { setTotalCost(0); setLastContextMode(null); setLastContextPct(null); });
+  }, [selectedConversationId, runningThreadIds.length, storeMessages.length]);
 
   return (
     <>
@@ -117,6 +148,16 @@ export function RuntimeStatusBar() {
                 {lastContextSections > 0 && <span className="text-muted-foreground/30"> · {lastContextSections}s</span>}
                 {lastSkippedLayers > 0 && <span className="text-amber-500/40"> -{lastSkippedLayers}</span>}
               </span>
+              {lastContextPct != null && (
+                <span className={cn("font-mono text-[9px]",
+                  lastContextPct >= 90 ? "text-red-400" :
+                  lastContextPct >= 80 ? "text-orange-400" :
+                  lastContextPct >= 60 ? "text-yellow-400" :
+                  "text-muted-foreground/40"
+                )}>
+                  {lastContextPct.toFixed(0)}%
+                </span>
+              )}
             </>
           )}
           <span className="w-px h-3 bg-border/30" />

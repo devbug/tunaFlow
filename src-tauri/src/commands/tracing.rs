@@ -37,6 +37,8 @@ pub struct TraceSpan {
     pub context_length: Option<i64>,
     pub context_hash: Option<String>,
     pub context_truncated: Option<i64>,
+    // Message linkage (v23)
+    pub message_id: Option<String>,
 }
 
 /// List trace spans for a conversation, ordered by recorded_at descending.
@@ -53,7 +55,8 @@ pub fn list_traces(
         (
             "SELECT id, conversation_id, trace_id, span_id, parent_span_id, operation, engine,
                     input_tokens, output_tokens, cost_usd, duration_ms, status, recorded_at,
-                    context_mode, context_sections, context_length, context_hash, context_truncated
+                    context_mode, context_sections, context_length, context_hash, context_truncated,
+                    message_id
              FROM trace_log
              WHERE conversation_id = ?1 AND trace_id = ?2
              ORDER BY recorded_at DESC",
@@ -63,7 +66,8 @@ pub fn list_traces(
         (
             "SELECT id, conversation_id, trace_id, span_id, parent_span_id, operation, engine,
                     input_tokens, output_tokens, cost_usd, duration_ms, status, recorded_at,
-                    context_mode, context_sections, context_length, context_hash, context_truncated
+                    context_mode, context_sections, context_length, context_hash, context_truncated,
+                    message_id
              FROM trace_log
              WHERE conversation_id = ?1
              ORDER BY recorded_at DESC",
@@ -118,5 +122,6 @@ fn map_span(row: &rusqlite::Row) -> rusqlite::Result<TraceSpan> {
         context_length: row.get(15)?,
         context_hash: row.get(16)?,
         context_truncated: row.get(17)?,
+        message_id: row.get(18)?,
     })
 }

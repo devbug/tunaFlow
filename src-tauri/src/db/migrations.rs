@@ -94,6 +94,12 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     if current < 23 {
         apply_v23(conn)?;
     }
+    if current < 24 {
+        apply_v24(conn)?;
+    }
+    if current < 25 {
+        apply_v25(conn)?;
+    }
     Ok(())
 }
 
@@ -472,6 +478,21 @@ fn apply_v23(conn: &Connection) -> Result<(), AppError> {
     add_column_if_missing(conn, "trace_log", "message_id", "TEXT")?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_trace_log_message_id ON trace_log(message_id)", [])?;
     conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (23, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+fn apply_v24(conn: &Connection) -> Result<(), AppError> {
+    // Subtask parallel groups: depends_on (JSON array of idx) + parallel_group label
+    add_column_if_missing(conn, "plan_subtasks", "depends_on", "TEXT DEFAULT '[]'")?;
+    add_column_if_missing(conn, "plan_subtasks", "parallel_group", "TEXT")?;
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (24, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+fn apply_v25(conn: &Connection) -> Result<(), AppError> {
+    // Follow-up plan lineage: parent_plan_id links to predecessor plan
+    add_column_if_missing(conn, "plans", "parent_plan_id", "TEXT")?;
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (25, ?1)", [now_epoch()])?;
     Ok(())
 }
 

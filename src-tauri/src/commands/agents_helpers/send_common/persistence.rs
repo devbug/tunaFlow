@@ -146,6 +146,15 @@ pub fn finalize_engine_run(
                 "durationMs": duration_ms as i64, "inputTokens": out.input_tokens,
                 "outputTokens": out.output_tokens, "costUsd": out.cost_usd
             }));
+            // Fire-and-forget: update code-review-graph if available
+            if let Ok(pp) = conn.query_row(
+                "SELECT p.path FROM projects p JOIN conversations c ON c.project_key = p.key WHERE c.id = ?1",
+                [conversation_id], |row| row.get::<_, Option<String>>(0),
+            ) {
+                if let Some(path) = pp {
+                    std::thread::spawn(move || { let _ = crate::agents::crg::update(&path); });
+                }
+            }
         }
         Err(ref e) => {
             let em = crate::guardrail::fallback_error(engine_key, e);

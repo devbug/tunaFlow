@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getSetting, setSetting } from "@/lib/appStore";
 import { expandSkillRefs } from "@/lib/skillSets";
+import { mapKeywordsToSkills, matchPromptToSkills } from "@/lib/skillMappings";
 import type {
   SetState,
   GetState,
@@ -41,12 +42,10 @@ export interface AssetSlice {
   personaLabel: string | null;
   // Agent profiles — shared between Settings and NewMessageInput
   agentProfiles: AgentProfile[];
-  selectedProfileId: string | null;
-  /** Per-conversation engine/profile memory */
+  /** Per-conversation engine/profile memory (SSOT for profile selection) */
   _convEngineMap: Record<string, ConversationEngineState>;
   loadProfiles: () => Promise<void>;
   saveProfiles: (profiles: AgentProfile[]) => void;
-  selectProfile: (profileId: string | null) => void;
   /** Save current engine/profile state for a conversation */
   saveConversationEngine: (conversationId: string, state: ConversationEngineState) => void;
   /** Restore engine/profile state for a conversation. Returns null if none saved. */
@@ -67,6 +66,14 @@ export interface AssetSlice {
   saveWorkflowSkills: (config: Record<string, string[]>) => void;
   /** Get effective skills: manual activeSkills ∪ phase-based workflow skills */
   getEffectiveSkills: (planPhase: string | null) => string[];
+  /** Detect project tech stack and recommend matching skills */
+  detectAndRecommendSkills: () => Promise<void>;
+  /** Accept recommended skills — bulk-set and persist per project */
+  acceptRecommendedSkills: (skillNames: string[]) => void;
+  /** Dismiss recommendation banner without applying */
+  dismissRecommendation: () => void;
+  /** Recommended skills from detection (null = hidden) */
+  recommendedSkills: string[] | null;
   toggleCrossSession: (conversationId: string) => void;
 }
 
@@ -82,13 +89,11 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
   personaFragment: null,
   personaLabel: null,
   agentProfiles: [],
-  selectedProfileId: null,
   _convEngineMap: {},
+  recommendedSkills: null,
 
   loadProfiles: async () => {
     const profiles = await getSetting<AgentProfile[]>("agentProfiles", DEFAULT_PROFILES);
-    const lastId = await getSetting<string | null>("lastProfileId", null);
-    const selectedId = lastId && profiles.some((p) => p.id === lastId) ? lastId : profiles[0]?.id ?? null;
     const convMap = await getSetting<Record<string, ConversationEngineState>>("convEngineMap", {});
     // Backfill: if any conversation has a profile but no model, fill from profile default
     let updated = false;
@@ -102,17 +107,12 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
       }
     }
     if (updated) setSetting("convEngineMap", convMap);
-    set({ agentProfiles: profiles, selectedProfileId: selectedId, _convEngineMap: convMap });
+    set({ agentProfiles: profiles, _convEngineMap: convMap });
   },
 
   saveProfiles: (profiles: AgentProfile[]) => {
     set({ agentProfiles: profiles });
     setSetting("agentProfiles", profiles);
-  },
-
-  selectProfile: (profileId: string | null) => {
-    set({ selectedProfileId: profileId });
-    setSetting("lastProfileId", profileId);
   },
 
   saveConversationEngine: (conversationId: string, state: ConversationEngineState) => {
@@ -129,6 +129,56 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
 
   setHandoffSource: (source) => set({ handoffSource: source }),
 
+  // ─── Skill detection & recommendation ────────────────────────────────────
+  detectAndRecommendSkills: async () => {
+    const pk = get().selectedProjectKey;
+    if (!pk) return;
+    // Skip if project already has saved skills
+    const storeKey = `activeSkills:${pk}`;
+    const existing = await getSetting<string[] | null>(storeKey, null);
+    if (existing !== null) {
+      set({ recommendedSkills: null });
+      return;
+    }
+    // Skip if user already dismissed for this project
+    const dismissed = await getSetting<boolean>(`skillDetectionDismissed:${pk}`, false);
+    if (dismissed) {
+      set({ recommendedSkills: null });
+      return;
+    }
+    try {
+      const project = await invoke<{ path?: string }>("get_project", { key: pk });
+      if (!project.path) { set({ recommendedSkills: null }); return; }
+      // Guard against stale result from project switch
+      if (get().selectedProjectKey !== pk) return;
+      const result = await invoke<{ keywords: string[]; detectedFiles: string[] }>("detect_project_stack", { projectPath: project.path });
+      if (get().selectedProjectKey !== pk) return;
+      if (result.keywords.length === 0) { set({ recommendedSkills: null }); return; }
+      const recommended = mapKeywordsToSkills(result.keywords);
+      // Filter to only skills that are actually installed
+      const installed = new Set(get().skills.map((s) => s.name));
+      const valid = recommended.filter((s) => installed.has(s));
+      set({ recommendedSkills: valid.length > 0 ? valid : null });
+    } catch {
+      set({ recommendedSkills: null });
+    }
+  },
+
+  acceptRecommendedSkills: (skillNames: string[]) => {
+    const pk = get().selectedProjectKey;
+    const storeKey = pk ? `activeSkills:${pk}` : "lastActiveSkills";
+    set({ activeSkills: skillNames, recommendedSkills: null });
+    setSetting(storeKey, skillNames);
+  },
+
+  dismissRecommendation: () => {
+    const pk = get().selectedProjectKey;
+    set({ recommendedSkills: null });
+    if (pk) {
+      setSetting(`skillDetectionDismissed:${pk}`, true);
+    }
+  },
+
   // ─── Cross-session ───────────────────────────────────────────────────────
   toggleCrossSession: (conversationId: string) => {
     set((state) => {
@@ -143,11 +193,22 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
   loadSkills: async () => {
     try {
       const skills = await invoke<SkillDef[]>("list_skills");
-      const saved = await getSetting<string[]>("lastActiveSkills", []);
+      const pk = get().selectedProjectKey;
+      const storeKey = pk ? `activeSkills:${pk}` : "lastActiveSkills";
+      let saved = await getSetting<string[] | null>(storeKey, null);
+      // Migration: fall back to global if no project-specific skills saved yet
+      let migrated = false;
+      if (saved === null && pk) {
+        saved = await getSetting<string[]>("lastActiveSkills", []);
+        migrated = true;
+      }
       const validNames = new Set(skills.map((s) => s.name));
-      const restored = saved.filter((n) => validNames.has(n));
-      const wfSkills = await getSetting<Record<string, string[]>>("workflowSkills", {});
-      set({ skills, activeSkills: restored, workflowSkills: wfSkills });
+      const restored = (saved ?? []).filter((n) => validNames.has(n));
+      set({ skills, activeSkills: restored });
+      // Persist migration so detectAndRecommendSkills sees existing skills
+      if (migrated && pk && restored.length > 0) {
+        setSetting(`activeSkills:${pk}`, restored);
+      }
     } catch (e) {
       set({ error: String(e) });
     }
@@ -167,7 +228,7 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
     setSetting(key, config);
   },
 
-  getEffectiveSkills: (planPhase: string | null) => {
+  getEffectiveSkills: (planPhase: string | null, prompt?: string) => {
     const { activeSkills, workflowSkills } = get();
     const phase = planPhase ?? "chat";
     const phaseKey =
@@ -179,15 +240,21 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
     const phaseRefs = workflowSkills[phaseKey] ?? [];
     // Expand set: refs and individual skills, then union with manual activeSkills
     const expanded = expandSkillRefs([...activeSkills, ...phaseRefs]);
-    return expanded;
+    // Dynamic prompt-based skill injection (feature C)
+    if (prompt) {
+      const dynamicSkills = matchPromptToSkills(prompt, expanded);
+      for (const s of dynamicSkills) expanded.push(s);
+    }
+    return [...new Set(expanded)];
   },
 
   toggleSkill: (name: string) => {
+    const pk = get().selectedProjectKey;
     set((state) => {
       const active = state.activeSkills.includes(name)
         ? state.activeSkills.filter((s) => s !== name)
         : [...state.activeSkills, name];
-      setSetting("lastActiveSkills", active);
+      setSetting(pk ? `activeSkills:${pk}` : "lastActiveSkills", active);
       return { activeSkills: active };
     });
   },

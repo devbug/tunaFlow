@@ -6,6 +6,7 @@
  * - `<!-- tunaflow:impl-plan -->` — Developer implementation plan report
  * - `<!-- tunaflow:impl-complete -->` — Implementation completion signal
  * - `<!-- tunaflow:review-verdict -->` — Reviewer verdict
+ * - `<!-- tunaflow:tool-request:TYPE:QUERY -->` — Agent tool call request (docs, rawq, graph)
  *
  * All parsers validate output against zod schemas (src/lib/schemas/).
  * Validation failures log warnings but do not break — graceful degradation.
@@ -284,6 +285,8 @@ export interface ParsedReviewVerdict {
   rubric?: ReviewRubric;
   findings: string[];
   recommendations: string[];
+  /** 1-based subtask indices that failed review — for targeted rework */
+  failedSubtaskIds: number[];
   raw: string;
 }
 
@@ -350,10 +353,20 @@ export function extractReviewVerdict(content: string): ParsedReviewVerdict | nul
     };
   }
 
-  const reviewResult = { verdict, rubric, findings, recommendations, raw };
+  // Parse failedSubtaskIds (e.g. "failed_subtask_ids: [3, 7]" or "failedSubtaskIds: [3, 7]")
+  const failedSubtaskIds: number[] = [];
+  const failedMatch = raw.match(/failed_?subtask_?ids?:\s*\[([^\]]*)\]/i);
+  if (failedMatch && failedMatch[1]) {
+    for (const part of failedMatch[1].split(",")) {
+      const n = parseInt(part.trim(), 10);
+      if (!isNaN(n) && n >= 1) failedSubtaskIds.push(n);
+    }
+  }
+
+  const reviewResult = { verdict, rubric, findings, recommendations, failedSubtaskIds, raw };
 
   // Validate against schema
-  const schemaInput: Record<string, unknown> = { verdict, findings: findings.map((f) => ({ description: f })), recommendations };
+  const schemaInput: Record<string, unknown> = { verdict, findings: findings.map((f) => ({ description: f })), recommendations, failedSubtaskIds };
   if (rubric) {
     schemaInput.rubric = {
       plan_coverage: rubric.planCoverage,
@@ -369,4 +382,27 @@ export function extractReviewVerdict(content: string): ParsedReviewVerdict | nul
   }
 
   return reviewResult;
+}
+
+// ─── Tool request markers ──────────────────────────────────────────────────
+
+export interface ToolRequest {
+  type: "docs" | "rawq" | "graph" | "plans";
+  query: string;
+}
+
+const TOOL_REQUEST_RE = /<!--\s*tunaflow:tool-request:(\w+):(.+?)\s*-->/g;
+
+/** Extract all tool-request markers from a message. */
+export function extractToolRequests(content: string): ToolRequest[] {
+  const requests: ToolRequest[] = [];
+  let match;
+  while ((match = TOOL_REQUEST_RE.exec(content)) !== null) {
+    const type = match[1] as ToolRequest["type"];
+    const query = match[2].trim();
+    if (["docs", "rawq", "graph", "plans"].includes(type) && query) {
+      requests.push({ type, query });
+    }
+  }
+  return requests;
 }

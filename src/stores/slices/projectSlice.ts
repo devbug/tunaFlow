@@ -101,7 +101,6 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
               engine: defaultProfile.engine,
               model: defaultProfile.model,
             });
-            get().selectProfile(defaultProfile.id);
           }
         }
       }
@@ -110,8 +109,11 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
       return;
     }
 
-    // Load project-scoped workflow skill mappings
+    // Load project-scoped workflow skill mappings + skill selection
     get().loadWorkflowSkills().catch(() => {});
+    get().loadSkills().then(() => {
+      get().detectAndRecommendSkills().catch(() => {});
+    }).catch(() => {});
 
     // Ensure workflow agent templates exist (non-blocking, fire-and-forget)
     invoke<Project>("get_project", { key }).then((p) => {

@@ -107,6 +107,40 @@ fn extract_relevant_skill_sections(skill_name: &str, content: &str, keywords: &[
     result
 }
 
+/// Build a code-review-graph section — detect changes + impact radius.
+/// Returns None if code-review-graph is unavailable or project has no graph.
+pub fn build_crg_section(project_path: &str) -> Option<String> {
+    if !crate::agents::crg::is_available() {
+        return None;
+    }
+
+    // detect-changes: risk-scored change analysis
+    let changes = crate::agents::crg::detect_changes(project_path, "HEAD~1").ok()?;
+    let summary = changes.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+    if summary.is_empty() || summary.contains("No changes") {
+        return None;
+    }
+
+    let mut out = String::from("## Code change impact (code-review-graph)\n\n");
+    out.push_str(summary);
+
+    // Add impacted files list if available
+    if let Some(files) = changes.get("files").and_then(|v| v.as_array()) {
+        if !files.is_empty() {
+            out.push_str("\n\n**Risk-scored files**:\n");
+            for (i, f) in files.iter().take(10).enumerate() {
+                if let Some(name) = f.get("file").and_then(|v| v.as_str()) {
+                    let score = f.get("risk_score").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    out.push_str(&format!("{}. {} (risk: {:.1})\n", i + 1, name, score));
+                }
+            }
+        }
+    }
+
+    eprintln!("[context_pack] crg: change impact section built ({} chars)", out.len());
+    Some(out)
+}
+
 /// Build a context-hub (chops) section from automatic keyword search.
 ///
 /// Calls `context_hub::search()` with keywords extracted from the prompt.
@@ -355,13 +389,13 @@ pub fn build_plan_section(
 
     let mut stmt = conn
         .prepare(
-            "SELECT title, status, details FROM plan_subtasks
+            "SELECT idx, title, status, details, depends_on, parallel_group FROM plan_subtasks
              WHERE plan_id = ?1 ORDER BY idx",
         )
         .ok()?;
-    let subtasks: Vec<(String, String, Option<String>)> = stmt
+    let subtasks: Vec<(i64, String, String, Option<String>, Option<String>, Option<String>)> = stmt
         .query_map([&plan_id], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
         })
         .ok()?
         .filter_map(|r| r.ok())
@@ -374,23 +408,36 @@ pub fn build_plan_section(
         }
     }
 
-    let in_progress: Vec<&str> = subtasks
-        .iter()
-        .filter(|(_, s, _)| s == "in_progress")
-        .map(|(t, _, _)| t.as_str())
-        .collect();
-    if !in_progress.is_empty() {
-        out.push_str(&format!("\n**Current:** {}\n", in_progress.join(", ")));
+    // Subtask status list with indices + parallel group info
+    if !subtasks.is_empty() {
+        out.push_str("\n**Subtasks:**\n");
+        for (idx, title, status, _, depends_on, group) in &subtasks {
+            let icon = match status.as_str() {
+                "done" => "✅",
+                "in_progress" => "🔧",
+                _ => "⬜",
+            };
+            let mut suffix = String::new();
+            if let Some(g) = group {
+                if !g.is_empty() { suffix.push_str(&format!(" [{}]", g)); }
+            }
+            if let Some(deps) = depends_on {
+                if deps != "[]" && !deps.is_empty() {
+                    // Parse JSON array of indices
+                    let dep_str = deps.trim_matches(|c| c == '[' || c == ']').replace(' ', "");
+                    if !dep_str.is_empty() {
+                        suffix.push_str(&format!(" (depends: {})", dep_str));
+                    }
+                }
+            }
+            out.push_str(&format!("- {} Task {:02}: {}{}\n", icon, idx, title, suffix));
+        }
     }
 
-    if let Some((next_title, _, _)) = subtasks.iter().find(|(_, s, _)| s == "todo") {
-        out.push_str(&format!("**Next:** {}\n", next_title));
-    }
-
-    let done_count = subtasks.iter().filter(|(_, s, _)| s == "done").count();
+    let done_count = subtasks.iter().filter(|(_, _, s, _, _, _)| s == "done").count();
     let total = subtasks.len();
     if total > 0 {
-        out.push_str(&format!("**Progress:** {}/{} done\n", done_count, total));
+        out.push_str(&format!("\n**Progress:** {}/{} done\n", done_count, total));
     }
 
     Some(out)

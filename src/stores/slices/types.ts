@@ -94,6 +94,8 @@ export interface ChatState {
   rawqStatus: RawqStatus | null;
   projectLoading: string | null;
   engineModels: EngineModel[];
+  /** Recommended skills from project stack detection (null = not shown, [] = detected but empty) */
+  recommendedSkills: string[] | null;
   /** Conversations that completed while user was viewing a different conversation — need reload on return */
   _staleConversations: Set<string>;
   /** Pending handoff source set by UI actions (artifact forward, plan forward, etc.) */
@@ -106,12 +108,10 @@ export interface ChatState {
   personaLabel: string | null;
   /** Agent profiles — shared between Settings and NewMessageInput */
   agentProfiles: AgentProfile[];
-  selectedProfileId: string | null;
   /** Per-conversation engine/profile memory */
   _convEngineMap: Record<string, { profileId: string | null; engine: string; model?: string }>;
   loadProfiles: () => Promise<void>;
   saveProfiles: (profiles: AgentProfile[]) => void;
-  selectProfile: (profileId: string | null) => void;
   saveConversationEngine: (conversationId: string, state: { profileId: string | null; engine: string; model?: string }) => void;
   getConversationEngine: (conversationId: string) => { profileId: string | null; engine: string; model?: string } | null;
 
@@ -153,7 +153,10 @@ export interface ChatState {
   toggleSkill: (name: string) => void;
   loadWorkflowSkills: () => Promise<void>;
   saveWorkflowSkills: (config: Record<string, string[]>) => void;
-  getEffectiveSkills: (planPhase: string | null) => string[];
+  getEffectiveSkills: (planPhase: string | null, prompt?: string) => string[];
+  detectAndRecommendSkills: () => Promise<void>;
+  acceptRecommendedSkills: (skillNames: string[]) => void;
+  dismissRecommendation: () => void;
   loadMemos: () => Promise<void>;
   createMemo: (messageId: string, content: string) => Promise<void>;
   deleteMemo: (id: string) => Promise<void>;
