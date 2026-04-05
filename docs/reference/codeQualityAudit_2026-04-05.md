@@ -28,9 +28,9 @@ tunaInsight 멀티 에이전트 분석(시니어 개발자 + QA 역할) + 사용
 
 | 항목 | 공수 | 비고 |
 |------|------|------|
-| `AppError` → JSON 구조화 에러 응답 | medium | 프론트엔드에서 에러 유형별 분기 처리 가능하도록 |
-| 이벤트 리스너 추상화 | medium~large | 안정화 후 진행. 현재 5엔진 10+ emit 지점이 개별 패턴 |
-| 커버리지 활성화 | small | vitest + cargo-llvm-cov, CI 연동 시 함께 |
+| `AppError` → JSON 구조화 에러 응답 + `errorMessage()` 헬퍼 (14파일) | medium | ✅ 완료 |
+| 이벤트 리스너 추상화 | medium~large | 보류 (안정화 후 진행) |
+| 커버리지 활성화 — `test:coverage` 스크립트 + v8 provider 설정 | small | ✅ 완료 |
 
 ---
 
