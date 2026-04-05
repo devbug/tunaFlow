@@ -32,6 +32,8 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [showDoc, setShowDoc] = useState(false);
+  const [reviewHistory, setReviewHistory] = useState<{ round: number; findings: string[]; failedIds: number[] }[]>([]);
+  const [isDoomLoop, setIsDoomLoop] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -39,6 +41,23 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       .then(setSubtasks)
       .catch(() => setSubtasks([]))
       .finally(() => setLoading(false));
+
+    // Load review failure history for doom loop context
+    planApi.listPlanEvents(plan.id).then((events) => {
+      const failEvents = events.filter((e) => e.eventType === "review_failed");
+      setIsDoomLoop(events.some((e) => e.eventType === "doom_loop_escalated"));
+      const history = failEvents.map((ev, i) => {
+        try {
+          const d = JSON.parse(ev.detail ?? "{}");
+          return {
+            round: i + 1,
+            findings: (d.findings as string[] ?? []).slice(0, 5),
+            failedIds: (d.failedSubtaskIds as number[] ?? []),
+          };
+        } catch { return { round: i + 1, findings: [], failedIds: [] }; }
+      });
+      setReviewHistory(history);
+    }).catch(() => {});
 
     // Load task files from filesystem
     (async () => {
@@ -131,9 +150,23 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       await loadBranches(plan.conversationId);
       await openThread(branch.id);
 
-      // Send lightweight revision prompt — agent reads the file directly
+      // Send revision prompt with review failure context
       const slug = slugifyPlanTitle(plan.title);
       const taskFile = `docs/plans/${slug}-task-${String(subtaskIdx + 1).padStart(2, "0")}.md`;
+
+      // Build failure history context for the Architect
+      const failHistoryBlock = reviewHistory.length > 0 ? [
+        ``,
+        `**Review 실패 이력** (${reviewHistory.length}회):`,
+        ...reviewHistory.slice(-3).map((h) => {
+          const targetNote = h.failedIds.length > 0 ? ` (Task ${h.failedIds.join(",")})` : "";
+          const topFindings = h.findings.slice(0, 2).map((f) => f.slice(0, 150)).join("; ");
+          return `- ${h.round}차${targetNote}: ${topFindings || "상세 없음"}`;
+        }),
+        ``,
+        `> 위 findings가 반복되는 이유를 분석하고, 작업 지시서의 **Verification 명령**과 **Changed files**를 구체화하세요.`,
+      ] : [];
+
       const prompt = [
         `### ✏️ Subtask 수정 요청`,
         ``,
@@ -142,6 +175,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
         ``,
         `**검토 의견**:`,
         `${opinion}`,
+        ...failHistoryBlock,
         ``,
         `> 완료 조건: 파일 수정 후 변경 내용 요약`,
       ].join("\n");
@@ -249,6 +283,42 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
           <p className="text-[10px] text-muted-foreground/60 italic">Goal: {plan.expectedOutcome}</p>
         )}
       </div>
+
+      {/* Doom loop context — why we're here */}
+      {isDoomLoop && reviewHistory.length > 0 && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+          <p className="text-[11px] font-semibold text-amber-600">
+            ⚠️ Review {reviewHistory.length}회 연속 실패로 설계 재검토 진입
+          </p>
+          <p className="text-[10px] text-foreground/60">
+            Rework으로 해결되지 않는 반복 문제입니다. 아래 이력을 참고하여 subtask 설계를 수정하세요.
+          </p>
+          <details className="text-[9px]">
+            <summary className="cursor-pointer text-muted-foreground/60 hover:text-foreground">
+              실패 이력 ({reviewHistory.length}회)
+            </summary>
+            <div className="mt-1.5 space-y-1.5 pl-2">
+              {reviewHistory.map((h) => (
+                <div key={h.round} className="border-l-2 border-amber-500/20 pl-2">
+                  <span className="font-medium text-foreground/50">{h.round}차 fail</span>
+                  {h.failedIds.length > 0 && (
+                    <span className="text-muted-foreground/40 ml-1">
+                      (Task {h.failedIds.join(", ")})
+                    </span>
+                  )}
+                  {h.findings.length > 0 && (
+                    <ul className="mt-0.5 text-muted-foreground/50">
+                      {h.findings.map((f, i) => (
+                        <li key={i} className="truncate">- {f.slice(0, 120)}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
 
       {/* Subtask review list — clickable cards */}
       <div className="space-y-1.5">

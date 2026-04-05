@@ -23,6 +23,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
   const {
     subtasks, completedNums, implComplete, loading,
     testResult, testRunning, reviewVerdict, designReviewSuggested,
+    failCount, doomLoopEscalated,
   } = useSubtaskProgress(plan);
 
   const [busy, setBusy] = useState(false);
@@ -259,9 +260,24 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
 
       {/* Rework notice */}
       {plan.phase === "rework" && (
-        <div className="rounded-md border border-status-rejected/30 bg-status-rejected/5 p-2.5 text-[10px] text-status-rejected space-y-2">
-          <p className="font-medium">Rework 필요 — Review에서 다음 사항이 지적되었습니다.</p>
-          {designReviewSuggested && (
+        <div className={cn(
+          "rounded-md border p-2.5 text-[10px] space-y-2",
+          doomLoopEscalated
+            ? "border-amber-500/40 bg-amber-500/10 text-amber-600"
+            : "border-status-rejected/30 bg-status-rejected/5 text-status-rejected"
+        )}>
+          {doomLoopEscalated ? (
+            <>
+              <p className="font-semibold">⚠️ Review {failCount}회 연속 실패 — 설계 재검토가 필요합니다</p>
+              <p className="text-[9px] text-foreground/60">
+                동일한 문제가 반복되고 있어 Rework으로 해결되지 않습니다.
+                Subtask 설계를 재검토하고 Architect에게 수정을 요청하세요.
+              </p>
+            </>
+          ) : (
+            <p className="font-medium">Rework 필요 — Review에서 다음 사항이 지적되었습니다.</p>
+          )}
+          {designReviewSuggested && !doomLoopEscalated && (
             <p className="text-amber-500 font-medium">⚠️ 동일 파일에서 반복 실패 — Rework 대신 설계 재검토를 권장합니다.</p>
           )}
           {reviewVerdict && reviewVerdict.findings.length > 0 && (
@@ -275,23 +291,30 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
             </div>
           )}
           <div className="flex items-center gap-2">
-            <button onClick={handleRework} disabled={busy}
-              className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors">
-              {busy ? "전달 중..." : "Developer에게 전달 + Rework"}
-            </button>
+            {!doomLoopEscalated && (
+              <button onClick={handleRework} disabled={busy}
+                className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors">
+                {busy ? "전달 중..." : "Developer에게 전달 + Rework"}
+              </button>
+            )}
             <button
               onClick={async () => {
                 setBusy(true);
                 try {
                   await planApi.updatePlanPhase(plan.id, "subtask_review");
-                  await planApi.createPlanEvent(plan.id, "reverted_to_subtask_review", "user", "Design change needed from rework");
+                  await planApi.createPlanEvent(plan.id, "reverted_to_subtask_review", "user",
+                    doomLoopEscalated ? "Doom loop escalation — design review required" : "Design change needed from rework");
                   onPlanUpdate(plan.id, { phase: "subtask_review" as PlanPhase });
                 } catch (e) { console.warn("[tunaflow]", e); }
                 setBusy(false);
               }}
               disabled={busy}
-              className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors">
-              설계 변경 → Subtask
+              className={cn("px-2.5 py-1 rounded-md text-[10px] font-medium disabled:opacity-50 transition-colors",
+                doomLoopEscalated
+                  ? "bg-amber-500/20 text-amber-600 hover:bg-amber-500/30"
+                  : "bg-accent text-muted-foreground hover:text-foreground"
+              )}>
+              {doomLoopEscalated ? "설계 재검토 시작 →" : "설계 변경 → Subtask"}
             </button>
           </div>
         </div>

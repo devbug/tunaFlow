@@ -16,6 +16,8 @@ export function useSubtaskProgress(plan: Plan) {
   const [testRunning, setTestRunning] = useState(false);
   const [reviewVerdict, setReviewVerdict] = useState<ParsedReviewVerdict | null>(null);
   const [designReviewSuggested, setDesignReviewSuggested] = useState(false);
+  const [failCount, setFailCount] = useState(0);
+  const [doomLoopEscalated, setDoomLoopEscalated] = useState(false);
 
   const scanBranchState = async (cancelled: { current: boolean }) => {
     if (!plan.implementationBranchId) return;
@@ -79,10 +81,13 @@ export function useSubtaskProgress(plan: Plan) {
         } catch (e) { console.warn("[tunaflow]", e); }
       }
 
-      if (plan.phase === "rework") {
+      if (plan.phase === "rework" || plan.phase === "subtask_review") {
         planApi.listPlanEvents(plan.id).then((events) => {
           if (!cancelled.current) {
             setDesignReviewSuggested(events.some((e) => e.eventType === "design_review_suggested"));
+            const fails = events.filter((e) => e.eventType === "review_failed").length;
+            setFailCount(fails);
+            setDoomLoopEscalated(events.some((e) => e.eventType === "doom_loop_escalated"));
           }
         }).catch(() => {});
       }
@@ -108,5 +113,7 @@ export function useSubtaskProgress(plan: Plan) {
     testRunning,
     reviewVerdict,
     designReviewSuggested,
+    failCount,
+    doomLoopEscalated,
   };
 }
