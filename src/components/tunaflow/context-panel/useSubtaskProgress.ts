@@ -80,11 +80,11 @@ export function useSubtaskProgress(plan: Plan) {
             if (project?.path) {
               setTestRunning(true);
               const result = await runProjectTests(project.path);
-              if (!cancelled.current) {
-                setTestResult(result);
-                setTestRunning(false);
-                testResultCache.set(plan.id, result);
-              }
+              // Always cache + update state — even if cancelled (user switched tabs
+              // while test was running). Without this, test re-runs on every tab switch.
+              testResultCache.set(plan.id, result);
+              setTestResult(result);
+              setTestRunning(false);
             }
           }
         } catch (e) {
