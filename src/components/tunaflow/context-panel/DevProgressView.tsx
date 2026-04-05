@@ -384,17 +384,34 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
           </button>
         )}
         {implComplete && reviewMode === "select" && (
-          <div className="flex items-center gap-2">
-            <select value={selectedReviewerId} onChange={(e) => setSelectedReviewerId(e.target.value)}
-              className="text-[10px] bg-input border border-border rounded px-1.5 py-0.5 outline-none">
-              {profiles.map((p) => <option key={p.id} value={p.id}>{p.label} ({p.engine})</option>)}
-            </select>
-            <button onClick={handleStartReview} disabled={busy}
-              className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">
-              {busy ? "시작 중..." : reviewVerdict ? "Re-review 시작" : "Review 시작"}
-            </button>
-            <button onClick={() => setReviewMode("idle")}
-              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">취소</button>
+          <div className="space-y-1.5">
+            {/* Re-review scope indicator */}
+            {reviewVerdict && reviewVerdict.failedSubtaskIds.length > 0 && (
+              <div className="flex items-center gap-1.5 text-[9px] text-amber-600/70">
+                <span>리뷰 대상:</span>
+                {reviewVerdict.failedSubtaskIds.map((id) => {
+                  const st = subtasks[id - 1];
+                  return (
+                    <span key={id} className="px-1.5 py-0.5 rounded bg-amber-500/10 font-medium">
+                      Task {id}{st ? ` — ${st.title.slice(0, 20)}` : ""}
+                    </span>
+                  );
+                })}
+                <span className="text-muted-foreground/40">나머지는 이전 pass</span>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <select value={selectedReviewerId} onChange={(e) => setSelectedReviewerId(e.target.value)}
+                className="text-[10px] bg-input border border-border rounded px-1.5 py-0.5 outline-none">
+                {profiles.map((p) => <option key={p.id} value={p.id}>{p.label} ({p.engine})</option>)}
+              </select>
+              <button onClick={handleStartReview} disabled={busy}
+                className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">
+                {busy ? "시작 중..." : reviewVerdict ? "Re-review 시작" : "Review 시작"}
+              </button>
+              <button onClick={() => setReviewMode("idle")}
+                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">취소</button>
+            </div>
           </div>
         )}
       </div>
