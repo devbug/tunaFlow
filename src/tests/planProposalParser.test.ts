@@ -79,6 +79,39 @@ describe("planProposalParser", () => {
     expect(seg.proposal.subtasks[0].details).toBe("Some details");
   });
 
+  it("parses multiline subtask details", () => {
+    const content = `<!-- tunaflow:plan-proposal -->
+# Multiline Test
+
+### Description
+Test multiline parsing
+
+### Expected Outcome
+Details extracted
+
+### Subtasks
+1. **Setup database**
+   Changed files: src/db.ts
+   Change description: Add connection pool
+   Verification: npm test
+2. API endpoint
+   - POST /api/users
+   - GET /api/users/:id
+3. Simple task — inline only
+<!-- /tunaflow:plan-proposal -->`;
+    const segments = splitPlanProposals(content);
+    const seg = segments.find((s) => s.type === "plan-proposal");
+    if (seg?.type !== "plan-proposal") throw new Error("expected plan-proposal");
+    expect(seg.proposal.subtasks).toHaveLength(3);
+    expect(seg.proposal.subtasks[0].title).toBe("Setup database");
+    expect(seg.proposal.subtasks[0].details).toContain("Changed files: src/db.ts");
+    expect(seg.proposal.subtasks[0].details).toContain("Verification: npm test");
+    expect(seg.proposal.subtasks[1].title).toBe("API endpoint");
+    expect(seg.proposal.subtasks[1].details).toContain("POST /api/users");
+    expect(seg.proposal.subtasks[2].title).toBe("Simple task");
+    expect(seg.proposal.subtasks[2].details).toBe("inline only");
+  });
+
   it("returns single segment for plain content", () => {
     const segments = splitPlanProposals("just markdown");
     expect(segments).toHaveLength(1);

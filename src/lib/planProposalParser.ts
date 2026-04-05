@@ -158,13 +158,36 @@ function splitSections(md: string): [string, string][] {
 
 function parseNumberedList(text: string): { title: string; details?: string }[] {
   const items: { title: string; details?: string }[] = [];
-  const re = /^\d+\.\s+(.+?)(?:\s*[—\-–]\s+(.+))?$/gm;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    // Strip markdown bold markers from title
-    const title = m[1].trim().replace(/\*\*/g, "");
-    const details = m[2]?.trim();
-    items.push({ title, details });
+  const lines = text.split("\n");
+  let current: { title: string; detailLines: string[] } | null = null;
+
+  for (const line of lines) {
+    // Numbered item start: "1. Title" or "1. Title — inline details"
+    const numMatch = line.match(/^\d+\.\s+(.+?)(?:\s*[—\-–]\s+(.+))?$/);
+    if (numMatch) {
+      // Flush previous item
+      if (current) {
+        const details = current.detailLines.join("\n").trim() || undefined;
+        items.push({ title: current.title, details });
+      }
+      const title = numMatch[1].trim().replace(/\*\*/g, "");
+      const inlineDetails = numMatch[2]?.trim();
+      current = { title, detailLines: inlineDetails ? [inlineDetails] : [] };
+    } else if (current) {
+      // Continuation line: indented or non-empty content under current item
+      const trimmed = line.trim();
+      if (trimmed) {
+        current.detailLines.push(trimmed);
+      } else if (current.detailLines.length > 0) {
+        // Preserve paragraph breaks within details
+        current.detailLines.push("");
+      }
+    }
+  }
+  // Flush last item
+  if (current) {
+    const details = current.detailLines.join("\n").trim() || undefined;
+    items.push({ title: current.title, details });
   }
   return items;
 }
