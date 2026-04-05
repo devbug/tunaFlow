@@ -2,6 +2,7 @@
 
 > Status: idea
 > Created: 2026-04-03
+> Updated: 2026-04-05 (코더 Opus 리뷰 반영)
 
 ---
 
@@ -15,19 +16,34 @@
 
 ## 2. 커스텀 타이틀바
 
-### 2.1 Tauri 설정
+### 2.1 Tauri 설정 (코더 Opus 리뷰 반영)
+
+**macOS**: `decorations: false`가 아닌 `titleBarStyle: "overlay"` + `hiddenTitle: true`
 
 ```json
 // tauri.conf.json > windows
 {
-  "decorations": false,
-  "titleBarStyle": "overlay"  // macOS: traffic light 유지 + 투명 타이틀바
+  "titleBarStyle": "overlay",
+  "hiddenTitle": true
 }
 ```
 
-- `decorations: false` — 네이티브 타이틀바 제거
-- `titleBarStyle: "overlay"` — macOS traffic light(빨/노/초) 유지하면서 앱 영역 위에 오버레이
-- Windows/Linux에서는 창 제어 버튼을 직접 구현
+- traffic light(빨/노/초)이 **OS에 의해 자동 유지**됨 → 직접 그리지 않아도 됨
+- 타이틀 텍스트만 숨기고 타이틀바 영역에 React 컴포넌트를 오버레이
+- 구현 복잡도 대폭 감소
+
+**Windows/Linux**: `decorations: false` (창 제어 버튼 직접 구현 필요)
+
+```json
+// 플랫폼별 분기 필요
+// macOS: titleBarStyle + hiddenTitle
+// Windows/Linux: decorations: false
+```
+
+**⚠️ `decorations: false`를 macOS에서 쓰면 안 되는 이유**:
+- traffic light도 사라짐 → 직접 그려야 함
+- macOS Human Interface Guidelines 위반
+- 구현 복잡도 + 유지보수 비용 급증
 
 ### 2.2 레이아웃
 
@@ -60,7 +76,7 @@ Windows/Linux:
 | 기능 | 위치 | 우선순위 |
 |------|------|---------|
 | 프로젝트 전환 드롭다운 | 프로젝트명 클릭 | 높음 — 사이드바 진입 없이 전환 |
-| 빠른 검색 (Cmd+K) | 타이틀바 중앙 | 중간 — cmdk 연동 |
+| Cmd+K 트리거 버튼 | 타이틀바 중앙 | 중간 — 기존 cmdk 열기만 (검색 인풋은 CenterPanel SearchBox에 이미 있음) |
 | rawq 상태 인디케이터 | 우측 | 낮음 — RuntimeStatusBar에 이미 있음 |
 | 에이전트 실행 상태 dot | 우측 | 낮음 — 사이드바에 이미 있음 |
 | 세션 비용 표시 | 우측 | 낮음 — SDK 전환 후 정확한 비용 가능 시 |
@@ -161,7 +177,7 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 | **사이드바 — Branch** | 열기, Adopt, Archive, 구분선, 삭제 |
 | **사이드바 — 프로젝트** | 프로젝트 설정, 폴더 열기, 구분선, 숨기기 |
 | **입력 영역** | 붙여넣기, 전체 선택, 히스토리 |
-| **빈 영역** | 새 대화, 구분선, 스크롤 맨 위/아래 |
+| **ChatPanel 빈 영역** | 새 대화, 붙여넣기, 구분선, 스크롤 맨 위/아래 |
 
 ### 3.3 hover toolbar과의 관계
 
@@ -251,7 +267,9 @@ if (import.meta.env.DEV) {
 1-5. window-state 호환 확인: 창 위치/크기 저장 동작 유지
 ```
 
-**리스크**: `decorations: false`가 window-state 플러그인과 충돌할 수 있음. 확인 필요.
+**리스크**:
+- `titleBarStyle` 변경이 window-state 플러그인 restore에 영향 줄 수 있음 → 같이 테스트 필요
+- 기존 known issue: "dev 모드 Ctrl+C 종료 시 상태 미저장" — decorations 변경과 무관하지만 같이 확인
 
 ### Phase 2: 우클릭 컨텍스트 메뉴
 
