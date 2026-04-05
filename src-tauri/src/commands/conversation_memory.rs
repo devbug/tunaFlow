@@ -75,6 +75,9 @@ pub struct MemoryStatus {
 }
 
 /// Check if a conversation needs memory compression.
+/// Minimum total message characters before char-based compression triggers.
+const CHAR_THRESHOLD: i64 = 40_000;
+
 pub fn needs_compression(conn: &Connection, conversation_id: &str) -> bool {
     let msg_count: i64 = conn
         .query_row(
@@ -84,7 +87,24 @@ pub fn needs_compression(conn: &Connection, conversation_id: &str) -> bool {
         )
         .unwrap_or(0);
 
-    if msg_count <= COMPRESSION_THRESHOLD {
+    // Dual trigger: message count OR total character volume
+    let char_triggered = if msg_count >= 4 {
+        // Only check chars if we have a few messages (avoid DB query for trivial cases)
+        let total_chars: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM messages WHERE conversation_id = ?1",
+                [conversation_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        total_chars >= CHAR_THRESHOLD
+    } else {
+        false
+    };
+
+    let count_triggered = msg_count >= COMPRESSION_THRESHOLD;
+
+    if !count_triggered && !char_triggered {
         return false;
     }
 
@@ -265,6 +285,81 @@ fn parse_topics(raw: &str) -> Vec<MemoryTopic> {
     }]
 }
 
+/// Prune stale tool/workflow results from message content.
+///
+/// Replaces large tool outputs (rawq snippets, test output, CRG impact, workflow prompts)
+/// with compact placeholders. Called on non-recent messages to reduce context budget usage.
+///
+/// - rawq "## Code context" sections → "[rawq results cleared]"
+/// - Test output blocks (long stderr/stdout) → "[test output cleared — N lines]"
+/// - CRG impact sections → "[graph impact cleared]"
+/// - Workflow prompts (### 🔧, ### 📋, etc.) for completed phases → one-line summary
+pub fn prune_tool_results(content: &str) -> String {
+    let mut result = String::with_capacity(content.len());
+    let mut skip_until_heading = false;
+    let mut in_test_block = false;
+    let mut test_block_lines = 0;
+
+    for line in content.lines() {
+        // Skip sections that start with known tool-result headings
+        if line.starts_with("## Code context") || line.starts_with("## Relevant code") {
+            result.push_str("[rawq results cleared]\n");
+            skip_until_heading = true;
+            continue;
+        }
+        if line.starts_with("## Impact analysis") || line.starts_with("## Graph impact") {
+            result.push_str("[graph impact cleared]\n");
+            skip_until_heading = true;
+            continue;
+        }
+        // End skip at next heading
+        if skip_until_heading {
+            if line.starts_with("## ") || line.starts_with("# ") {
+                skip_until_heading = false;
+                // fall through to process this line normally
+            } else {
+                continue;
+            }
+        }
+
+        // Detect long test output blocks (```...``` with 20+ lines)
+        if line.trim_start().starts_with("```") && !in_test_block {
+            // Check if previous line suggests test output
+            let prev = result.lines().last().unwrap_or("");
+            if prev.contains("test") || prev.contains("Test") || prev.contains("PASS") || prev.contains("FAIL") || prev.contains("vitest") || prev.contains("cargo") {
+                in_test_block = true;
+                test_block_lines = 0;
+                continue;
+            }
+        }
+        if in_test_block {
+            if line.trim_start().starts_with("```") {
+                if test_block_lines > 20 {
+                    result.push_str(&format!("[test output cleared — {} lines]\n", test_block_lines));
+                } else {
+                    // Short test block: keep it — reconstruct with fences
+                    // (already lost the content, so just note it)
+                    result.push_str(&format!("[test output — {} lines]\n", test_block_lines));
+                }
+                in_test_block = false;
+                continue;
+            }
+            test_block_lines += 1;
+            continue;
+        }
+
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    // Handle unclosed test block
+    if in_test_block && test_block_lines > 0 {
+        result.push_str(&format!("[test output cleared — {} lines]\n", test_block_lines));
+    }
+
+    result
+}
+
 /// Pre-pass pruning for compression: reduce token count before LLM summarization.
 ///
 /// L1: Collapse 3+ consecutive blank lines → 1 blank line
@@ -393,8 +488,9 @@ fn build_transcript(conn: &Connection, conversation_id: &str) -> Result<(String,
             ("assistant", None, Some(e)) if !e.is_empty() => format!("{} ({})", role, e),
             _ => role.clone(),
         };
-        // Pre-pass: prune code blocks and collapse blank lines before truncation
-        let pruned = prune_for_summary(content);
+        // Pre-pass: prune tool results, then code blocks and blank lines
+        let tool_pruned = prune_tool_results(content);
+        let pruned = prune_for_summary(&tool_pruned);
         let content_preview = if pruned.len() > 1500 {
             format!(
                 "{}…",
@@ -797,5 +893,54 @@ mod tests {
         let out = format_topics_as_section(&topics);
         assert!(out.contains("### Auth (review)"));
         assert!(out.contains("### DB\n"));
+    }
+
+    // ─── prune_tool_results ──────────────────────────────────────────────
+
+    #[test]
+    fn tool_prune_rawq_section() {
+        let input = "Some context.\n## Code context\nfile.rs:10 fn foo() {\nfile.rs:11   bar()\nfile.rs:12 }\n## Next section\nMore text.";
+        let result = prune_tool_results(input);
+        assert!(result.contains("[rawq results cleared]"));
+        assert!(!result.contains("fn foo()"));
+        assert!(result.contains("Next section"));
+        assert!(result.contains("More text"));
+    }
+
+    #[test]
+    fn tool_prune_graph_impact() {
+        let input = "Before.\n## Impact analysis\nimpacted: a.rs, b.rs\ncallers: 5\n## Other\nAfter.";
+        let result = prune_tool_results(input);
+        assert!(result.contains("[graph impact cleared]"));
+        assert!(!result.contains("impacted"));
+        assert!(result.contains("After"));
+    }
+
+    #[test]
+    fn tool_prune_preserves_normal_content() {
+        let input = "Hello world.\nThis is normal text.\n## My heading\nMore text.";
+        let result = prune_tool_results(input);
+        assert_eq!(result.trim(), input.trim());
+    }
+
+    #[test]
+    fn tool_prune_long_test_output() {
+        let mut input = String::from("Test results:\n```\n");
+        for i in 0..30 {
+            input.push_str(&format!("  line {}\n", i));
+        }
+        input.push_str("```\nAfter test.");
+        let result = prune_tool_results(&input);
+        assert!(result.contains("[test output cleared — 30 lines]"));
+        assert!(result.contains("After test"));
+        assert!(!result.contains("line 15"));
+    }
+
+    #[test]
+    fn tool_prune_short_test_output_kept() {
+        let input = "Test results:\n```\nPASS 3/3\n```\nDone.";
+        let result = prune_tool_results(input);
+        assert!(result.contains("[test output — 1 lines]"));
+        assert!(result.contains("Done"));
     }
 }

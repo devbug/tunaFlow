@@ -193,26 +193,33 @@ pub fn assemble_prompt(
         let must_include: std::collections::HashSet<usize> = agent_last_idx.values().copied().collect();
 
         // Step 2: Budget-based trimming from oldest — but keep must-include messages
-        let mut trimmed: Vec<&(String, String, Option<String>, Option<String>)> = Vec::new();
+        // Apply tool-result pruning to non-recent messages to save context budget.
+        // The last `keep_recent` messages are kept as-is; older ones get tool output stripped.
+        let keep_recent = 5;
+        let total_msgs = data.current_messages.len();
+        let mut trimmed: Vec<(String, String, Option<String>, Option<String>)> = Vec::new();
         let mut char_budget = profile.context_cap;
 
         // Work backwards (newest first) to fill budget
         for (i, msg) in data.current_messages.iter().enumerate().rev() {
-            let msg_cost = msg.0.len() + msg.1.len().min(profile.context_message_max) + 40; // role + truncated content + overhead
+            let is_recent = i >= total_msgs.saturating_sub(keep_recent);
+            let content = if is_recent {
+                msg.1.clone()
+            } else {
+                crate::commands::conversation_memory::prune_tool_results(&msg.1)
+            };
+            let msg_cost = msg.0.len() + content.len().min(profile.context_message_max) + 40;
             if msg_cost <= char_budget {
-                trimmed.push(msg);
+                trimmed.push((msg.0.clone(), content, msg.2.clone(), msg.3.clone()));
                 char_budget = char_budget.saturating_sub(msg_cost);
             } else if must_include.contains(&i) {
-                // Force-include agent's last message even if over budget
-                trimmed.push(msg);
+                trimmed.push((msg.0.clone(), content, msg.2.clone(), msg.3.clone()));
                 char_budget = 0;
             }
-            // else: skip this message (oldest first)
         }
-        trimmed.reverse(); // restore chronological order
+        trimmed.reverse();
 
-        let trimmed_owned: Vec<(String, String, Option<String>, Option<String>)> =
-            trimmed.into_iter().cloned().collect();
+        let trimmed_owned = trimmed;
 
         if let Some(ctx) = maybe_compress_section_typed(
             build_context_summary_with_authors(&trimmed_owned, &data.parent_messages, data.is_branch),
