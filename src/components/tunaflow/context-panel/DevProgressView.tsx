@@ -81,9 +81,9 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       await openThread(branch.id);
 
       const prevFindingsBlock = reviewVerdict && reviewVerdict.findings.length > 0
-        ? [`│`, `**이전 Review Findings (수정 확인 필요)**:`,
-           ...reviewVerdict.findings.map((f, i) => `${i + 1}. ${f.slice(0, 150)}`),
-           ``, `> 위 사항이 수정되었는지 반드시 확인하세요.`]
+        ? [``, `**이전 Review Findings (중점 확인 대상)**:`,
+           ...reviewVerdict.findings.map((f, i) => `${i + 1}. ${f.slice(0, 500)}`),
+           ``, `> 위 사항이 해결되었는지 우선 확인하세요. 새로운 문제는 Plan 범위 내에서만 판정하세요.`]
         : [];
 
       const prompt = [
@@ -94,7 +94,8 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
         `- 결과: \`docs/plans/${slug}-result.md\``,
         `- 지시서: \`docs/plans/${slug}-task-*.md\``,
         ...prevFindingsBlock, ``,
-        `Plan 문서와 작업 지시서를 기준으로 구현 결과를 검증하세요.`, ``,
+        `각 task 파일의 **변경 내용**과 **검증 조건**을 기준으로 구현 결과를 검증하세요.`,
+        `Plan에 명시되지 않은 코드 스타일이나 범위 밖 파일의 기존 문제는 fail 사유가 아닙니다.`, ``,
         `> 완료 후 리뷰 verdict를 제출하세요.`,
       ].join("\n");
 
@@ -129,12 +130,12 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       await planApi.createPlanEvent(plan.id, "rework_requested", "user");
       await openThread(plan.implementationBranchId);
       const findingItems = reviewVerdict?.findings.map((f, i) => {
-        const fileMatch = f.match(/([a-zA-Z0-9_./-]+\.[a-zA-Z]+(?:#L\d+)?)/);
+        const fileMatch = f.match(/([a-zA-Z0-9_./-]+\.[a-zA-Z]+(?:[:#]L?\d+)?)/);
         const file = fileMatch ? fileMatch[1] : "";
-        const summary = f.slice(0, 150);
+        const summary = f.slice(0, 500);
         return file ? `□ ${i + 1}. ${summary}\n  파일: ${file}` : `□ ${i + 1}. ${summary}`;
       }) ?? [];
-      const recItems = reviewVerdict?.recommendations.map((r) => `• ${r.slice(0, 100)}`) ?? [];
+      const recItems = reviewVerdict?.recommendations.map((r) => `• ${r.slice(0, 300)}`) ?? [];
 
       const events = await planApi.listPlanEvents(plan.id);
       const failEvents = events.filter((e) => e.eventType === "review_failed");
@@ -149,7 +150,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
         const historyItems = previousFails.map((ev, i) => {
           try {
             const d = JSON.parse(ev.detail ?? "{}");
-            const findings = (d.findings as string[] ?? []).slice(0, 2).map((f: string) => f.slice(0, 80));
+            const findings = (d.findings as string[] ?? []).slice(0, 3).map((f: string) => f.slice(0, 200));
             return `- ${i + 1}차: ${findings.join("; ") || "상세 없음"} → ❌`;
           } catch { return `- ${i + 1}차: (파싱 불가) → ❌`; }
         });

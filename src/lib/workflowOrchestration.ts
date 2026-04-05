@@ -296,14 +296,24 @@ export async function startReviewRT(
     implSummary.slice(0, 6000),
     "",
     testOutput ? `## 테스트 결과\n${testOutput.slice(0, 3000)}\n` : "",
-    `## 리뷰 기준`,
-    `1. Plan의 모든 subtask가 구현되었는가?`,
-    `2. 코드 품질 (버그, 보안, 성능)`,
-    `3. 테스트 커버리지`,
-    `4. 변경 영향 범위 — ContextPack에 graph 섹션이 있으면 impacted files/functions를 확인하세요.`,
-    "",
-    `리뷰 결과를 verdict (pass / fail / conditional)로 판정하세요.`,
-    `fail 또는 conditional인 경우, 문제가 있는 서브태스크 번호를 \`failed_subtask_ids: [N, M]\` 형식으로 반드시 포함하세요.`,
+    `## 리뷰 판정 규칙`,
+    ``,
+    `### Pass 조건 (모두 충족해야 pass)`,
+    `1. Plan의 각 subtask에 명시된 변경 사항이 구현되었는가?`,
+    `2. 구현된 코드가 **런타임 에러, 논리 버그, 보안 취약점**을 포함하지 않는가?`,
+    `3. 테스트가 있으면 통과하는가? (테스트 미작성은 fail 사유가 아님 — Plan에서 요구한 경우만)`,
+    ``,
+    `### Fail 사유가 되지 않는 것`,
+    `- Plan에 명시되지 않은 코드 스타일/구조 선호`,
+    `- Plan 범위 밖 파일의 기존 품질 문제`,
+    `- "더 나은 방법이 있다"는 의견 (recommendation으로 제출)`,
+    `- Plan이 요구하지 않은 테스트 커버리지 부족`,
+    ``,
+    `### 판정 형식`,
+    `- verdict: pass / fail / conditional`,
+    `- fail 시 반드시 **구체적 파일:줄번호 + 문제 설명**을 findings에 포함`,
+    `- fail 시 \`failed_subtask_ids: [N, M]\` 형식으로 해당 subtask 번호 명시`,
+    `- 개선 제안은 findings가 아닌 **recommendations**에 분리`,
   ].filter(Boolean).join("\n");
 
   // Save RT config for the review branch
@@ -354,10 +364,12 @@ export async function processReviewVerdict(
     const failEvents = events.filter((e) => e.eventType === "review_failed");
     const failCount = failEvents.length;
 
-    // At 2 failures: compare findings to detect design vs implementation issue
-    if (failCount >= 2 && failEvents.length >= 2) {
+    // At 2+ failures: compare findings to detect design vs implementation issue
+    if (failCount >= 2) {
       try {
-        const prevDetail = JSON.parse(failEvents[0].detail ?? "{}");
+        // Compare latest two failures for file overlap
+        const prevFailEvent = failEvents[failEvents.length - 2];
+        const prevDetail = JSON.parse(prevFailEvent?.detail ?? "{}");
         const prevFiles = new Set((prevDetail.findings as string[] ?? [])
           .map((f: string) => f.match(/([a-zA-Z0-9_./-]+\.[a-zA-Z]+)/)?.[1])
           .filter(Boolean));
@@ -366,15 +378,27 @@ export async function processReviewVerdict(
           .filter(Boolean));
         const overlap = [...currFiles].filter((f) => prevFiles.has(f)).length;
         const overlapRatio = currFiles.size > 0 ? overlap / currFiles.size : 0;
-        if (overlapRatio > 0.5) {
+        if (overlapRatio > 0.4) {
           await planApi.createPlanEvent(
             plan.id, "design_review_suggested", "system",
-            `동일 파일에서 2회 연속 실패 (겹침 ${Math.round(overlapRatio * 100)}%) — 설계 재검토 권장`,
+            `동일 파일에서 연속 실패 (겹침 ${Math.round(overlapRatio * 100)}%) — 설계 재검토 권장`,
+          );
+        }
+        // Also detect same finding type: if >50% of findings match substring
+        const prevFindingTexts = (prevDetail.findings as string[] ?? []).map((f: string) => f.slice(0, 60).toLowerCase());
+        const currFindingTexts = verdict.findings.map((f: string) => f.slice(0, 60).toLowerCase());
+        const textOverlap = currFindingTexts.filter((cf) => prevFindingTexts.some((pf) => cf.includes(pf.slice(0, 30)) || pf.includes(cf.slice(0, 30)))).length;
+        const textOverlapRatio = currFindingTexts.length > 0 ? textOverlap / currFindingTexts.length : 0;
+        if (textOverlapRatio > 0.5 && failCount >= 2) {
+          await planApi.createPlanEvent(
+            plan.id, "design_review_suggested", "system",
+            `동일 유형 findings 반복 (${Math.round(textOverlapRatio * 100)}% 일치) — 구현이 아닌 설계 문제 가능성`,
           );
         }
       } catch { /* ignore parse errors */ }
     }
 
+    // Escalate at 2 failures if overlap detected, always at 3
     if (failCount >= 3) {
       await planApi.updatePlanPhase(plan.id, "subtask_review");
       await planApi.createPlanEvent(

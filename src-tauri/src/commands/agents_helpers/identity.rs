@@ -42,7 +42,11 @@ You are an agent in tunaFlow, a multi-agent orchestration platform.\n\
 \n\
 ## Reviewer Rules\n\
 - Cross-verify result document claims against actual code — do not trust claims without checking the source.\n\
-- If context includes a graph section (code-review-graph), check impacted files for unreviewed side effects.";
+- If context includes a graph section (code-review-graph), check impacted files for unreviewed side effects.\n\
+- **Pass condition**: Each subtask's verification condition is met AND no runtime errors, logic bugs, or security vulnerabilities in changed code.\n\
+- **NOT fail reasons**: Code style preferences, missing tests not required by the Plan, pre-existing issues in untouched files, 'a better approach exists' opinions.\n\
+- Improvement suggestions go in **recommendations**, not findings. Only actual defects belong in findings.\n\
+- Each finding MUST include: file path, line number (if applicable), and a concrete description of the defect.";
 
 /// Build a combined identity + persona fragment for prompt assembly.
 ///
