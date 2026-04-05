@@ -79,7 +79,7 @@ export function DraftingActions({
             <FileText className="w-3 h-3" />{busy ? "요청 중..." : "상세 설계 요청"}
           </button>
         )}
-        {!hasEmptyDetails && hasSubtasks && (
+        {hasSubtasks && (
           <button onClick={handleStartReview} disabled={busy} className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors">
             <Search className="w-3 h-3" />{busy ? "이동 중..." : "Subtask 검토"}
           </button>
