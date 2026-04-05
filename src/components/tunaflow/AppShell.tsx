@@ -156,15 +156,16 @@ export function AppShell() {
           {/* ── Thread/RT Drawer overlay ── */}
           {drawerOpen && (
             <>
-              {/* Backdrop — covers main area only, very subtle */}
+              {/* Backdrop — covers main area only, fade in */}
               <div
                 className="absolute inset-0 z-40 bg-black/8"
+                style={{ animation: "fade-in 200ms ease-out" }}
                 onClick={() => useChatStore.getState().closeThread()}
               />
 
-              {/* Drawer — anchored to right edge */}
+              {/* Drawer — anchored to right edge, slide in from right */}
               <div
-                style={{ width: drawerW }}
+                style={{ width: drawerW, animation: "slide-in-from-right 200ms ease-out" }}
                 className="absolute top-1.5 right-1.5 bottom-1.5 z-50 flex"
               >
                 {/* Left-edge resize handle */}
