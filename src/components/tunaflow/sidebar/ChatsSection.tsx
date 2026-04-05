@@ -3,6 +3,7 @@ import { MessageSquare, Trash2, GitBranch, Users, ChevronRight, ChevronDown, Arc
 import { cn } from "@/lib/utils";
 import { TreeRow } from "./TreeRow";
 import { InlineRename } from "../InlineRename";
+import { SidebarItemContextMenu } from "../ContextMenu";
 import type { Conversation, Branch } from "@/types";
 
 // Status dot colors
@@ -116,6 +117,10 @@ export function ChatsSection({
         const isExpanded = isActive || expandedBranchIds.size > 0;
         return (
           <div key={conv.id}>
+            <SidebarItemContextMenu
+              onRename={() => { /* InlineRename handles this inline */ }}
+              onDelete={filteredChats.length > 1 ? () => handleDelete(conv.id, conv.customLabel ?? conv.label, { stopPropagation: () => {} } as React.MouseEvent) : undefined}
+            >
             <TreeRow depth={0} active={isActive} isParent={hasChildren}
               icon={
                 hasChildren ? (
@@ -144,6 +149,7 @@ export function ChatsSection({
                 <button onClick={(e) => handleDelete(conv.id, conv.customLabel ?? conv.label, e)} className="p-0.5 rounded text-sidebar-foreground/20 hover:text-destructive transition-colors"><Trash2 className="w-3 h-3" /></button>
               ) : undefined}
               onClick={() => selectConversation(conv.id)} />
+            </SidebarItemContextMenu>
             {isExpanded && convBranches.map((b) => renderBranch(b, 1))}
           </div>
         );

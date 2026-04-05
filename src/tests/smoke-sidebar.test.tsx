@@ -48,10 +48,10 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 }));
 
 describe("Sidebar smoke", () => {
-  it("renders sidebar with logo", () => {
+  it("renders sidebar", () => {
     render(<Sidebar />);
     expect(screen.getByTestId("sidebar")).toBeInTheDocument();
-    expect(screen.getByText("tunaFlow")).toBeInTheDocument();
+    // Logo moved to TitleBar — sidebar no longer contains "tunaFlow" text
   });
 
   it("shows project selector with current project", () => {
