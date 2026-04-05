@@ -209,13 +209,18 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
       });
     };
 
+    // Guard: only update UI if this branch is still the active thread (prevents cross-project contamination)
+    const isActiveThread = () => get().threadBranchConvId === convId;
+
     const ulP = await listen<{ messageId: string; conversationId: string; text: string }>(progressEvent, (e) => {
       if (e.payload.conversationId !== convId) return;
       useToolStepsStore.getState().handleProgress(e.payload.messageId, e.payload.text);
+      if (!isActiveThread()) return;
       replaceOrAdd(e.payload.messageId, "progressContent", e.payload.text);
     });
     const ulC = chunkEvent ? await listen<{ messageId: string; conversationId: string; text: string }>(chunkEvent, (e) => {
       if (e.payload.conversationId !== convId) return;
+      if (!isActiveThread()) return;
       replaceOrAdd(e.payload.messageId, "content", e.payload.text);
     }) : () => {};
     const cleanup = () => { ulP(); ulC(); ulD(); ulE(); };
@@ -306,10 +311,13 @@ async function runThreadRoundtable(
   const { listen } = await import("@tauri-apps/api/event");
   set({ rtParticipantStatuses: new Map(), rtStatusConversationId: threadBranchConvId });
   let placeholderCleared = false;
+  // Guard: only update UI if this branch is still the active thread
+  const isActiveThread = () => get().threadBranchConvId === threadBranchConvId;
 
   const ulPS = await listen<{ conversationId: string; name: string; engine: string; model?: string; round: number; status: string }>(
     "roundtable:participant_status", (e) => {
       if (e.payload.conversationId !== threadBranchConvId) return;
+      if (!isActiveThread()) return;
       const { name, engine, model, round, status } = e.payload;
       set((state) => {
         const next = new Map(state.rtParticipantStatuses);
@@ -322,6 +330,7 @@ async function runThreadRoundtable(
     const msg = event.payload;
     if (msg.conversationId !== threadBranchConvId) return;
     if (msg.role === "user") return;
+    if (!isActiveThread()) return;
     set((state) => {
       if (state.threadMessages.some((m) => m.id === msg.id)) return state;
       if (!placeholderCleared) {
