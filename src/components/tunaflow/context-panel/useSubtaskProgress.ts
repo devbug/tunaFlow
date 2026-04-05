@@ -7,15 +7,18 @@ import { scanCompletedSubtasks, hasImplComplete, hasReviewVerdict, extractReview
 import { runProjectTests, type TestRunResult } from "@/lib/api/testRunner";
 import type { ParsedReviewVerdict } from "@/lib/planProposalParser";
 
+// Module-level cache: prevents re-running tests on tab switch (component remount)
+const testResultCache = new Map<string, TestRunResult>();
+
 export function useSubtaskProgress(plan: Plan) {
   const [subtasks, setSubtasks] = useState<PlanSubtask[]>([]);
   const [completedNums, setCompletedNums] = useState<Set<number>>(new Set());
   const [implComplete, setImplComplete] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [testResult, setTestResult] = useState<TestRunResult | null>(null);
+  const [testResult, setTestResult] = useState<TestRunResult | null>(() => testResultCache.get(plan.id) ?? null);
   const [testRunning, setTestRunning] = useState(false);
   // Ref to prevent stale closure re-triggering tests in polling interval
-  const testRanRef = useRef(false);
+  const testRanRef = useRef(testResultCache.has(plan.id));
   const [reviewVerdict, setReviewVerdict] = useState<ParsedReviewVerdict | null>(null);
   const [designReviewSuggested, setDesignReviewSuggested] = useState(false);
   const [failCount, setFailCount] = useState(0);
@@ -76,6 +79,7 @@ export function useSubtaskProgress(plan: Plan) {
               if (!cancelled.current) {
                 setTestResult(result);
                 setTestRunning(false);
+                testResultCache.set(plan.id, result);
               }
             }
           }
