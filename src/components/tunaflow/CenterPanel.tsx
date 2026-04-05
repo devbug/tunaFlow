@@ -57,14 +57,22 @@ export function CenterPanel() {
   // Scratchpad: force Chat tab, no other tabs needed
   const effectiveTab = isScratchpad ? "chat" : activeTab;
 
-  // Listen for tab switch events from CommandPalette
+  // Listen for tab/stage switch events from CommandPalette and openThread
   useEffect(() => {
-    const handler = (e: Event) => {
+    const tabHandler = (e: Event) => {
       const tab = (e as CustomEvent).detail as CenterTab;
       if (TABS.some((t) => t.id === tab)) setActiveTab(tab);
     };
-    window.addEventListener("tunaflow:switch-tab", handler);
-    return () => window.removeEventListener("tunaflow:switch-tab", handler);
+    const stageHandler = (e: Event) => {
+      const stage = (e as CustomEvent).detail as WorkflowStageId;
+      if (stage) setActiveStage(stage);
+    };
+    window.addEventListener("tunaflow:switch-tab", tabHandler);
+    window.addEventListener("tunaflow:switch-stage", stageHandler);
+    return () => {
+      window.removeEventListener("tunaflow:switch-tab", tabHandler);
+      window.removeEventListener("tunaflow:switch-stage", stageHandler);
+    };
   }, []);
 
   const memos = useChatStore((s) => s.memos);

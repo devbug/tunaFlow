@@ -195,6 +195,18 @@ pub fn load_context_data(
                     combined.push_str(&doc);
                 }
 
+                // Task files (review/rework phase — Reviewer needs per-subtask specs)
+                if phase == "review" || phase == "rework" {
+                    for i in 1..=50 {
+                        let task_path = plans_dir.join(format!("{}-task-{:02}.md", slug, i));
+                        if !task_path.exists() { break; }
+                        if let Ok(doc) = std::fs::read_to_string(&task_path) {
+                            combined.push_str(&format!("\n\n---\n\n## Task {}\n\n", i));
+                            combined.push_str(&doc);
+                        }
+                    }
+                }
+
                 // Result report (review/rework phase — Reviewer needs implementation context)
                 if phase == "review" || phase == "rework" {
                     if let Ok(doc) = std::fs::read_to_string(plans_dir.join(format!("{}-result.md", slug))) {

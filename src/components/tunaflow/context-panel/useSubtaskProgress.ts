@@ -110,23 +110,31 @@ export function useSubtaskProgress(plan: Plan) {
         try {
           const reviewShadow = `branch:${plan.reviewBranchId}`;
           const reviewMsgs = await invoke<Message[]>("list_messages", { conversationId: reviewShadow });
+          // Use LAST verdict — followup reviews supersede earlier ones
+          let latestVerdict: ParsedReviewVerdict | null = null;
           for (const msg of reviewMsgs) {
             if (msg.role === "assistant" && hasReviewVerdict(msg.content)) {
               const v = extractReviewVerdict(msg.content);
-              if (v && !cancelled.current) setReviewVerdict(v);
-              break;
+              if (v) latestVerdict = v;
             }
           }
+          if (latestVerdict && !cancelled.current) setReviewVerdict(latestVerdict);
         } catch (e) { console.warn("[tunaflow]", e); }
       }
 
       if (plan.phase === "rework" || plan.phase === "subtask_review") {
         planApi.listPlanEvents(plan.id).then((events) => {
           if (!cancelled.current) {
-            setDesignReviewSuggested(events.some((e) => e.eventType === "design_review_suggested"));
-            const fails = events.filter((e) => e.eventType === "review_failed").length;
+            // Count failures since last escalation (not total)
+            let lastEscIdx = -1;
+            for (let i = events.length - 1; i >= 0; i--) {
+              if (events[i].eventType === "doom_loop_escalated") { lastEscIdx = i; break; }
+            }
+            const sinceReset = lastEscIdx >= 0 ? events.slice(lastEscIdx + 1) : events;
+            setDesignReviewSuggested(sinceReset.some((e: { eventType: string }) => e.eventType === "design_review_suggested"));
+            const fails = sinceReset.filter((e: { eventType: string }) => e.eventType === "review_failed").length;
             setFailCount(fails);
-            setDoomLoopEscalated(events.some((e) => e.eventType === "doom_loop_escalated"));
+            setDoomLoopEscalated(events.some((e: { eventType: string }) => e.eventType === "doom_loop_escalated"));
           }
         }).catch(() => {});
       }
@@ -137,6 +145,21 @@ export function useSubtaskProgress(plan: Plan) {
     const interval = setInterval(() => {
       if (plan.phase === "implementation" || plan.phase === "rework") {
         scanBranchState(cancelled);
+      }
+      // Also poll for verdict during review phase (safety net for auto-detect)
+      if (plan.phase === "review" && plan.reviewBranchId) {
+        const reviewShadow = `branch:${plan.reviewBranchId}`;
+        invoke<Message[]>("list_messages", { conversationId: reviewShadow }).then((reviewMsgs) => {
+          if (cancelled.current) return;
+          let latest: ParsedReviewVerdict | null = null;
+          for (const msg of reviewMsgs) {
+            if (msg.role === "assistant" && hasReviewVerdict(msg.content)) {
+              const v = extractReviewVerdict(msg.content);
+              if (v) latest = v;
+            }
+          }
+          if (latest) setReviewVerdict(latest);
+        }).catch(() => {});
       }
     }, 5000);
 

@@ -113,6 +113,23 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
           ? state.conversations
           : [...state.conversations, branchConv],
       }));
+
+      // Auto-switch center tab when opening a plan-linked branch
+      import("@/lib/api/plans").then(async ({ findPlanByBranch }) => {
+        const plan = await findPlanByBranch(branchId);
+        if (plan && (plan.implementationBranchId === branchId || plan.reviewBranchId === branchId)) {
+          window.dispatchEvent(new CustomEvent("tunaflow:switch-tab", { detail: "plan" }));
+          // Also switch to the correct workflow stage based on plan phase
+          const PHASE_TO_STAGE: Record<string, string> = {
+            drafting: "plan", subtask_review: "subtask", approval: "approved",
+            implementation: "dev", rework: "dev", review: "review", done: "decision",
+          };
+          const stage = PHASE_TO_STAGE[plan.phase];
+          if (stage) {
+            window.dispatchEvent(new CustomEvent("tunaflow:switch-stage", { detail: stage }));
+          }
+        }
+      }).catch(() => {});
     } catch (e) {
       const msg = String(e);
       // If branch was already deleted, silently reload branches
@@ -228,6 +245,8 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
           }
         }).catch((e) => console.warn("[tool-request]", e));
       }
+      // Auto-detect review verdict after tool-request handling
+      autoDetectReviewVerdict(threadBranchConvId!, threadMessages);
       get()._endRun(threadBranchConvId!);
     });
     const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
@@ -318,6 +337,11 @@ async function runThreadRoundtable(
       const threadMessages = await invoke<Message[]>("list_messages", { conversationId: threadBranchConvId });
       set({ threadMessages });
     }
+    // Auto-detect review verdict after RT completion
+    if (get().threadBranchConvId === threadBranchConvId) {
+      const latestMsgs = await invoke<Message[]>("list_messages", { conversationId: threadBranchConvId });
+      autoDetectReviewVerdict(threadBranchConvId, latestMsgs);
+    }
     setTimeout(() => set({ rtParticipantStatuses: new Map(), rtStatusConversationId: null }), 2000);
     get()._endRun(threadBranchConvId);
   });
@@ -336,5 +360,40 @@ async function runThreadRoundtable(
     await invoke<{ messageId: string }>(command, { input: { conversationId: threadBranchConvId, prompt, participants, mode } });
   } catch (e) {
     cleanup(); set({ error: String(e), rtParticipantStatuses: new Map(), rtStatusConversationId: null }); get()._endRun(threadBranchConvId);
+  }
+}
+
+// ─── Auto-detect review verdict from completed branch ──────────────────────
+// Called after agent:completed in both single-agent and RT review flows.
+// Extracts branchId from shadow conversation ID, finds linked plan,
+// and auto-processes verdict if found.
+
+async function autoDetectReviewVerdict(shadowConvId: string, messages: Message[]) {
+  if (!shadowConvId.startsWith("branch:")) return;
+  const branchId = shadowConvId.slice("branch:".length);
+
+  try {
+    const { findPlanByBranch } = await import("@/lib/api/plans");
+    const plan = await findPlanByBranch(branchId);
+    if (!plan || plan.reviewBranchId !== branchId) return;
+    if (plan.phase !== "review") return;
+
+    const { scanMessagesForMarkers, processReviewVerdict } = await import("@/lib/workflowOrchestration");
+    const markers = scanMessagesForMarkers(messages);
+    if (!markers.reviewVerdict) return;
+
+    const { toast } = await import("sonner");
+    const verdict = markers.reviewVerdict.verdict;
+    await processReviewVerdict(plan, markers.reviewVerdict);
+
+    if (verdict === "pass") {
+      toast.success("Review 통과 — Plan 완료 처리됨");
+    } else if (verdict === "fail") {
+      toast.warning("Review 실패 — Rework 단계로 전환됨");
+    } else {
+      toast.info("Review 조건부 통과 — 사용자 판단 필요");
+    }
+  } catch (e) {
+    console.warn("[verdict-autodetect]", e);
   }
 }

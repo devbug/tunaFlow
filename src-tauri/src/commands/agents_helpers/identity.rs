@@ -54,7 +54,7 @@ You are an agent in tunaFlow, a multi-agent orchestration platform.\n\
 - Do NOT run the full project test suite unless the task says to — run only the commands listed in Verification.\n\
 \n\
 ## Reviewer Rules\n\
-- **Review by reading code only.** Do NOT run build, test, or any shell commands. The Developer already ran Verification commands and reported results above.\n\
+- **Review by reading code and task files.** You MUST open and read project files to verify changes. Do NOT run build commands, test suites, or execute code. The Developer already ran Verification commands and reported results above.\n\
 - For each subtask, check:\n\
   1. Are the 'Changed files' in the task actually modified? Are changes consistent with the 'Change description'?\n\
   2. Did the Developer report Verification results? Did they pass?\n\

@@ -312,7 +312,7 @@ export async function startReviewRT(
     testOutput ? `## 테스트 결과\n${testOutput.slice(0, 3000)}\n` : "",
     `## 리뷰 절차`,
     ``,
-    `각 subtask의 task 파일(\`docs/plans/${getPlanSlug(plan)}-task-*.md\`)을 읽고 아래 3가지를 확인하세요:`,
+    `각 subtask의 task 파일(컨텍스트에 포함됨, 또는 \`docs/plans/${getPlanSlug(plan)}-task-*.md\`에서 Read 도구로 열 수 있음)을 참고하여 아래 3가지를 확인하세요:`,
     ``,
     `1. **Changed files 확인**: task 파일에 명시된 파일이 실제로 수정/생성되었는가? 변경 내용이 Change description과 일치하는가?`,
     `2. **Verification 결과 확인**: Developer가 보고한 검증 결과를 확인하세요. 모든 Verification 명령이 통과했는가?`,
@@ -377,9 +377,14 @@ export async function processReviewVerdict(
     await planApi.updatePlanPhase(plan.id, "rework");
     await planApi.createPlanEvent(plan.id, "review_failed", "reviewer", detail);
 
-    // Doom loop detection: count review_failed events from plan_events
+    // Doom loop detection: count review_failed events SINCE last escalation
     const events = await planApi.listPlanEvents(plan.id);
-    const failEvents = events.filter((e) => e.eventType === "review_failed");
+    let lastEscalationIdx = -1;
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].eventType === "doom_loop_escalated") { lastEscalationIdx = i; break; }
+    }
+    const eventsSinceReset = lastEscalationIdx >= 0 ? events.slice(lastEscalationIdx + 1) : events;
+    const failEvents = eventsSinceReset.filter((e) => e.eventType === "review_failed");
     const failCount = failEvents.length;
 
     // At 2+ failures: compare findings to detect design vs implementation issue
@@ -540,7 +545,8 @@ export function scanMessagesForMarkers(messages: Message[]): {
     if (!implComplete && hasImplComplete(msg.content)) {
       implComplete = true;
     }
-    if (!reviewVerdict && hasReviewVerdict(msg.content)) {
+    // Use LAST verdict — followup reviews supersede earlier ones
+    if (hasReviewVerdict(msg.content)) {
       const v = extractReviewVerdict(msg.content);
       if (v) reviewVerdict = v;
     }
