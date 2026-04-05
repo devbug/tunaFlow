@@ -381,7 +381,7 @@ export async function processReviewVerdict(
     const events = await planApi.listPlanEvents(plan.id);
     let lastEscalationIdx = -1;
     for (let i = events.length - 1; i >= 0; i--) {
-      if (events[i].eventType === "doom_loop_escalated") { lastEscalationIdx = i; break; }
+      if (events[i].eventType === "doom_loop_escalated" || events[i].eventType === "architect_redesign_requested") { lastEscalationIdx = i; break; }
     }
     const eventsSinceReset = lastEscalationIdx >= 0 ? events.slice(lastEscalationIdx + 1) : events;
     const failEvents = eventsSinceReset.filter((e) => e.eventType === "review_failed");

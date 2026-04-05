@@ -128,7 +128,7 @@ export function useSubtaskProgress(plan: Plan) {
             // Count failures since last escalation (not total)
             let lastEscIdx = -1;
             for (let i = events.length - 1; i >= 0; i--) {
-              if (events[i].eventType === "doom_loop_escalated") { lastEscIdx = i; break; }
+              if (events[i].eventType === "doom_loop_escalated" || events[i].eventType === "architect_redesign_requested") { lastEscIdx = i; break; }
             }
             const sinceReset = lastEscIdx >= 0 ? events.slice(lastEscIdx + 1) : events;
             setDesignReviewSuggested(sinceReset.some((e: { eventType: string }) => e.eventType === "design_review_suggested"));
