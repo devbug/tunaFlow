@@ -92,7 +92,6 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
   // Summary card only shows when there's an active plan
 
   const stages = deriveStages(activePlan, subtasks, branches, artifacts);
-  const currentIdx = stages.reduce((last, s, i) => (s.active ? i : last), -1);
 
   // Derived counts (only if plan exists)
   const counts = activePlan ? {
@@ -114,10 +113,7 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
           return (
             <div key={stage.id} className="flex items-center">
               {i > 0 && (
-                <div className={cn(
-                  "w-3 h-px mx-0.5",
-                  i <= currentIdx ? "bg-primary/30" : "bg-border/40"
-                )} />
+                <div className="w-3 h-px mx-0.5 bg-border/40" />
               )}
               <button
                 onClick={() => onStageClick?.(stage.id as WorkflowStageId)}
@@ -125,9 +121,7 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
                   "text-[8px] font-medium px-1.5 py-0.5 rounded transition-colors",
                   isSelected
                     ? "bg-primary/20 text-primary ring-1 ring-primary/30"
-                    : stage.active
-                      ? "text-foreground/60 hover:bg-accent/60 hover:text-foreground/80"
-                      : "text-muted-foreground/30 hover:text-muted-foreground/50"
+                    : "text-foreground/60 hover:bg-accent/60 hover:text-foreground/80"
                 )}
               >
                 {stage.label}
