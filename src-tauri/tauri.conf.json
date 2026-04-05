@@ -16,7 +16,9 @@
         "width": 1200,
         "height": 800,
         "visible": false,
-        "theme": "Dark"
+        "theme": "Dark",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {

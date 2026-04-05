@@ -12,6 +12,7 @@ import { FileViewer } from "./chat/FileViewer";
 import { FileViewerContext } from "./chat/fileViewerContext";
 import { Toaster } from "sonner";
 import { CommandPalette } from "./CommandPalette";
+import { TitleBar } from "./TitleBar";
 
 // ─── Panel width constraints ─────────────────────────────────────────────────
 const SIDEBAR_MIN = 220;
@@ -113,6 +114,9 @@ export function AppShell() {
     <FileViewerContext.Provider value={fileViewerCtx}>
     <Toaster position="bottom-right" theme="dark" richColors closeButton />
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-sidebar text-foreground font-sans">
+      {/* ── Title bar (macOS overlay) ── */}
+      <TitleBar />
+
       {/* ── Body: sidebar + main ── */}
       <div className="flex flex-1 min-h-0">
         {/* Sidebar — flat, darkest layer */}
