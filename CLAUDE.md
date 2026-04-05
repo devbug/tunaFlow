@@ -273,23 +273,26 @@ tunaFlow/
 - **코드 리뷰 버그 수정**: background catch → console.error, failCount === 2 → >= 2
 - Rust 84 tests, Frontend 96 tests. DB v25.
 
-### ✅ 해결됨 (세션 12: 테스트 보강 + 리팩토링 + 버그 수정)
-- **테스트 보강 (180→305)**: P0 스트리밍 흐름 22개, ContextPack 조립 26개, RT 프롬프트 27개 + P1 워크플로우 11개, 장기기억/검색 32개 + resolve 7개
-- **CLI resolve 6중 복제 통합**: `agents/resolve.rs` 공용 모듈, codex 70→7줄, gemini 73→7줄, opencode 48→25줄 (총 ~190줄 삭제)
-- **TracePanel 분할**: `TraceSpanCard.tsx` 추출 (TracePanel 656→400줄, 유틸리티+카드 분리)
-- **EngineSelector ollama 크래시 수정**: ENGINE_LIST에 ollama 누락 → 추가 + fallback 방어
-- **실사용 검증 시나리오**: `docs/how-to/validation-scenario-session12.md` (5개 시나리오)
-- Rust 174 tests, Frontend 131 tests. DB v25.
+### ✅ 해결됨 (세션 12: 테스트 보강 + 리팩토링 + 워크플로우 근본 수정)
+- **테스트 보강 (180→352)**: P0 스트리밍/ContextPack/RT + P1 워크플로우/장기기억 + P2 UI 회귀 + resolve 모듈
+- **CLI resolve 6중 복제 통합**: `agents/resolve.rs` 공용 모듈 (~190줄 삭제)
+- **TracePanel/DevProgressView/SkillsPanel 분할**: hook 추출 + 서브컴포넌트 분리
+- **3-role 프롬프트 전면 수정**: Architect(검증 명령 필수) + Developer(검증 결과 보고) + Reviewer(코드 읽기만, 빌드/테스트 금지)
+- **에이전트 템플릿 동기화**: docs/agents/*.md를 PLATFORM_TIER0와 일관되게 갱신
+- **에스컬레이션 경로 완성**: doom loop 감지 → Rework 차단 → Architect 재설계 요청 → 자동 병합 → subtask_review 복귀
+- **스마트 scaffold**: 프로젝트 스택 자동 감지 → CLAUDE.md §1 자동 채움 (Node/Rust/Python/Go)
+- **microcompact**: 도구 결과 선별 프루닝 + 토큰 기반 압축 트리거
+- **커스텀 타이틀바**: macOS overlay + 프로젝트명 표시
+- **우클릭 컨텍스트 메뉴**: 메시지/사이드바 대화별 메뉴 + Shift+우클릭 devtools 유지
+- **DB v26**: plan.slug 컬럼 (한국어 제목 slug 충돌 방지)
+- **UI 수정 20+건**: EngineSelector 크래시, 테스트 반복 실행, subtask 완료 표시, abandoned 필터, 드로어 애니메이션, hover toolbar, workflow stage 칩
+- Rust 179 tests, Frontend 174 tests. DB v26.
 
 ### 기타 알려진 이슈
+- Review 완료 감지가 탭 전환에 의존 (P1, agent:completed 이벤트 기반 자동 감지 필요)
+- single-agent review 경로에서 verdict 자동 처리 미구현 (P1)
 - window-state: dev 모드 Ctrl+C 종료 시 상태 미저장 (X 버튼으로 닫아야 함)
-- Rust 174 + Frontend 131 = 305 unit test, integration test 부재
-- 긴 multi-agent 대화 (24+ 메시지) 실사용 검증 미완
-- Tool steps: Gemini CLI 버전에 따라 `tool_use` 이벤트 미지원 가능
-- RT INTENT 표시 오류 (이전 데이터 오염, 새 RT에서 재현 확인 필요)
-- RT에서 ollama 단독 라운드 누락 가능성 (trace JOIN dedup 적용, 재검증 필요)
-- RT 전용 페르소나 미구현 (participant_identity에 행동 지침 없음)
-- 상세: `docs/reference/knownIssues_2026-04-04.md`
+- 상세: `docs/reference/knownIssues_2026-04-05.md`
 
 ---
 
@@ -398,7 +401,7 @@ tunaFlow/
 | 8-9 | 2026-04-03~04 | 이벤트 격리, RT 전면 수정 (async panic/라운드번호/ContextPack 주입+캐싱/participant status), 스트리밍 race condition 근본 해결, Virtuoso re-render, 메시지 duration/token 표시, trace_log JOIN (v23), SQLite PRAGMA, ollama 엔진 전면 추가 |
 | 10 | 2026-04-04 | Trace Phase 1 (tok/s + context %), 스킬 A/B/C/D + 멀티툴 스캔 + 레지스트리 + 스킬팩, 임베딩 지연 최적화, B안 (subtask 타겟 rework), code-review-graph 통합, Architect/Developer/Reviewer 고도화 (PLATFORM_TIER0 + 역할 템플릿), 전역 profileId 제거, 마커 기반 멀티턴 도구 호출 (docs/rawq/graph/plans), 후속 플랜 인프라 (v25), context-hub chub 수정, 코드 리뷰 버그 수정 (DB v25, Rust 84 tests, Frontend 96 tests) |
 | 11 | 2026-04-04 | 전수조사→문서 정합성 복구, expect 패닉 제거, 스트리밍 중복 150줄 제거, useMemo, 경고 0, 테스트 백로그 문서화 |
-| 12 | 2026-04-05 | 테스트 보강 180→305 (P0 스트리밍/ContextPack/RT + P1 워크플로우/장기기억), CLI resolve 6중 복제→공용 모듈 (~190줄 삭제), TracePanel 분할 (656→400줄), EngineSelector ollama 크래시 수정 |
+| 12 | 2026-04-05 | 테스트 180→352, CLI resolve 통합, 컴포넌트 분할 3개, **3-role 프롬프트 근본 수정** (Dev↔Review 루프 해결), 에스컬레이션 경로 완성, 스마트 scaffold, microcompact, 커스텀 타이틀바+우클릭 메뉴, DB v26 slug, UI 수정 20+건, 실사용 검증으로 발견한 워크플로우 버그 대량 수정 |
 
 ---
 
@@ -464,17 +467,15 @@ tunaFlow/
 - Architect/Developer/Reviewer 역할 템플릿 전면 갱신
 - 전역 selectedProfileId 제거, 후속 플랜 인프라 (v25), context-hub chub 수정
 
-### ✅ 완료: 테스트 보강 + 리팩토링 (세션 12)
-- 테스트 180→305 (P0 3개 + P1 2개 + resolve 모듈)
-- CLI resolve 6중 복제 → `agents/resolve.rs` 공용 모듈 (~190줄 삭제)
-- TracePanel 656→400줄 (TraceSpanCard 추출)
-- EngineSelector ollama 크래시 수정
-- 실사용 검증 시나리오 5개 작성 (`docs/how-to/validation-scenario-session12.md`)
+### ✅ 완료: 테스트 + 리팩토링 + 워크플로우 근본 수정 + UI (세션 12)
+- 테스트 180→352, CLI resolve 통합, 컴포넌트 분할, 3-role 프롬프트 전면 수정
+- 에스컬레이션 경로 완성, 스마트 scaffold, microcompact, 타이틀바, 우클릭 메뉴
+- DB v26 slug, UI 수정 20+건 (실사용 검증 기반)
 
 ### 다음 세션 첫 작업
-1. **실사용 검증** — `docs/how-to/validation-scenario-session12.md` 기준 (사용자 직접 진행)
-2. **온보딩 메타에이전트** — 프로젝트 최초 진입 시 분석 + 추천 (아이디어 단계)
-3. **추가 리팩토링** — DevProgressView, SkillsPanel, CenterPanel 분할 (세션 12 후반 진행 중)
+1. **Review 완료 자동 감지** — agent:completed 이벤트 기반 verdict 스캔 (P1, `docs/reference/knownIssues_2026-04-05.md`)
+2. **실사용 검증 이어가기** — tunaInsight "보고서 UX 개선" Plan이 rework 대기 중
+3. **커스텀 타이틀바 + 우클릭 메뉴 추가 작업** — `docs/ideas/customTitlebarContextMenuIdea.md` 기준
 
 ### P1: RT 재검증
 - RT INTENT 표시 오류 재현 확인 (새 RT에서)
