@@ -126,10 +126,8 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
                   isSelected
                     ? "bg-primary/20 text-primary ring-1 ring-primary/30"
                     : stage.active
-                      ? i === currentIdx
-                        ? "bg-primary/15 text-primary hover:bg-primary/25"
-                        : "bg-accent text-foreground/70 hover:bg-accent/80"
-                      : "bg-transparent text-muted-foreground/40 hover:text-muted-foreground/60"
+                      ? "text-foreground/60 hover:bg-accent/60 hover:text-foreground/80"
+                      : "text-muted-foreground/30 hover:text-muted-foreground/50"
                 )}
               >
                 {stage.label}
