@@ -49,10 +49,11 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
           // Only auto-merge for Chat-level revision requests (not subtask slider)
           const lastIsRevisionRequest = lastEvent && (
             lastEvent.eventType === "revision_requested" ||
-            lastEvent.eventType === "plan_full_revision_requested"
+            lastEvent.eventType === "plan_full_revision_requested" ||
+            lastEvent.eventType === "architect_redesign_requested"
           );
           if (lastIsRevisionRequest) {
-            const isFullRevision = lastEvent.eventType === "plan_full_revision_requested";
+            const isFullRevision = lastEvent.eventType === "plan_full_revision_requested" || lastEvent.eventType === "architect_redesign_requested";
             setRevisionTarget(plan);
             await autoMerge(plan, isFullRevision);
             return;
@@ -98,7 +99,10 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
         await loadBranches(targetPlan.conversationId);
       }
 
-      await planApi.updatePlanPhase(targetPlan.id, "approval");
+      // Doom loop redesign → go to subtask_review for user confirmation before approval
+      // Normal revision → go directly to approval
+      const nextPhase = isMajorRevision ? "subtask_review" : "approval";
+      await planApi.updatePlanPhase(targetPlan.id, nextPhase);
       setStatus("merged");
     } catch {
       setStatus("idle"); // Fallback to manual UI
