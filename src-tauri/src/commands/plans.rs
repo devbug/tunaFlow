@@ -65,11 +65,12 @@ fn map_plan(row: &rusqlite::Row) -> rusqlite::Result<Plan> {
         reviewer_engines: row.get(10)?,
         implementation_branch_id: row.get(11)?,
         review_branch_id: row.get(12)?,
-        revision: row.get(13)?,
-        version_major: row.get(14)?,
-        version_minor: row.get(15)?,
-        created_at: row.get(16)?,
-        updated_at: row.get(17)?,
+        slug: row.get(13)?,
+        revision: row.get(14)?,
+        version_major: row.get(15)?,
+        version_minor: row.get(16)?,
+        created_at: row.get(17)?,
+        updated_at: row.get(18)?,
     })
 }
 
@@ -90,7 +91,7 @@ fn map_subtask(row: &rusqlite::Row) -> rusqlite::Result<PlanSubtask> {
 }
 
 const PLAN_COLS: &str =
-    "id, conversation_id, branch_id, title, description, expected_outcome, status, phase, architect_engine, developer_engine, reviewer_engines, implementation_branch_id, review_branch_id, revision, version_major, version_minor, created_at, updated_at";
+    "id, conversation_id, branch_id, title, description, expected_outcome, status, phase, architect_engine, developer_engine, reviewer_engines, implementation_branch_id, review_branch_id, slug, revision, version_major, version_minor, created_at, updated_at";
 
 const SUBTASK_COLS: &str =
     "id, plan_id, idx, title, details, status, outcome, owner_agent, last_updated_by, created_at, updated_at";
@@ -108,10 +109,17 @@ pub fn create_plan(
     let id = Uuid::new_v4().to_string();
     let now = now_epoch_ms();
 
+    // Generate unique slug for file paths
+    let slug = {
+        use crate::db::migrations::{slugify_title, find_unique_slug};
+        let base = slugify_title(&input.title);
+        find_unique_slug(&conn, &base, None)
+    };
+
     conn.execute(
         "INSERT INTO plans
-         (id, conversation_id, branch_id, title, description, expected_outcome, status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'draft', ?7, ?8)",
+         (id, conversation_id, branch_id, title, description, expected_outcome, status, slug, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'draft', ?7, ?8, ?9)",
         params![
             id,
             input.conversation_id,
@@ -119,6 +127,7 @@ pub fn create_plan(
             input.title,
             input.description,
             input.expected_outcome,
+            slug,
             now,
             now,
         ],
@@ -148,6 +157,7 @@ pub fn create_plan(
         reviewer_engines: None,
         implementation_branch_id: None,
         review_branch_id: None,
+        slug: Some(slug),
         revision: 0,
         version_major: 1,
         version_minor: 0,

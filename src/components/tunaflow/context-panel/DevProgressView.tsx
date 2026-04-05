@@ -5,7 +5,7 @@ import { useChatStore } from "@/stores/chatStore";
 import { GitBranch, Check, Loader2, Clock, RotateCcw, Plus, ClipboardList, FileText } from "lucide-react";
 import type { Plan, PlanPhase, PlanSubtask } from "@/types";
 import * as planApi from "@/lib/api/plans";
-import { slugifyPlanTitle, syncResultReport } from "@/lib/workflowOrchestration";
+import { getPlanSlug, syncResultReport } from "@/lib/workflowOrchestration";
 import type { Branch, Message } from "@/types";
 import { PlanDocumentModal } from "./PlanDocumentModal";
 import { useSubtaskProgress } from "./useSubtaskProgress";
@@ -71,7 +71,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       await planApi.createPlanEvent(plan.id, "review_started", "user",
         `reviewer=${selectedProfile.label}${isRework ? " (rework)" : ""}`);
 
-      const slug = slugifyPlanTitle(plan.title);
+      const slug = getPlanSlug(plan);
       const input = { conversationId: plan.conversationId, label: `${roundLabel}: ${plan.title.slice(0, 25)}`, mode: "chat" };
       const branch = await invoke<Branch>("create_branch", { input });
       const shadowConvId = await invoke<string>("open_branch_stream", { branchId: branch.id });
@@ -172,7 +172,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       }
 
       const failedIds = reviewVerdict?.failedSubtaskIds ?? [];
-      const slug = slugifyPlanTitle(plan.title);
+      const slug = getPlanSlug(plan);
       let targetSection = "";
       if (failedIds.length > 0 && subtasks.length > 0) {
         const targetNames = failedIds

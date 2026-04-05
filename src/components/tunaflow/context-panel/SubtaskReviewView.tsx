@@ -5,7 +5,7 @@ import { useChatStore } from "@/stores/chatStore";
 import { Check, RotateCcw, ClipboardList, FileText, ArrowLeft, ChevronDown, ChevronRight, PenLine } from "lucide-react";
 import type { Plan, PlanPhase, PlanSubtask, Branch } from "@/types";
 import * as planApi from "@/lib/api/plans";
-import { slugifyPlanTitle, syncPlanDocument } from "@/lib/workflowOrchestration";
+import { getPlanSlug, syncPlanDocument } from "@/lib/workflowOrchestration";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { markdownComponents } from "../chat/MarkdownComponents";
@@ -66,7 +66,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
         if (!projectKey) return;
         const project = await invoke("get_project", { key: projectKey }) as { path?: string };
         if (!project?.path) return;
-        const slug = slugifyPlanTitle(plan.title);
+        const slug = getPlanSlug(plan);
         const files: Record<number, string> = {};
         for (let i = 1; i <= 50; i++) {
           const taskPath = `${project.path}/docs/plans/${slug}-task-${String(i).padStart(2, "0")}.md`;
@@ -103,7 +103,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
     if (!isActionable) return;
     setBusy(true);
     try {
-      const slug = slugifyPlanTitle(plan.title);
+      const slug = getPlanSlug(plan);
 
       // Create a branch for plan document sync
       const branchLabel = `Plan 문서 반영: ${plan.title.slice(0, 20)}`;
@@ -151,7 +151,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       await openThread(branch.id);
 
       // Send revision prompt with review failure context
-      const slug = slugifyPlanTitle(plan.title);
+      const slug = getPlanSlug(plan);
       const taskFile = `docs/plans/${slug}-task-${String(subtaskIdx + 1).padStart(2, "0")}.md`;
 
       // Build failure history context for the Architect
@@ -200,7 +200,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       await loadBranches(plan.conversationId);
       await openThread(branch.id);
 
-      const slug = slugifyPlanTitle(plan.title);
+      const slug = getPlanSlug(plan);
       const taskFile = `docs/plans/${slug}-task-${String(subtaskIdx + 1).padStart(2, "0")}.md`;
       const prompt = [
         `### 💬 Subtask 논의`,
@@ -233,7 +233,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       await loadBranches(plan.conversationId);
       await openThread(branch.id);
 
-      const slug = slugifyPlanTitle(plan.title);
+      const slug = getPlanSlug(plan);
       const taskFile = `docs/plans/${slug}-task-${String(subtaskIdx + 1).padStart(2, "0")}.md`;
       const prompt = [
         `### 📝 작업 지시서 작성`,

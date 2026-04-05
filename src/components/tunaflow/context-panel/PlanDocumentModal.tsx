@@ -6,7 +6,7 @@ import { X, Clock, ClipboardList, ChevronDown, ChevronRight, User, FileText } fr
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import type { Plan, PlanEvent, PlanSubtask } from "@/types";
-import { slugifyPlanTitle } from "@/lib/workflowOrchestration";
+import { getPlanSlug } from "@/lib/workflowOrchestration";
 import * as planApi from "@/lib/api/plans";
 import { PLAN_PHASE_CFG, SUBTASK_STATUS_CFG } from "./plans/constants";
 import { markdownComponents } from "../chat/MarkdownComponents";
@@ -42,7 +42,7 @@ export function PlanDocumentModal({ plan, onClose }: PlanDocumentModalProps) {
         const project = await invoke("get_project", { key: projectKey }) as { path?: string };
         if (!project?.path) return;
 
-        const slug = slugifyPlanTitle(plan.title);
+        const slug = getPlanSlug(plan);
         const planPath = `${project.path}/docs/plans/${slug}.md`;
 
         // Read main plan file

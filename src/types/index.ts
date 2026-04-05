@@ -298,6 +298,8 @@ export interface Plan {
   reviewerEngines?: string;
   implementationBranchId?: string;
   reviewBranchId?: string;
+  /** File-path-safe slug, unique per project */
+  slug?: string;
   /** Follow-up plan lineage — links to the predecessor plan */
   parentPlanId?: string;
   revision: number;

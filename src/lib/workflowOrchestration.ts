@@ -10,27 +10,22 @@ import type { Branch, Plan, Message, RoundtableParticipant } from "@/types";
 import * as planApi from "./api/plans";
 
 /** Generate ASCII-only slug from plan title for file paths.
- *  Korean/CJK titles produce very short slugs (e.g. "분석 UX 개선" → "ux"),
- *  so we append a hash suffix to prevent collisions between different plans.
+ *  DEPRECATED for direct use — prefer plan.slug from DB (unique, collision-free).
+ *  This function is kept as fallback when plan.slug is not available.
  */
 export function slugifyPlanTitle(title: string): string {
-  const base = title
+  const slug = title
     .replace(/[^a-zA-Z0-9-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .toLowerCase()
     .slice(0, 60);
-  // If slug is very short (< 4 chars, common with Korean-only titles),
-  // append a 4-char hash from the full title to prevent collisions
-  if (base.length < 4) {
-    let hash = 0;
-    for (let i = 0; i < title.length; i++) {
-      hash = ((hash << 5) - hash + title.charCodeAt(i)) | 0;
-    }
-    const suffix = Math.abs(hash).toString(36).slice(0, 4);
-    return (base ? `${base}-${suffix}` : `plan-${suffix}`) || "plan";
-  }
-  return base || "plan";
+  return slug || "plan";
+}
+
+/** Get the effective slug for a plan — prefers DB slug, falls back to title slugify */
+export function getPlanSlug(plan: { slug?: string | null; title: string }): string {
+  return plan.slug || slugifyPlanTitle(plan.title);
 }
 import { extractImplPlan, hasImplComplete, hasReviewVerdict, extractReviewVerdict } from "./planProposalParser";
 import type { ParsedImplPlan, ParsedReviewVerdict } from "./planProposalParser";
@@ -233,7 +228,7 @@ export async function approveAndStartImplementation(
 
   // Build developer prompt — lightweight, agent reads files directly
   // Only include pending subtasks (skip already completed ones)
-  const slug = slugifyPlanTitle(plan.title);
+  const slug = getPlanSlug(plan);
   const subtasks = await planApi.listSubtasks(plan.id);
   const pendingSubtasks = subtasks.filter((s) => s.status !== "done");
   const targetSubtasks = pendingSubtasks.length > 0 ? pendingSubtasks : subtasks;
@@ -317,7 +312,7 @@ export async function startReviewRT(
     testOutput ? `## 테스트 결과\n${testOutput.slice(0, 3000)}\n` : "",
     `## 리뷰 절차`,
     ``,
-    `각 subtask의 task 파일(\`docs/plans/${slugifyPlanTitle(plan.title)}-task-*.md\`)을 읽고 아래 3가지를 확인하세요:`,
+    `각 subtask의 task 파일(\`docs/plans/${getPlanSlug(plan)}-task-*.md\`)을 읽고 아래 3가지를 확인하세요:`,
     ``,
     `1. **Changed files 확인**: task 파일에 명시된 파일이 실제로 수정/생성되었는가? 변경 내용이 Change description과 일치하는가?`,
     `2. **Verification 결과 확인**: Developer가 보고한 검증 결과를 확인하세요. 모든 Verification 명령이 통과했는가?`,

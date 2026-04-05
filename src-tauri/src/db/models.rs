@@ -124,6 +124,8 @@ pub struct Plan {
     pub reviewer_engines: Option<String>,
     pub implementation_branch_id: Option<String>,
     pub review_branch_id: Option<String>,
+    /// File-path-safe slug, unique per project. Used for docs/plans/{slug}-task-NN.md
+    pub slug: Option<String>,
     /// Revision counter — incremented on each subtask merge/replacement
     pub revision: i64,
     /// Semantic version major (v{major}.{minor})

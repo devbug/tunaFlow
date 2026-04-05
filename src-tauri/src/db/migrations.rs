@@ -100,6 +100,9 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     if current < 25 {
         apply_v25(conn)?;
     }
+    if current < 26 {
+        apply_v26(conn)?;
+    }
     Ok(())
 }
 
@@ -494,6 +497,61 @@ fn apply_v25(conn: &Connection) -> Result<(), AppError> {
     add_column_if_missing(conn, "plans", "parent_plan_id", "TEXT")?;
     conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (25, ?1)", [now_epoch()])?;
     Ok(())
+}
+
+fn apply_v26(conn: &Connection) -> Result<(), AppError> {
+    // Plan slug: unique file-path-safe identifier, prevents Korean title collisions
+    add_column_if_missing(conn, "plans", "slug", "TEXT")?;
+    // Backfill existing plans with slugify(title) + collision suffix
+    let mut stmt = conn.prepare("SELECT id, title FROM plans WHERE slug IS NULL")?;
+    let rows: Vec<(String, String)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .filter_map(|r| r.ok())
+        .collect();
+    for (id, title) in &rows {
+        let base = slugify_title(title);
+        let slug = find_unique_slug(conn, &base, Some(id));
+        conn.execute("UPDATE plans SET slug = ?1 WHERE id = ?2", params![slug, id])?;
+    }
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (26, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+/// Generate ASCII slug from title (no uniqueness guarantee — caller must check)
+pub fn slugify_title(title: &str) -> String {
+    let base: String = title.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c.to_ascii_lowercase() } else { '-' })
+        .collect();
+    let trimmed = base.trim_matches('-').to_string();
+    let collapsed = trimmed.split('-').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-");
+    let truncated = if collapsed.len() > 60 {
+        collapsed[..60].trim_end_matches('-').to_string()
+    } else {
+        collapsed
+    };
+    if truncated.is_empty() { "plan".to_string() } else { truncated }
+}
+
+/// Find a unique slug by appending -2, -3, etc. if collision detected
+pub fn find_unique_slug(conn: &Connection, base: &str, exclude_id: Option<&str>) -> String {
+    let mut candidate = base.to_string();
+    let mut counter = 1;
+    loop {
+        let exists: bool = if let Some(eid) = exclude_id {
+            conn.query_row(
+                "SELECT COUNT(*) > 0 FROM plans WHERE slug = ?1 AND id != ?2",
+                params![candidate, eid], |row| row.get(0),
+            ).unwrap_or(false)
+        } else {
+            conn.query_row(
+                "SELECT COUNT(*) > 0 FROM plans WHERE slug = ?1",
+                params![candidate], |row| row.get(0),
+            ).unwrap_or(false)
+        };
+        if !exists { return candidate; }
+        counter += 1;
+        candidate = format!("{}-{}", base, counter);
+    }
 }
 
 /// Seconds since Unix epoch

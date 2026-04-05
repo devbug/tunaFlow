@@ -5,7 +5,7 @@ import { useChatStore } from "@/stores/chatStore";
 import { ChevronDown, ChevronRight, GitBranch, Check, FileText } from "lucide-react";
 import type { Plan, PlanEvent, PlanPhase, PlanSubtask, PlanStatus, SubtaskStatus, Message } from "@/types";
 import * as planApi from "@/lib/api/plans";
-import { slugifyPlanTitle, scanMessagesForMarkers, startReviewRT } from "@/lib/workflowOrchestration";
+import { getPlanSlug, scanMessagesForMarkers, startReviewRT } from "@/lib/workflowOrchestration";
 import type { ParsedReviewVerdict } from "@/lib/planProposalParser";
 import { PLAN_STATUS_CFG, PLAN_PHASE_CFG } from "./constants";
 import { PlanDocumentModal } from "../PlanDocumentModal";
@@ -91,7 +91,7 @@ export function PlanCard({
           if (projectKey) {
             const project = await invoke("get_project", { key: projectKey }) as { path?: string };
             if (project?.path) {
-              const slug = slugifyPlanTitle(plan.title);
+              const slug = getPlanSlug(plan);
               const titles: Record<number, string> = {};
               for (let i = 1; i <= (tasks?.length ?? 0); i++) {
                 const taskPath = `${project.path}/docs/plans/${slug}-task-${String(i).padStart(2, "0")}.md`;
