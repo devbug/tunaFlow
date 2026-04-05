@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "@/stores/chatStore";
-import { Waves, ChevronDown, FolderOpen, Folder, Trash2, Loader2, Settings, GitBranch } from "lucide-react";
+import { ChevronDown, FolderOpen, Folder, Trash2, Loader2, Settings, GitBranch } from "lucide-react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import type { Branch } from "@/types";
 
@@ -123,14 +123,8 @@ export function Sidebar() {
 
   return (
     <aside data-testid="sidebar" className="flex flex-col w-full bg-sidebar h-full overflow-hidden text-sidebar-foreground">
-      {/* Logo */}
-      <div className="flex items-center gap-2 px-3 h-[52px] shrink-0">
-        <div className="w-5 h-5 rounded bg-primary/15 flex items-center justify-center">
-          <Waves className="w-3 h-3 text-primary" />
-        </div>
-        <span className="font-medium text-[14px] tracking-[-0.1px] text-sidebar-accent-foreground">tunaFlow</span>
-        <span className="ml-auto text-[8px] text-sidebar-foreground/35 bg-white/[0.04] px-1 py-0.5 rounded font-mono">beta</span>
-      </div>
+      {/* Traffic light spacer — macOS overlay titlebar pushes content below traffic lights */}
+      <div className="h-[28px] shrink-0" />
 
       {/* Project selector dropdown */}
       <div className="px-2 py-1 shrink-0 relative" ref={dropdownRef}>
