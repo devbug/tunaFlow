@@ -1,16 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { GitBranch, Check, Loader2, Clock, RotateCcw, Plus, ClipboardList, FileText } from "lucide-react";
-import type { Plan, PlanPhase, PlanSubtask, Message } from "@/types";
+import type { Plan, PlanPhase, PlanSubtask } from "@/types";
 import * as planApi from "@/lib/api/plans";
-import { scanCompletedSubtasks, hasImplComplete, hasReviewVerdict, extractReviewVerdict } from "@/lib/planProposalParser";
-import { runProjectTests, type TestRunResult } from "@/lib/api/testRunner";
-import type { ParsedReviewVerdict } from "@/lib/planProposalParser";
 import { slugifyPlanTitle, syncResultReport } from "@/lib/workflowOrchestration";
-import type { Branch } from "@/types";
+import type { Branch, Message } from "@/types";
 import { PlanDocumentModal } from "./PlanDocumentModal";
+import { useSubtaskProgress } from "./useSubtaskProgress";
 
 interface DevProgressViewProps {
   plan: Plan;
@@ -21,112 +19,19 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
   const { openThread, sendThreadMessage, loadBranches, saveConversationEngine } = useChatStore();
   const profiles = useChatStore((s) => s.agentProfiles);
   const runningThreadIds = useChatStore((s) => s.runningThreadIds);
-  const [subtasks, setSubtasks] = useState<PlanSubtask[]>([]);
-  const [completedNums, setCompletedNums] = useState<Set<number>>(new Set());
-  const [implComplete, setImplComplete] = useState(false);
-  const [loading, setLoading] = useState(true);
+
+  const {
+    subtasks, completedNums, implComplete, loading,
+    testResult, testRunning, reviewVerdict, designReviewSuggested,
+  } = useSubtaskProgress(plan);
+
   const [busy, setBusy] = useState(false);
   const [showDoc, setShowDoc] = useState(false);
-  const [testResult, setTestResult] = useState<TestRunResult | null>(null);
-  const [designReviewSuggested, setDesignReviewSuggested] = useState(false);
-  const [testRunning, setTestRunning] = useState(false);
-  const [reviewVerdict, setReviewVerdict] = useState<ParsedReviewVerdict | null>(null);
   const [reviewMode, setReviewMode] = useState<"idle" | "select">("idle");
   const [selectedReviewerId, setSelectedReviewerId] = useState(() => {
-    // Default to a profile with "review" in label, or first profile
     const reviewer = profiles.find((p) => p.label.toLowerCase().includes("review"));
     return reviewer?.id ?? profiles[0]?.id ?? "";
   });
-
-  // Scan function — reusable for initial load + polling
-  const scanBranchState = async (cancelled: { current: boolean }) => {
-    if (!plan.implementationBranchId) return;
-    try {
-      const shadowConvId = `branch:${plan.implementationBranchId}`;
-      const msgs = await invoke<Message[]>("list_messages", { conversationId: shadowConvId });
-      if (cancelled.current) return;
-      const scanned = scanCompletedSubtasks(msgs);
-      const complete = msgs.some((m) => m.role === "assistant" && hasImplComplete(m.content));
-      // If impl-complete but no subtask-done markers, treat all as complete
-      if (complete && scanned.size === 0) {
-        const allNums = new Set(Array.from({ length: 50 }, (_, i) => i + 1));
-        setCompletedNums(allNums);
-      } else {
-        setCompletedNums(scanned);
-      }
-      setImplComplete(complete);
-
-      // Auto-run tests when implementation is complete (only once)
-      if (complete && !testResult && !testRunning && !cancelled.current) {
-        try {
-          const projectKey = useChatStore.getState().selectedProjectKey;
-          if (projectKey) {
-            const project = await invoke("get_project", { key: projectKey }) as { path?: string };
-            if (project?.path) {
-              setTestRunning(true);
-              const result = await runProjectTests(project.path);
-              if (!cancelled.current) {
-                setTestResult(result);
-                setTestRunning(false);
-              }
-            }
-          }
-        } catch (e) {
-          console.warn("[tunaflow] test run failed:", e);
-          setTestRunning(false);
-        }
-      }
-    } catch (e) { console.warn("[tunaflow]", e); }
-  };
-
-  // Initial load
-  useEffect(() => {
-    const cancelled = { current: false };
-    setLoading(true);
-
-    (async () => {
-      const sts = await planApi.listSubtasks(plan.id).catch(() => [] as PlanSubtask[]);
-      if (cancelled.current) return;
-      setSubtasks(sts);
-
-      await scanBranchState(cancelled);
-
-      // Scan review branch for verdict (rework phase)
-      if (plan.reviewBranchId && (plan.phase === "rework" || plan.phase === "review")) {
-        try {
-          const reviewShadow = `branch:${plan.reviewBranchId}`;
-          const reviewMsgs = await invoke<Message[]>("list_messages", { conversationId: reviewShadow });
-          for (const msg of reviewMsgs) {
-            if (msg.role === "assistant" && hasReviewVerdict(msg.content)) {
-              const v = extractReviewVerdict(msg.content);
-              if (v && !cancelled.current) setReviewVerdict(v);
-              break;
-            }
-          }
-        } catch (e) { console.warn("[tunaflow]", e); }
-      }
-
-      // Check for design review suggestion
-      if (plan.phase === "rework") {
-        planApi.listPlanEvents(plan.id).then((events) => {
-          if (!cancelled.current) {
-            setDesignReviewSuggested(events.some((e) => e.eventType === "design_review_suggested"));
-          }
-        }).catch(() => {});
-      }
-
-      setLoading(false);
-    })();
-
-    // Poll every 5 seconds for progress updates while in implementation/rework
-    const interval = setInterval(() => {
-      if (plan.phase === "implementation" || plan.phase === "rework") {
-        scanBranchState(cancelled);
-      }
-    }, 5000);
-
-    return () => { cancelled.current = true; clearInterval(interval); };
-  }, [plan.id, plan.implementationBranchId, plan.phase]);
 
   const handleOpenBranch = () => {
     if (plan.implementationBranchId) openThread(plan.implementationBranchId);
@@ -151,24 +56,20 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
     if (!selectedProfile) return;
     setBusy(true);
     try {
-      // Generate result report
       const implShadow = `branch:${plan.implementationBranchId}`;
       const msgs = await invoke<Message[]>("list_messages", { conversationId: implShadow });
       await syncResultReport(plan.id, msgs, plan.developerEngine ?? undefined);
 
-      // Archive previous review branch if exists
       if (plan.reviewBranchId) {
         await invoke("archive_branch", { id: plan.reviewBranchId }).catch(() => {});
       }
 
-      // Phase transition
       const isRework = plan.phase === "rework" || !!reviewVerdict;
       const roundLabel = isRework ? `Re-review` : `Review`;
       await planApi.updatePlanPhase(plan.id, "review");
       await planApi.createPlanEvent(plan.id, "review_started", "user",
         `reviewer=${selectedProfile.label}${isRework ? " (rework)" : ""}`);
 
-      // Create new review branch
       const slug = slugifyPlanTitle(plan.title);
       const input = { conversationId: plan.conversationId, label: `${roundLabel}: ${plan.title.slice(0, 25)}`, mode: "chat" };
       const branch = await invoke<Branch>("create_branch", { input });
@@ -179,30 +80,21 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       await loadBranches(plan.conversationId);
       await openThread(branch.id);
 
-      // Build structured review prompt
       const prevFindingsBlock = reviewVerdict && reviewVerdict.findings.length > 0
-        ? [
-            `│`,
-            `**이전 Review Findings (수정 확인 필요)**:`,
-            ...reviewVerdict.findings.map((f, i) => `${i + 1}. ${f.slice(0, 150)}`),
-            ``,
-            `> 위 사항이 수정되었는지 반드시 확인하세요.`,
-          ]
+        ? [`│`, `**이전 Review Findings (수정 확인 필요)**:`,
+           ...reviewVerdict.findings.map((f, i) => `${i + 1}. ${f.slice(0, 150)}`),
+           ``, `> 위 사항이 수정되었는지 반드시 확인하세요.`]
         : [];
 
       const prompt = [
-        `### 🔍 ${roundLabel} 요청`,
-        ``,
-        `**Plan**: "${plan.title}"`,
-        ``,
+        `### 🔍 ${roundLabel} 요청`, ``,
+        `**Plan**: "${plan.title}"`, ``,
         `**검증 문서**:`,
         `- Plan: \`docs/plans/${slug}.md\``,
         `- 결과: \`docs/plans/${slug}-result.md\``,
         `- 지시서: \`docs/plans/${slug}-task-*.md\``,
-        ...prevFindingsBlock,
-        ``,
-        `Plan 문서와 작업 지시서를 기준으로 구현 결과를 검증하세요.`,
-        ``,
+        ...prevFindingsBlock, ``,
+        `Plan 문서와 작업 지시서를 기준으로 구현 결과를 검증하세요.`, ``,
         `> 완료 후 리뷰 verdict를 제출하세요.`,
       ].join("\n");
 
@@ -214,20 +106,80 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
   };
 
   const handleCreateSubPlan = async (subtask: PlanSubtask, index: number) => {
-    // Send to main chat Architect — request a sub-plan for this subtask
     const { sendWithEngine } = useChatStore.getState();
     setBusy(true);
     try {
       const prompt = [
-        `[Sub-plan 요청] Plan "${plan.title}" → Subtask ${index + 1} "${subtask.title}"`,
-        "",
+        `[Sub-plan 요청] Plan "${plan.title}" → Subtask ${index + 1} "${subtask.title}"`, "",
         `이 subtask의 구현이 복잡하여 별도 Plan이 필요합니다.`,
-        subtask.details ? `\n### 기존 상세 설계\n${subtask.details}` : "",
-        "",
+        subtask.details ? `\n### 기존 상세 설계\n${subtask.details}` : "", "",
         `이 subtask를 위한 별도 Plan을 \`<!-- tunaflow:plan-proposal -->\` 형식으로 제안하세요.`,
         `부모 Plan: ${plan.title}`,
       ].filter(Boolean).join("\n");
       await sendWithEngine("claude", prompt);
+    } catch (e) { console.warn("[tunaflow]", e); }
+    setBusy(false);
+  };
+
+  const handleRework = async () => {
+    if (!plan.implementationBranchId) return;
+    setBusy(true);
+    try {
+      await planApi.updatePlanPhase(plan.id, "implementation");
+      await planApi.createPlanEvent(plan.id, "rework_requested", "user");
+      await openThread(plan.implementationBranchId);
+      const findingItems = reviewVerdict?.findings.map((f, i) => {
+        const fileMatch = f.match(/([a-zA-Z0-9_./-]+\.[a-zA-Z]+(?:#L\d+)?)/);
+        const file = fileMatch ? fileMatch[1] : "";
+        const summary = f.slice(0, 150);
+        return file ? `□ ${i + 1}. ${summary}\n  파일: ${file}` : `□ ${i + 1}. ${summary}`;
+      }) ?? [];
+      const recItems = reviewVerdict?.recommendations.map((r) => `• ${r.slice(0, 100)}`) ?? [];
+
+      const events = await planApi.listPlanEvents(plan.id);
+      const failEvents = events.filter((e) => e.eventType === "review_failed");
+      const failCount = failEvents.length;
+      const pressureWarning = failCount >= 2
+        ? `\n> ⚠️ 이전 ${failCount}회 Review 실패. ${failCount >= 3 ? "이번이 마지막 기회입니다." : "다음 실패 시 설계 재검토로 에스컬레이션됩니다."}`
+        : "";
+
+      let historySection = "";
+      const previousFails = failEvents.slice(0, -1).slice(-3);
+      if (previousFails.length > 0) {
+        const historyItems = previousFails.map((ev, i) => {
+          try {
+            const d = JSON.parse(ev.detail ?? "{}");
+            const findings = (d.findings as string[] ?? []).slice(0, 2).map((f: string) => f.slice(0, 80));
+            return `- ${i + 1}차: ${findings.join("; ") || "상세 없음"} → ❌`;
+          } catch { return `- ${i + 1}차: (파싱 불가) → ❌`; }
+        });
+        historySection = [`**이전 시도 이력** (${previousFails.length}회 실패):`, ...historyItems, ``].join("\n");
+      }
+
+      const failedIds = reviewVerdict?.failedSubtaskIds ?? [];
+      const slug = slugifyPlanTitle(plan.title);
+      let targetSection = "";
+      if (failedIds.length > 0 && subtasks.length > 0) {
+        const targetNames = failedIds
+          .map((id) => { const st = subtasks.find((s) => s.idx === id); return st ? `Task ${String(id).padStart(2, "0")} (${st.title})` : `Task ${String(id).padStart(2, "0")}`; })
+          .join(", ");
+        const otherCount = subtasks.length - failedIds.length;
+        targetSection = [`**대상 서브태스크**: ${targetNames}`,
+          otherCount > 0 ? `**나머지 ${otherCount}개 태스크**: 이미 완료됨 — 수정하지 마세요.` : "", ``].filter(Boolean).join("\n");
+      }
+
+      const reworkPrompt = [
+        `### 🔄 Rework`, ``, historySection, targetSection,
+        `**수정 항목** (${findingItems.length}건):`,
+        ...findingItems.map((f) => `- ${f}`),
+        ...(recItems.length > 0 ? [``, `**Recommendations**:`, ...recItems.map((r) => `- ${r}`)] : []),
+        ``, `> 완료 조건: 위 항목 모두 해결 후 완료를 알려주세요.${failedIds.length > 0 ? " 다른 태스크의 코드를 변경하지 마세요." : ""}`,
+        pressureWarning,
+      ].filter(Boolean).join("\n");
+      const shadowConvId = `branch:${plan.implementationBranchId}`;
+      const saved = useChatStore.getState().getConversationEngine(shadowConvId);
+      await sendThreadMessage(reworkPrompt, saved?.engine ?? "claude", saved?.model ?? undefined);
+      onPlanUpdate(plan.id, { phase: "implementation" as PlanPhase });
     } catch (e) { console.warn("[tunaflow]", e); }
     setBusy(false);
   };
@@ -271,14 +223,11 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
               isNext ? "border-primary/30 bg-primary/5" :
               "border-border bg-card"
             )}>
-              {/* Status icon */}
               <div className="shrink-0 mt-0.5">
                 {isDone ? <Check className="w-3.5 h-3.5 text-status-approved" /> :
                  isNext ? <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" /> :
                  <Clock className="w-3.5 h-3.5 text-muted-foreground/30" />}
               </div>
-
-              {/* Content */}
               <div className="flex-1 min-w-0">
                 <p className={cn("text-[11px] font-medium leading-snug",
                   isDone ? "text-status-approved/80" : "text-foreground"
@@ -288,12 +237,8 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
                 {st.details && (
                   <p className="text-[10px] text-muted-foreground/60 leading-snug mt-0.5 line-clamp-2">{st.details}</p>
                 )}
-
-                {/* Actions for failed/done subtasks */}
                 <div className="flex items-center gap-2 mt-1.5">
-                  {isDone && (
-                    <span className="text-[9px] text-status-approved/60">완료</span>
-                  )}
+                  {isDone && <span className="text-[9px] text-status-approved/60">완료</span>}
                   {!isDone && (
                     <button onClick={() => handleRerunSubtask(st, i)} disabled={busy}
                       className="flex items-center gap-0.5 text-[9px] text-primary/60 hover:text-primary disabled:opacity-40 transition-colors">
@@ -329,93 +274,8 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
             </div>
           )}
           <div className="flex items-center gap-2">
-            <button
-              onClick={async () => {
-                if (!plan.implementationBranchId) return;
-                setBusy(true);
-                try {
-                  await planApi.updatePlanPhase(plan.id, "implementation");
-                  await planApi.createPlanEvent(plan.id, "rework_requested", "user");
-                  await openThread(plan.implementationBranchId);
-                  const findingItems = reviewVerdict?.findings.map((f, i) => {
-                    // Extract file path from finding if present
-                    const fileMatch = f.match(/([a-zA-Z0-9_./-]+\.[a-zA-Z]+(?:#L\d+)?)/);
-                    const file = fileMatch ? fileMatch[1] : "";
-                    const summary = f.slice(0, 150);
-                    return file
-                      ? `□ ${i + 1}. ${summary}\n  파일: ${file}`
-                      : `□ ${i + 1}. ${summary}`;
-                  }) ?? [];
-                  const recItems = reviewVerdict?.recommendations.map((r) => `• ${r.slice(0, 100)}`) ?? [];
-
-                  // Budget pressure + previous failure history
-                  const events = await planApi.listPlanEvents(plan.id);
-                  const failEvents = events.filter((e) => e.eventType === "review_failed");
-                  const failCount = failEvents.length;
-                  const pressureWarning =
-                    failCount >= 2
-                      ? `\n> ⚠️ 이전 ${failCount}회 Review 실패. ${failCount >= 3 ? "이번이 마지막 기회입니다." : "다음 실패 시 설계 재검토로 에스컬레이션됩니다."}`
-                      : "";
-
-                  // Build previous failure history (exclude current, show last 3)
-                  let historySection = "";
-                  const previousFails = failEvents.slice(0, -1).slice(-3); // exclude latest (= current), keep last 3
-                  if (previousFails.length > 0) {
-                    const historyItems = previousFails.map((ev, i) => {
-                      try {
-                        const d = JSON.parse(ev.detail ?? "{}");
-                        const findings = (d.findings as string[] ?? []).slice(0, 2).map((f: string) => f.slice(0, 80));
-                        return `- ${i + 1}차: ${findings.join("; ") || "상세 없음"} → ❌`;
-                      } catch { return `- ${i + 1}차: (파싱 불가) → ❌`; }
-                    });
-                    historySection = [
-                      `**이전 시도 이력** (${previousFails.length}회 실패):`,
-                      ...historyItems,
-                      ``,
-                    ].join("\n");
-                  }
-
-                  // Target specific subtasks if failedSubtaskIds available
-                  const failedIds = reviewVerdict?.failedSubtaskIds ?? [];
-                  const slug = slugifyPlanTitle(plan.title);
-                  let targetSection = "";
-                  if (failedIds.length > 0 && subtasks.length > 0) {
-                    const targetNames = failedIds
-                      .map((id) => {
-                        const st = subtasks.find((s) => s.idx === id);
-                        return st ? `Task ${String(id).padStart(2, "0")} (${st.title})` : `Task ${String(id).padStart(2, "0")}`;
-                      })
-                      .join(", ");
-                    const otherCount = subtasks.length - failedIds.length;
-                    targetSection = [
-                      `**대상 서브태스크**: ${targetNames}`,
-                      otherCount > 0 ? `**나머지 ${otherCount}개 태스크**: 이미 완료됨 — 수정하지 마세요.` : "",
-                      ``,
-                    ].filter(Boolean).join("\n");
-                  }
-
-                  const reworkPrompt = [
-                    `### 🔄 Rework`,
-                    ``,
-                    historySection,
-                    targetSection,
-                    `**수정 항목** (${findingItems.length}건):`,
-                    ...findingItems.map((f) => `- ${f}`),
-                    ...(recItems.length > 0 ? [``, `**Recommendations**:`, ...recItems.map((r) => `- ${r}`)] : []),
-                    ``,
-                    `> 완료 조건: 위 항목 모두 해결 후 완료를 알려주세요.${failedIds.length > 0 ? " 다른 태스크의 코드를 변경하지 마세요." : ""}`,
-                    pressureWarning,
-                  ].filter(Boolean).join("\n");
-                  const shadowConvId = `branch:${plan.implementationBranchId}`;
-                  const saved = useChatStore.getState().getConversationEngine(shadowConvId);
-                  await sendThreadMessage(reworkPrompt, saved?.engine ?? "claude", saved?.model ?? undefined);
-                  onPlanUpdate(plan.id, { phase: "implementation" as PlanPhase });
-                } catch (e) { console.warn("[tunaflow]", e); }
-                setBusy(false);
-              }}
-              disabled={busy}
-              className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
-            >
+            <button onClick={handleRework} disabled={busy}
+              className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors">
               {busy ? "전달 중..." : "Developer에게 전달 + Rework"}
             </button>
             <button
@@ -429,15 +289,14 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
                 setBusy(false);
               }}
               disabled={busy}
-              className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
-            >
+              className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors">
               설계 변경 → Subtask
             </button>
           </div>
         </div>
       )}
 
-      {/* Test results — informational, does not block Review */}
+      {/* Test results */}
       {testRunning && (
         <div className="rounded-md border border-primary/20 bg-primary/5 p-2.5 text-[10px] text-primary flex items-center gap-2">
           <Loader2 className="w-3.5 h-3.5 animate-spin" />테스트 실행 중...
@@ -446,9 +305,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       {testResult && !testRunning && (
         <div className={cn(
           "rounded-md border p-2.5 text-[10px] space-y-1",
-          testResult.success
-            ? "border-status-approved/30 bg-status-approved/5 text-status-approved"
-            : "border-status-rejected/30 bg-status-rejected/5 text-status-rejected"
+          testResult.success ? "border-status-approved/30 bg-status-approved/5 text-status-approved" : "border-status-rejected/30 bg-status-rejected/5 text-status-rejected"
         )}>
           <div className="font-medium">{testResult.testType} 테스트: {testResult.success ? "PASS" : "FAIL"}</div>
           <div className="flex gap-3 text-[9px]">
@@ -460,22 +317,18 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
           {!testResult.success && testResult.output && (
             <details className="mt-1">
               <summary className="text-[9px] cursor-pointer text-muted-foreground/60 hover:text-foreground">출력 보기</summary>
-              <pre className="text-[8px] mt-1 max-h-32 overflow-auto bg-card/50 rounded p-1.5 whitespace-pre-wrap">
-                {testResult.output.slice(0, 2000)}
-              </pre>
+              <pre className="text-[8px] mt-1 max-h-32 overflow-auto bg-card/50 rounded p-1.5 whitespace-pre-wrap">{testResult.output.slice(0, 2000)}</pre>
             </details>
           )}
         </div>
       )}
 
-      {/* Re-review: show previous findings summary before review button */}
+      {/* Re-review findings summary */}
       {implComplete && plan.phase !== "rework" && reviewVerdict && (
         <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-2.5 text-[10px] space-y-1.5">
           <div className="font-medium text-amber-600">이전 Review Findings (Re-review #{(plan.versionMinor || 0) + 1})</div>
           <ul className="space-y-0.5 text-[9px] text-foreground/60 pl-2">
-            {reviewVerdict.findings.slice(0, 5).map((f, i) => (
-              <li key={i}>□ {f.slice(0, 150)}</li>
-            ))}
+            {reviewVerdict.findings.slice(0, 5).map((f, i) => <li key={i}>□ {f.slice(0, 150)}</li>)}
           </ul>
           <p className="text-[9px] text-muted-foreground/50">위 사항이 수정되었는지 중심으로 재검증됩니다.</p>
         </div>
@@ -483,17 +336,12 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
 
       {/* Summary + actions */}
       <div className="flex items-center gap-2 pt-2 border-t border-border/30">
-        <span className="text-[10px] text-muted-foreground/50">
-          {completedNums.size}/{subtasks.length} 완료
-        </span>
+        <span className="text-[10px] text-muted-foreground/50">{completedNums.size}/{subtasks.length} 완료</span>
         <span className="flex-1" />
         {implComplete && plan.phase !== "rework" && reviewMode === "idle" && (
           <button onClick={() => setReviewMode("select")} disabled={busy}
-            className={cn(
-              "flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium disabled:opacity-50 transition-colors",
-              reviewVerdict
-                ? "bg-amber-500/10 text-amber-600 hover:bg-amber-500/20"
-                : "bg-status-approved/10 text-status-approved hover:bg-status-approved/20"
+            className={cn("flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium disabled:opacity-50 transition-colors",
+              reviewVerdict ? "bg-amber-500/10 text-amber-600 hover:bg-amber-500/20" : "bg-status-approved/10 text-status-approved hover:bg-status-approved/20"
             )}>
             <Check className="w-3.5 h-3.5" />{reviewVerdict ? "Re-review 시작" : "Review 시작"}
           </button>
