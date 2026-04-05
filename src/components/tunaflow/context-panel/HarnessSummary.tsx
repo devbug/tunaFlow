@@ -16,25 +16,25 @@ interface WorkflowStage {
 function deriveStages(
   plan: Plan | null,
   subtasks: PlanSubtask[],
-  branches: Branch[],
+  _branches: Branch[],
   artifacts: Artifact[],
 ): WorkflowStage[] {
-  const hasApproved = subtasks.some((s) => s.status === "approved");
-  const hasInProgress = subtasks.some((s) => s.status === "in_progress");
-  const hasDone = subtasks.some((s) => s.status === "done");
-  const linkedBranches = branches.filter((b) => b.subtaskId);
-  const hasReview = artifacts.some((a) => a.type === "review-findings");
-  const hasDecision = artifacts.some((a) => a.type === "architect-decision");
+  const phase = plan?.phase;
 
-  const hasSubtaskReview = plan?.phase === "subtask_review";
+  // Phase-based progression: each phase implies all prior stages are active
+  const PHASE_ORDER = ["drafting", "subtask_review", "approval", "implementation", "rework", "review", "done"];
+  const phaseIdx = phase ? PHASE_ORDER.indexOf(phase) : -1;
+
+  const hasReview = artifacts.some((a) => a.type === "review-findings");
+  const hasDecision = artifacts.some((a) => a.type === "architect-decision") || phase === "done";
 
   return [
     { id: "plan", label: "Plan", active: !!plan },
-    { id: "subtask", label: "Subtask", active: hasSubtaskReview || hasApproved || hasInProgress || hasDone },
-    { id: "approved", label: "Approved", active: hasApproved || hasInProgress || hasDone },
-    { id: "dev", label: "Dev", active: linkedBranches.length > 0 || hasInProgress },
-    { id: "review", label: "Review", active: hasReview },
-    { id: "decision", label: "Decision", active: hasDecision },
+    { id: "subtask", label: "Subtask", active: phaseIdx >= 1 },
+    { id: "approved", label: "Approved", active: phaseIdx >= 2 },
+    { id: "dev", label: "Dev", active: phaseIdx >= 3 },
+    { id: "review", label: "Review", active: phaseIdx >= 5 || hasReview },
+    { id: "decision", label: "Decision", active: phaseIdx >= 6 || hasDecision },
   ];
 }
 
