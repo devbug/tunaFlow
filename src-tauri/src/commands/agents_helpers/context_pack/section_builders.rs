@@ -377,17 +377,17 @@ pub fn build_plan_section(
     conn: &rusqlite::Connection,
     conversation_id: &str,
 ) -> Option<String> {
-    let plan: (String, String, Option<String>) = conn
+    let plan: (String, String, Option<String>, String) = conn
         .query_row(
-            "SELECT id, title, description FROM plans
+            "SELECT id, title, description, phase FROM plans
              WHERE conversation_id = ?1 AND status = 'active'
              ORDER BY updated_at DESC LIMIT 1",
             [conversation_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .ok()?;
 
-    let (plan_id, title, description) = plan;
+    let (plan_id, title, description, phase) = plan;
 
     let mut stmt = conn
         .prepare(
@@ -403,12 +403,13 @@ pub fn build_plan_section(
         .filter_map(|r| r.ok())
         .collect();
 
-    let mut out = format!("## Active Plan\n\n### {}\n", title);
+    let mut out = format!("## Active Plan (phase: {})\n\n### {}\n", phase, title);
     if let Some(desc) = &description {
         if !desc.is_empty() {
             out.push_str(&format!("{}\n", desc));
         }
     }
+    out.push_str(&format!("\n> **Current phase: {}** — Do NOT create a new plan. Propose revisions to this plan if needed.\n", phase));
 
     // Subtask status list with indices + parallel group info
     if !subtasks.is_empty() {
