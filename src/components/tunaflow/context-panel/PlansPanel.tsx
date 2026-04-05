@@ -92,11 +92,34 @@ export function PlansPanel({ activeStage, onPhaseChanged, onSwitchToChat }: Plan
         </div>
       )}
 
-      {activeStage === "subtask" ? (
-        filteredPlans.map((plan) => (
-          <SubtaskReviewView key={plan.id} plan={plan} onPlanUpdate={handlePlanUpdated} onSwitchToChat={onSwitchToChat} />
-        ))
-      ) : activeStage === "dev" ? (
+      {activeStage === "subtask" ? (() => {
+        // Separate: normal subtask review vs doom-loop escalated plans
+        // Doom loop plans have rework phase but were forced into subtask_review
+        const normalPlans = filteredPlans.filter((p) => !p.reviewBranchId);
+        const escalatedPlans = filteredPlans.filter((p) => !!p.reviewBranchId);
+        return (
+          <>
+            {normalPlans.length > 0 && (
+              <div className="space-y-2">
+                {normalPlans.length > 0 && escalatedPlans.length > 0 && (
+                  <p className="text-[9px] font-medium text-muted-foreground/40 uppercase tracking-wider px-1">검토 대기</p>
+                )}
+                {normalPlans.map((plan) => (
+                  <SubtaskReviewView key={plan.id} plan={plan} onPlanUpdate={handlePlanUpdated} onSwitchToChat={onSwitchToChat} />
+                ))}
+              </div>
+            )}
+            {escalatedPlans.length > 0 && (
+              <div className="space-y-2 mt-4">
+                <p className="text-[9px] font-medium text-amber-600/60 uppercase tracking-wider px-1">⚠️ 설계 재검토 필요</p>
+                {escalatedPlans.map((plan) => (
+                  <SubtaskReviewView key={plan.id} plan={plan} onPlanUpdate={handlePlanUpdated} onSwitchToChat={onSwitchToChat} />
+                ))}
+              </div>
+            )}
+          </>
+        );
+      })() : activeStage === "dev" ? (
         filteredPlans.map((plan) => (
           <DevProgressView key={plan.id} plan={plan} onPlanUpdate={handlePlanUpdated} />
         ))
