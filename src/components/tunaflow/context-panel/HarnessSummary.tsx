@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { ClipboardList, GitBranch, FileSearch, Gavel } from "lucide-react";
+import { ClipboardList } from "lucide-react";
 import type { Plan, PlanSubtask, Artifact, Branch } from "@/types";
 import * as planApi from "@/lib/api/plans";
 
@@ -55,6 +55,7 @@ interface HarnessSummaryProps {
 export function HarnessSummary({ conversationId, activeStage, onStageClick, refreshKey }: HarnessSummaryProps) {
   const { branches, artifacts } = useChatStore();
   const runningThreadIds = useChatStore((s) => s.runningThreadIds);
+  const [allPlans, setAllPlans] = useState<Plan[]>([]);
   const [activePlan, setActivePlan] = useState<Plan | null>(null);
   const [subtasks, setSubtasks] = useState<PlanSubtask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,6 +67,7 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
     setLoading(true);
     planApi.listPlansByConversation(conversationId).then(async (plans) => {
       if (cancelled) return;
+      setAllPlans(plans);
       const livePlans = plans.filter((p) => p.status !== "abandoned" && p.status !== "done");
       const active = livePlans.find((p) => p.status === "active") ?? livePlans[0] ?? null;
       setActivePlan(active);
@@ -77,7 +79,7 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
       }
       setLoading(false);
     }).catch(() => {
-      if (!cancelled) { setActivePlan(null); setSubtasks([]); setLoading(false); }
+      if (!cancelled) { setAllPlans([]); setActivePlan(null); setSubtasks([]); setLoading(false); }
     });
     return () => { cancelled = true; };
   }, [conversationId, tick]);
@@ -94,16 +96,17 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
 
   const stages = deriveStages(activePlan, subtasks, branches, artifacts);
 
-  // Derived counts (only if plan exists)
-  const counts = activePlan ? {
-    approved: subtasks.filter((s) => s.status === "approved").length,
-    inProgress: subtasks.filter((s) => s.status === "in_progress").length,
-    done: subtasks.filter((s) => s.status === "done").length,
-    todo: subtasks.filter((s) => s.status === "todo").length,
-  } : null;
-  const linkedBranches = branches.filter((b) => b.subtaskId);
-  const reviewCount = artifacts.filter((a) => a.type === "review-findings").length;
-  const decisionCount = artifacts.filter((a) => a.type === "architect-decision").length;
+  // Per-stage plan counts
+  const livePlans = allPlans.filter((p) => p.status !== "abandoned");
+  const stageCounts: Record<string, number> = {
+    plan: livePlans.filter((p) => p.phase === "drafting").length,
+    subtask: livePlans.filter((p) => p.phase === "subtask_review").length,
+    approved: livePlans.filter((p) => p.phase === "approval").length,
+    dev: livePlans.filter((p) => p.phase === "implementation" || p.phase === "rework").length,
+    review: livePlans.filter((p) => p.phase === "review").length,
+    decision: livePlans.filter((p) => p.phase === "done").length,
+  };
+  const abandonedCount = allPlans.filter((p) => p.status === "abandoned").length;
 
   return (
     <div className="mb-3 space-y-2">
@@ -119,51 +122,40 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
               <button
                 onClick={() => onStageClick?.(stage.id as WorkflowStageId)}
                 className={cn(
-                  "text-[8px] font-medium px-1.5 py-0.5 rounded transition-colors",
+                  "text-[8px] font-medium px-1.5 py-0.5 rounded transition-colors flex items-center gap-1",
                   isSelected
                     ? "bg-primary/20 text-primary ring-1 ring-primary/30"
                     : "text-foreground/60 hover:bg-accent/60 hover:text-foreground/80"
                 )}
               >
                 {stage.label}
+                {stage.id === "decision"
+                  ? (stageCounts.decision + abandonedCount > 0 && (
+                      <span className="text-[7px] text-muted-foreground/40">({stageCounts.decision + abandonedCount})</span>
+                    ))
+                  : (stageCounts[stage.id] > 0 && (
+                      <span className={cn("min-w-[14px] h-3.5 flex items-center justify-center rounded-full text-[7px] font-semibold",
+                        isSelected ? "bg-primary/30 text-primary" : "bg-accent text-foreground/50"
+                      )}>
+                        {stageCounts[stage.id]}
+                      </span>
+                    ))
+                }
               </button>
             </div>
           );
         })}
       </div>
 
-      {/* Compact summary — plan count per stage as inline badges */}
-      {activePlan && counts && (
-      <div className="flex items-center gap-2 text-[9px] text-muted-foreground/50 px-1">
-        {counts.done > 0 && (
-          <span className="flex items-center gap-1 text-status-approved/60">
-            <span className="w-1.5 h-1.5 rounded-full bg-status-approved/50" />
-            {counts.done} done
-          </span>
-        )}
-        {counts.inProgress > 0 && (
-          <span className="flex items-center gap-1 text-primary/60">
-            <span className="w-1.5 h-1.5 rounded-full bg-primary/50" />
-            {counts.inProgress} active
-          </span>
-        )}
-        {counts.todo > 0 && (
-          <span>{counts.todo} todo</span>
-        )}
-        {reviewCount > 0 && (
-          <span className="flex items-center gap-1 text-status-draft/60">
-            <FileSearch className="w-2.5 h-2.5" />
-            {reviewCount} review
-          </span>
-        )}
-        {decisionCount > 0 && (
-          <span className="flex items-center gap-1 text-primary/60">
-            <Gavel className="w-2.5 h-2.5" />
-            {decisionCount} decision
-          </span>
-        )}
-      </div>
-      )}
+      {/* Subtask summary for active plan */}
+      {activePlan && subtasks.length > 0 && (() => {
+        const doneCount = subtasks.filter((s) => s.status === "done").length;
+        return doneCount > 0 ? (
+          <p className="text-[9px] text-muted-foreground/40 px-1">
+            {activePlan.title}: {doneCount}/{subtasks.length} subtask 완료
+          </p>
+        ) : null;
+      })()}
     </div>
   );
 }

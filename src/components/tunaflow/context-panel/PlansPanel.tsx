@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "@/stores/chatStore";
 import { ClipboardList } from "lucide-react";
 import type { Plan, PlanPhase, PlanStatus } from "@/types";
@@ -61,6 +62,16 @@ export function PlansPanel({ activeStage, onPhaseChanged, onSwitchToChat }: Plan
   const handlePlanStatus = async (planId: string, status: PlanStatus) => {
     try {
       await planApi.updatePlanStatus(planId, status);
+      // Auto-archive related branches when plan is abandoned or done
+      if (status === "abandoned" || status === "done") {
+        const plan = plans.find((p) => p.id === planId);
+        if (plan?.implementationBranchId) {
+          invoke("archive_branch", { id: plan.implementationBranchId }).catch(() => {});
+        }
+        if (plan?.reviewBranchId) {
+          invoke("archive_branch", { id: plan.reviewBranchId }).catch(() => {});
+        }
+      }
       setPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, status } : p)));
     } catch (e) {
       console.error("[PlansPanel] plan status update failed:", e);
