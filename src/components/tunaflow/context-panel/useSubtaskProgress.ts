@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "@/stores/chatStore";
 import type { Plan, PlanSubtask, Message } from "@/types";
@@ -14,6 +14,8 @@ export function useSubtaskProgress(plan: Plan) {
   const [loading, setLoading] = useState(true);
   const [testResult, setTestResult] = useState<TestRunResult | null>(null);
   const [testRunning, setTestRunning] = useState(false);
+  // Ref to prevent stale closure re-triggering tests in polling interval
+  const testRanRef = useRef(false);
   const [reviewVerdict, setReviewVerdict] = useState<ParsedReviewVerdict | null>(null);
   const [designReviewSuggested, setDesignReviewSuggested] = useState(false);
   const [failCount, setFailCount] = useState(0);
@@ -34,7 +36,8 @@ export function useSubtaskProgress(plan: Plan) {
       }
       setImplComplete(complete);
 
-      if (complete && !testResult && !testRunning && !cancelled.current) {
+      if (complete && !testRanRef.current && !cancelled.current) {
+        testRanRef.current = true;
         try {
           const projectKey = useChatStore.getState().selectedProjectKey;
           if (projectKey) {
