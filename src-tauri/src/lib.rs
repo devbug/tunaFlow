@@ -120,6 +120,7 @@ pub fn run() {
             commands::projects::validate_project_path,
             commands::project_tools::ensure_rawq_index,
             commands::project_tools::ensure_project_workflow_templates,
+            commands::projects::refresh_project_stack_info,
             commands::project_tools::get_project_cli_permissions,
             commands::project_tools::set_project_cli_permissions,
             commands::project_tools::start_rawq_index,

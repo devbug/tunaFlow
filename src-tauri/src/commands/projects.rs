@@ -171,7 +171,7 @@ fn scaffold_project_dir(project_path: &str, project_name: &str) {
     // CLAUDE.md — agent convention file (only if not present)
     let claude_md = root.join("CLAUDE.md");
     if !claude_md.exists() {
-        let content = generate_claude_md(project_name);
+        let content = generate_claude_md(project_name, Some(project_path));
         let _ = fs::write(&claude_md, content);
         eprintln!("[scaffold] created {}", claude_md.display());
     }
@@ -192,8 +192,232 @@ fn scaffold_project_dir(project_path: &str, project_name: &str) {
     super::project_tools::ensure_workflow_templates(project_path);
 }
 
+/// Update the §1 Project Overview section of an existing CLAUDE.md with auto-detected stack info.
+/// Replaces everything between "## 1. Project Overview" and the next "---" separator.
+/// If the section already contains auto-detected info, it's refreshed.
+/// If the section was manually edited (no "Auto-detected" marker), it's left alone.
+#[tauri::command]
+pub fn refresh_project_stack_info(project_path: String, project_name: String) -> Result<bool, AppError> {
+    use std::path::Path;
+
+    let claude_md_path = Path::new(&project_path).join("CLAUDE.md");
+    if !claude_md_path.is_file() {
+        return Ok(false);
+    }
+
+    let content = std::fs::read_to_string(&claude_md_path)
+        .map_err(|e| AppError::Agent(format!("read CLAUDE.md: {}", e)))?;
+
+    // Find §1 section
+    let section_start = match content.find("## 1. Project Overview") {
+        Some(pos) => pos,
+        None => return Ok(false), // No §1 section
+    };
+    let section_end = content[section_start + 10..].find("\n---").map(|p| section_start + 10 + p);
+    let section_end = match section_end {
+        Some(pos) => pos,
+        None => return Ok(false),
+    };
+
+    let existing_section = &content[section_start..section_end];
+
+    // Only update if it contains the auto-detected marker or the placeholder
+    if !existing_section.contains("Auto-detected") && !existing_section.contains("Describe project purpose") {
+        eprintln!("[scaffold] §1 was manually edited — skipping stack refresh");
+        return Ok(false);
+    }
+
+    let info = detect_project_info(&project_path);
+    if info.detected_stack.is_empty() {
+        return Ok(false); // Nothing to detect
+    }
+
+    let mut lines = vec![
+        "## 1. Project Overview".to_string(),
+        String::new(),
+        format!("- Name: {}", project_name),
+        "- Status: active".to_string(),
+    ];
+    if let Some(lang) = &info.language { lines.push(format!("- Language: {}", lang)); }
+    if let Some(fw) = &info.framework { lines.push(format!("- Framework: {}", fw)); }
+    if let Some(tc) = &info.test_command { lines.push(format!("- Test: `{}`", tc)); }
+    if let Some(tcc) = &info.type_check_command { lines.push(format!("- Type check: `{}`", tcc)); }
+    if let Some(bc) = &info.build_command { lines.push(format!("- Build: `{}`", bc)); }
+    lines.push(format!("- Stack: {}", info.detected_stack.join(", ")));
+    lines.push(String::new());
+    lines.push("> Auto-detected by tunaFlow. Verify and adjust if needed.".into());
+
+    let new_section = lines.join("\n");
+    let updated = format!("{}{}\n{}", &content[..section_start], new_section, &content[section_end..]);
+
+    std::fs::write(&claude_md_path, updated)
+        .map_err(|e| AppError::Agent(format!("write CLAUDE.md: {}", e)))?;
+    eprintln!("[scaffold] refreshed §1 Project Overview with stack: {:?}", info.detected_stack);
+
+    Ok(true)
+}
+
+/// Detected project information from manifest files.
+struct ProjectInfo {
+    framework: Option<String>,
+    language: Option<String>,
+    test_command: Option<String>,
+    type_check_command: Option<String>,
+    build_command: Option<String>,
+    detected_stack: Vec<String>,
+}
+
+/// Detect project info from manifest files (package.json, Cargo.toml, pyproject.toml).
+fn detect_project_info(project_path: &str) -> ProjectInfo {
+    let root = std::path::Path::new(project_path);
+    let mut info = ProjectInfo {
+        framework: None, language: None, test_command: None,
+        type_check_command: None, build_command: None, detected_stack: Vec::new(),
+    };
+
+    // ── package.json ──
+    let pkg_json = root.join("package.json");
+    if pkg_json.is_file() {
+        if let Ok(text) = std::fs::read_to_string(&pkg_json) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+                info.language = Some("TypeScript/JavaScript".into());
+
+                // Scripts
+                if let Some(scripts) = val.get("scripts").and_then(|v| v.as_object()) {
+                    if let Some(test) = scripts.get("test").and_then(|v| v.as_str()) {
+                        info.test_command = Some(format!("npm test (→ {})", test));
+                    }
+                    if let Some(build) = scripts.get("build").and_then(|v| v.as_str()) {
+                        info.build_command = Some(format!("npm run build (→ {})", build));
+                    }
+                    // Detect type check from scripts
+                    for key in ["typecheck", "type-check", "lint:types"] {
+                        if let Some(cmd) = scripts.get(key).and_then(|v| v.as_str()) {
+                            info.type_check_command = Some(format!("npm run {} (→ {})", key, cmd));
+                            break;
+                        }
+                    }
+                }
+
+                // Framework detection from dependencies
+                let deps_iter = ["dependencies", "devDependencies"].iter()
+                    .filter_map(|s| val.get(s).and_then(|v| v.as_object()))
+                    .flat_map(|obj| obj.keys().map(|k| k.to_lowercase()));
+                let dep_set: std::collections::HashSet<String> = deps_iter.collect();
+
+                // Framework priority: most specific first
+                let framework = if dep_set.contains("nuxt") { "Nuxt 3" }
+                    else if dep_set.contains("next") { "Next.js" }
+                    else if dep_set.contains("svelte") || dep_set.contains("@sveltejs/kit") { "SvelteKit" }
+                    else if dep_set.contains("vue") { "Vue 3" }
+                    else if dep_set.contains("react") { "React" }
+                    else if dep_set.contains("express") { "Express" }
+                    else if dep_set.contains("fastify") { "Fastify" }
+                    else if dep_set.contains("hono") { "Hono" }
+                    else { "" };
+                if !framework.is_empty() {
+                    info.framework = Some(framework.into());
+                    info.detected_stack.push(framework.into());
+                }
+
+                // Test framework
+                let test_fw = if dep_set.contains("vitest") { "vitest" }
+                    else if dep_set.contains("jest") { "jest" }
+                    else if dep_set.contains("mocha") { "mocha" }
+                    else if dep_set.contains("ava") { "ava" }
+                    else { "" };
+                if !test_fw.is_empty() {
+                    info.detected_stack.push(test_fw.into());
+                    if info.test_command.is_none() {
+                        info.test_command = Some(format!("npx {} run", test_fw));
+                    }
+                }
+
+                // TypeScript check
+                if dep_set.contains("typescript") {
+                    info.detected_stack.push("TypeScript".into());
+                    if info.type_check_command.is_none() {
+                        // Nuxt uses vue-tsc, others use tsc
+                        if dep_set.contains("nuxt") || dep_set.contains("vue-tsc") {
+                            info.type_check_command = Some("npx vue-tsc --noEmit".into());
+                        } else {
+                            info.type_check_command = Some("npx tsc --noEmit".into());
+                        }
+                    }
+                }
+
+                // Other notable deps
+                for dep in ["tailwindcss", "prisma", "drizzle-orm", "zustand", "pinia", "trpc"] {
+                    if dep_set.contains(dep) { info.detected_stack.push(dep.into()); }
+                }
+            }
+        }
+    }
+
+    // ── Cargo.toml ──
+    let cargo_toml = root.join("Cargo.toml");
+    if cargo_toml.is_file() {
+        info.language = Some(info.language.map_or("Rust".into(), |l| format!("{} + Rust", l)));
+        info.detected_stack.push("Rust".into());
+        if info.test_command.is_none() {
+            info.test_command = Some("cargo test".into());
+        }
+        if info.type_check_command.is_none() {
+            info.type_check_command = Some("cargo check".into());
+        }
+    }
+
+    // ── pyproject.toml / requirements.txt ──
+    let has_python = root.join("pyproject.toml").is_file() || root.join("requirements.txt").is_file();
+    if has_python {
+        info.language = Some(info.language.map_or("Python".into(), |l| format!("{} + Python", l)));
+        info.detected_stack.push("Python".into());
+        if root.join("pyproject.toml").is_file() {
+            if let Ok(text) = std::fs::read_to_string(root.join("pyproject.toml")) {
+                if text.contains("pytest") {
+                    info.detected_stack.push("pytest".into());
+                    if info.test_command.is_none() {
+                        info.test_command = Some("pytest".into());
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Go ──
+    if root.join("go.mod").is_file() {
+        info.language = Some(info.language.map_or("Go".into(), |l| format!("{} + Go", l)));
+        info.detected_stack.push("Go".into());
+        if info.test_command.is_none() { info.test_command = Some("go test ./...".into()); }
+    }
+
+    info
+}
+
 /// Generate a comprehensive CLAUDE.md for a new project.
-fn generate_claude_md(project_name: &str) -> String {
+fn generate_claude_md(project_name: &str, project_path: Option<&str>) -> String {
+    let info = project_path.map(|p| detect_project_info(p)).unwrap_or(ProjectInfo {
+        framework: None, language: None, test_command: None,
+        type_check_command: None, build_command: None, detected_stack: Vec::new(),
+    });
+
+    let stack_section = if info.detected_stack.is_empty() {
+        "> Describe project purpose and tech stack here.".to_string()
+    } else {
+        let mut lines = Vec::new();
+        if let Some(lang) = &info.language { lines.push(format!("- Language: {}", lang)); }
+        if let Some(fw) = &info.framework { lines.push(format!("- Framework: {}", fw)); }
+        if let Some(tc) = &info.test_command { lines.push(format!("- Test: `{}`", tc)); }
+        if let Some(tcc) = &info.type_check_command { lines.push(format!("- Type check: `{}`", tcc)); }
+        if let Some(bc) = &info.build_command { lines.push(format!("- Build: `{}`", bc)); }
+        if !info.detected_stack.is_empty() {
+            lines.push(format!("- Stack: {}", info.detected_stack.join(", ")));
+        }
+        lines.push(String::new());
+        lines.push("> Auto-detected by tunaFlow. Verify and adjust if needed.".into());
+        lines.join("\n")
+    };
+
     format!(r#"# {project_name} — Agent Instructions
 
 > This file defines project-level rules for all agents in tunaFlow.
@@ -206,7 +430,7 @@ fn generate_claude_md(project_name: &str) -> String {
 - Name: {project_name}
 - Status: initial setup
 
-> Describe project purpose and tech stack here.
+{stack_section}
 
 ---
 

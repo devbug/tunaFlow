@@ -115,9 +115,12 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
       get().detectAndRecommendSkills().catch(() => {});
     }).catch(() => {});
 
-    // Ensure workflow agent templates exist (non-blocking, fire-and-forget)
+    // Ensure workflow agent templates + refresh stack info (non-blocking, fire-and-forget)
     invoke<Project>("get_project", { key }).then((p) => {
-      if (p.path) invoke("ensure_project_workflow_templates", { projectPath: p.path }).catch(() => {});
+      if (p.path) {
+        invoke("ensure_project_workflow_templates", { projectPath: p.path }).catch(() => {});
+        invoke("refresh_project_stack_info", { projectPath: p.path, projectName: p.name }).catch(() => {});
+      }
     }).catch(() => {});
 
     // rawq: non-blocking — check status, then start background index if needed
