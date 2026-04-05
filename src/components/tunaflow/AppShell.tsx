@@ -43,7 +43,7 @@ export function AppShell() {
       setLoaded(true);
 
       // Cleanup stale jobs/messages from interrupted background runs
-      invoke("cleanup_stale_jobs").catch(() => {});
+      invoke("cleanup_stale_jobs").catch((e) => console.debug("[cleanup]", e));
       // Clear in-memory running state (processes died on restart)
       useChatStore.setState({ runningThreadIds: [] });
 

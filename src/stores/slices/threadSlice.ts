@@ -129,7 +129,7 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
             window.dispatchEvent(new CustomEvent("tunaflow:switch-stage", { detail: stage }));
           }
         }
-      }).catch(() => {});
+      }).catch((e) => console.debug("[plan-tab]", e));
     } catch (e) {
       const msg = String(e);
       // If branch was already deleted, silently reload branches
@@ -138,7 +138,7 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
         if (convId) {
           invoke<Branch[]>("list_branches", { conversationId: convId })
             .then((branches) => set({ branches }))
-            .catch(() => {});
+            .catch((e) => console.debug("[branch-reload]", e));
         }
       } else {
         set({ error: msg });
@@ -159,27 +159,28 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
   sendThreadMessage: async (prompt: string, engine?: string, model?: string) => {
     const { threadBranchConvId, threadBranchId, selectedProjectKey, activeSkills, crossSessionIds } = get();
     if (!threadBranchConvId || !selectedProjectKey || !threadBranchId) return;
+    const convId = threadBranchConvId; // narrowed: string (guaranteed by guard above)
 
     // Add to runningThreadIds for thread-aware tracking
-    get()._startRun(threadBranchConvId);
+    get()._startRun(convId);
 
     const now = Date.now();
     set((state) => ({
       threadMessages: [
         ...state.threadMessages,
-        { id: `temp-user-${now}`, conversationId: threadBranchConvId, role: "user", content: prompt, timestamp: now, status: "done" },
-        { id: `temp-thinking-${now}`, conversationId: threadBranchConvId, role: "assistant", content: "", progressContent: (ENGINE_CONFIGS[engine ?? "claude"] ?? ENGINE_CONFIGS.claude).label, timestamp: now, status: "streaming", engine: (ENGINE_CONFIGS[engine ?? "claude"] ?? ENGINE_CONFIGS.claude).engineKey, model },
+        { id: `temp-user-${now}`, conversationId: convId, role: "user", content: prompt, timestamp: now, status: "done" },
+        { id: `temp-thinking-${now}`, conversationId: convId, role: "assistant", content: "", progressContent: (ENGINE_CONFIGS[engine ?? "claude"] ?? ENGINE_CONFIGS.claude).label, timestamp: now, status: "streaming", engine: (ENGINE_CONFIGS[engine ?? "claude"] ?? ENGINE_CONFIGS.claude).engineKey, model },
       ],
     }));
 
     const { getSetting } = await import("@/lib/appStore");
     const budgetCfg = await getSetting<{ mode: string; totalCap: number }>("contextBudgetConfig", { mode: "auto", totalCap: 60000 });
     // Resolve phase-based workflow skills
-    const planPhase = await invoke<string | null>("get_active_plan_phase", { conversationId: threadBranchConvId }).catch(() => null);
+    const planPhase = await invoke<string | null>("get_active_plan_phase", { conversationId: convId }).catch(() => null);
     const effectiveSkills = get().getEffectiveSkills(planPhase, prompt);
     const input: SendWithClaudeInput = {
       projectKey: selectedProjectKey,
-      conversationId: threadBranchConvId,
+      conversationId: convId,
       prompt,
       model,
       activeSkills: effectiveSkills,
@@ -203,57 +204,57 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
           return { threadMessages: state.threadMessages.map((m) => m.id === messageId ? { ...m, [field]: text } : m) };
         }
         const withoutPlaceholder = state.threadMessages.filter((m) => !m.id.startsWith("temp-thinking-"));
-        return { threadMessages: [...withoutPlaceholder, { id: messageId, conversationId: threadBranchConvId!, role: "assistant" as const, content: field === "content" ? text : "", progressContent: field === "progressContent" ? text : undefined, timestamp: Date.now(), status: "streaming" as const, engine: engineKey, model }] };
+        return { threadMessages: [...withoutPlaceholder, { id: messageId, conversationId: convId, role: "assistant" as const, content: field === "content" ? text : "", progressContent: field === "progressContent" ? text : undefined, timestamp: Date.now(), status: "streaming" as const, engine: engineKey, model }] };
       });
     };
 
     const ulP = await listen<{ messageId: string; conversationId: string; text: string }>(progressEvent, (e) => {
-      if (e.payload.conversationId !== threadBranchConvId) return;
+      if (e.payload.conversationId !== convId) return;
       useToolStepsStore.getState().handleProgress(e.payload.messageId, e.payload.text);
       replaceOrAdd(e.payload.messageId, "progressContent", e.payload.text);
     });
     const ulC = chunkEvent ? await listen<{ messageId: string; conversationId: string; text: string }>(chunkEvent, (e) => {
-      if (e.payload.conversationId !== threadBranchConvId) return;
+      if (e.payload.conversationId !== convId) return;
       replaceOrAdd(e.payload.messageId, "content", e.payload.text);
     }) : () => {};
     const cleanup = () => { ulP(); ulC(); ulD(); ulE(); };
 
     const ulD = await listen<{ messageId: string; conversationId: string }>("agent:completed", async (e) => {
-      if (e.payload.conversationId !== threadBranchConvId) return;
+      if (e.payload.conversationId !== convId) return;
       cleanup();
       // Save tool steps
       const tsStore = useToolStepsStore.getState();
       const steps = tsStore.getSteps(e.payload.messageId);
       if (steps.length > 0) {
-        invoke("save_progress_content", { messageId: e.payload.messageId, content: serializeSteps(steps) }).catch(() => {});
+        invoke("save_progress_content", { messageId: e.payload.messageId, content: serializeSteps(steps) }).catch((e) => console.debug("[save-steps]", e));
         tsStore.clear(e.payload.messageId);
       }
-      const threadMessages = await invoke<Message[]>("list_messages", { conversationId: threadBranchConvId! });
+      const threadMessages = await invoke<Message[]>("list_messages", { conversationId: convId });
       set({ threadMessages });
       // Check for tool-request markers → auto follow-up in thread
       const lastMsg = threadMessages.find((m) => m.id === e.payload.messageId);
-      if (lastMsg?.role === "assistant" && threadBranchConvId) {
+      if (lastMsg?.role === "assistant") {
         import("@/lib/planProposalParser").then(async ({ extractToolRequests }) => {
           const requests = extractToolRequests(lastMsg.content);
           if (requests.length > 0) {
             const { executeToolRequests } = await import("@/lib/toolRequestHandler");
             const followUp = await executeToolRequests(requests);
             if (followUp) {
-              const saved = get().getConversationEngine(threadBranchConvId!);
+              const saved = get().getConversationEngine(convId);
               get().sendThreadMessage(followUp, saved?.engine ?? "claude", saved?.model ?? undefined);
             }
           }
         }).catch((e) => console.warn("[tool-request]", e));
       }
       // Auto-detect review verdict after tool-request handling
-      autoDetectReviewVerdict(threadBranchConvId!, threadMessages);
-      get()._endRun(threadBranchConvId!);
+      autoDetectReviewVerdict(convId, threadMessages);
+      get()._endRun(convId);
     });
     const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
-      if (e.payload.conversationId !== threadBranchConvId) return;
+      if (e.payload.conversationId !== convId) return;
       cleanup(); set({ error: e.payload.error });
-      const threadMessages = await invoke<Message[]>("list_messages", { conversationId: threadBranchConvId! });
-      set({ threadMessages }); get()._endRun(threadBranchConvId!);
+      const threadMessages = await invoke<Message[]>("list_messages", { conversationId: convId });
+      set({ threadMessages }); get()._endRun(convId);
     });
 
     try {
@@ -262,7 +263,7 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
     } catch (e) {
       cleanup();
       set((state) => ({ error: String(e), threadMessages: state.threadMessages.filter((m) => !m.id.startsWith("temp-thinking-")) }));
-      get()._endRun(threadBranchConvId);
+      get()._endRun(convId);
     }
   },
 

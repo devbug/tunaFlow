@@ -66,10 +66,10 @@ export function PlansPanel({ activeStage, onPhaseChanged, onSwitchToChat }: Plan
       if (status === "abandoned" || status === "done") {
         const plan = plans.find((p) => p.id === planId);
         if (plan?.implementationBranchId) {
-          invoke("archive_branch", { id: plan.implementationBranchId }).catch(() => {});
+          invoke("archive_branch", { id: plan.implementationBranchId }).catch((e) => console.debug("[archive]", e));
         }
         if (plan?.reviewBranchId) {
-          invoke("archive_branch", { id: plan.reviewBranchId }).catch(() => {});
+          invoke("archive_branch", { id: plan.reviewBranchId }).catch((e) => console.debug("[archive]", e));
         }
       }
       setPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, status } : p)));

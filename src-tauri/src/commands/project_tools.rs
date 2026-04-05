@@ -104,7 +104,7 @@ pub fn start_rawq_index(
 
     // Duplicate guard — skip if already indexing this path
     {
-        let mut set = indexing.0.lock().map_err(|_| AppError::Lock)?;
+        let mut set = indexing.0.lock();
         if set.contains(&project_path) {
             eprintln!("[rawq] already indexing {}, skipping", project_path);
             return Ok(());
@@ -153,9 +153,8 @@ pub fn start_rawq_index(
         let _ = app.emit(event, &result);
 
         // Release guard
-        if let Ok(mut set) = guard.lock() {
-            set.remove(&project_path);
-        }
+        let mut set = guard.lock();
+        set.remove(&project_path);
     });
 
     Ok(())

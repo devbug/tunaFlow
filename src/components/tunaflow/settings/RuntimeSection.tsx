@@ -301,7 +301,7 @@ export function RuntimeSection() {
   const [refreshing, setRefreshing] = useState(false);
   const [hubHealth, setHubHealth] = useState<HubHealth | null>(null);
 
-  useEffect(() => { invoke<HubHealth>("context_hub_health").then(setHubHealth).catch(() => {}); }, []);
+  useEffect(() => { invoke<HubHealth>("context_hub_health").then(setHubHealth).catch((e) => console.debug("[hub-health]", e)); }, []);
 
   const handleRefreshModels = async () => { setRefreshing(true); await loadEngineModels(true); setRefreshing(false); };
 

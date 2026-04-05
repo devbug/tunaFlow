@@ -73,7 +73,7 @@ export function BranchThreadPanel() {
     // Walk up: ancestors
     let cur = threadBranch;
     while (cur?.parentBranchId) {
-      const parent = branches.find((b) => b.id === cur!.parentBranchId);
+      const parent = branches.find((b) => b.id === cur?.parentBranchId);
       if (!parent) break;
       chain.unshift({ id: parent.id, label: parent.customLabel ?? parent.label, isRT: parent.mode === "roundtable" });
       cur = parent;

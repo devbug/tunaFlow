@@ -39,7 +39,7 @@ export function MergeBranchButton({
           syncPlanDocument(plan.id);
 
           // Archive the merged branch — it served its purpose
-          await invoke("archive_branch", { id: branchId }).catch(() => {});
+          await invoke("archive_branch", { id: branchId }).catch((e) => console.debug("[archive]", e));
           // Clear the branch link on the plan
           await planApi.linkPlanBranch(plan.id, branchType, null);
           // Return to approval phase for re-review

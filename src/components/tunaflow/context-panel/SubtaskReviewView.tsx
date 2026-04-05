@@ -57,7 +57,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
         } catch { return { round: i + 1, findings: [], failedIds: [] }; }
       });
       setReviewHistory(history);
-    }).catch(() => {});
+    }).catch((e) => console.warn("[subtask-review]", e));
 
     // Load task files from filesystem
     (async () => {

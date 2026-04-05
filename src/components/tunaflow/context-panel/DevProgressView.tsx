@@ -66,7 +66,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       await syncResultReport(plan.id, msgs, plan.developerEngine ?? undefined);
 
       if (plan.reviewBranchId) {
-        await invoke("archive_branch", { id: plan.reviewBranchId }).catch(() => {});
+        await invoke("archive_branch", { id: plan.reviewBranchId }).catch((e) => console.debug("[archive]", e));
       }
 
       const isRework = plan.phase === "rework" || !!reviewVerdict;

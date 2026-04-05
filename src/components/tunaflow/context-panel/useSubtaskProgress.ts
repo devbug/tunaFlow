@@ -52,7 +52,7 @@ export function useSubtaskProgress(plan: Plan) {
       for (const num of scanned) {
         const st = dbSubtasks.find((s) => s.idx === num - 1);
         if (st && st.status !== "done") {
-          planApi.updateSubtaskStatus(st.id, "done").catch(() => {});
+          planApi.updateSubtaskStatus(st.id, "done").catch((e) => console.debug("[subtask-sync]", e));
         }
       }
 
@@ -62,7 +62,7 @@ export function useSubtaskProgress(plan: Plan) {
         for (const st of dbSubtasks) {
           allDone.add(st.idx + 1); // 0-based → 1-based
           if (st.status !== "done") {
-            planApi.updateSubtaskStatus(st.id, "done").catch(() => {});
+            planApi.updateSubtaskStatus(st.id, "done").catch((e) => console.debug("[subtask-sync]", e));
           }
         }
         setCompletedNums(allDone);
@@ -136,7 +136,7 @@ export function useSubtaskProgress(plan: Plan) {
             setFailCount(fails);
             setDoomLoopEscalated(events.some((e: { eventType: string }) => e.eventType === "doom_loop_escalated"));
           }
-        }).catch(() => {});
+        }).catch((e) => console.debug("[plan-events]", e));
       }
 
       setLoading(false);
@@ -159,7 +159,7 @@ export function useSubtaskProgress(plan: Plan) {
             }
           }
           if (latest) setReviewVerdict(latest);
-        }).catch(() => {});
+        }).catch((e) => console.debug("[verdict-poll]", e));
       }
     }, 5000);
 

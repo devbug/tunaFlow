@@ -368,10 +368,10 @@ export async function processReviewVerdict(
     await planApi.createPlanEvent(plan.id, "review_passed", "reviewer", detail);
     // Archive all related branches when plan is done
     if (plan.implementationBranchId) {
-      await invoke("archive_branch", { id: plan.implementationBranchId }).catch(() => {});
+      await invoke("archive_branch", { id: plan.implementationBranchId }).catch((e) => console.debug("[archive]", e));
     }
     if (plan.reviewBranchId) {
-      await invoke("archive_branch", { id: plan.reviewBranchId }).catch(() => {});
+      await invoke("archive_branch", { id: plan.reviewBranchId }).catch((e) => console.debug("[archive]", e));
     }
   } else if (verdict.verdict === "fail") {
     await planApi.updatePlanPhase(plan.id, "rework");

@@ -83,7 +83,7 @@ export const createConversationSlice = (set: SetState, get: GetState): Conversat
       threadBranchId: null, threadBranchConvId: null, threadMessages: [],
       threadBranchLabel: null, threadParentMessage: null,
     });
-    import("@/lib/appStore").then(({ setSetting }) => setSetting("lastConversationId", id)).catch(() => {});
+    import("@/lib/appStore").then(({ setSetting }) => setSetting("lastConversationId", id)).catch((e) => console.debug("[settings]", e));
 
     // NOTE: per-conversation engine/model restore is handled by
     // NewMessageInput's restore useEffect (effectiveConvForRestore dependency).

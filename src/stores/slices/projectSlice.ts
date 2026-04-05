@@ -71,7 +71,7 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
     }
 
     set({ selectedProjectKey: key, selectedConversationId: null, messages: [], branches: [], rawqStatus: null, projectLoading: "Loading project..." });
-    import("@/lib/appStore").then(({ setSetting }) => setSetting("lastProjectKey", key)).catch(() => {});
+    import("@/lib/appStore").then(({ setSetting }) => setSetting("lastProjectKey", key)).catch((e) => console.debug("[settings]", e));
     try {
       let conversations = await invoke<import("./types").Conversation[]>("list_conversations", {
         projectKey: key,
@@ -110,18 +110,18 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
     }
 
     // Load project-scoped workflow skill mappings + skill selection
-    get().loadWorkflowSkills().catch(() => {});
+    get().loadWorkflowSkills().catch((e) => console.debug("[workflow-skills]", e));
     get().loadSkills().then(() => {
-      get().detectAndRecommendSkills().catch(() => {});
-    }).catch(() => {});
+      get().detectAndRecommendSkills().catch((e) => console.debug("[skills-detect]", e));
+    }).catch((e) => console.debug("[skills-load]", e));
 
     // Ensure workflow agent templates + refresh stack info (non-blocking, fire-and-forget)
     invoke<Project>("get_project", { key }).then((p) => {
       if (p.path) {
-        invoke("ensure_project_workflow_templates", { projectPath: p.path }).catch(() => {});
-        invoke("refresh_project_stack_info", { projectPath: p.path, projectName: p.name }).catch(() => {});
+        invoke("ensure_project_workflow_templates", { projectPath: p.path }).catch((e) => console.debug("[workflow-templates]", e));
+        invoke("refresh_project_stack_info", { projectPath: p.path, projectName: p.name }).catch((e) => console.debug("[stack-info]", e));
       }
-    }).catch(() => {});
+    }).catch((e) => console.debug("[get-project]", e));
 
     // rawq: non-blocking — check status, then start background index if needed
     invoke<Project>("get_project", { key }).then(async (project) => {
@@ -168,7 +168,7 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
             if (debounceTimer) clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
               if (get().selectedProjectKey === key) {
-                invoke("start_rawq_index", { projectPath }).catch(() => {});
+                invoke("start_rawq_index", { projectPath }).catch((e) => console.debug("[rawq-reindex]", e));
               }
             }, 3000);
           }, { recursive: true });

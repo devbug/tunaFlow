@@ -148,7 +148,7 @@ pub async fn start_claude_stream(
                 claude::RunInput { prompt: pr, model: mo.clone(), system_prompt, resume_token, project_path },
                 move |t| { let _ = pa.emit("claude:progress", ChunkPayload { message_id: pi.clone(), conversation_id: pc.clone(), text: t }); },
                 move |t| { let _ = c2.emit("claude:chunk", ChunkPayload { message_id: ci.clone(), conversation_id: cc.clone(), text: t }); },
-                { let c = cid.clone(); let r = cancel_arc; move || { if let Ok(mut s) = r.lock() { s.remove(&c) } else { false } } },
+                { let c = cid.clone(); let r = cancel_arc; move || { r.lock().remove(&c) } },
             );
             let dur = t0.elapsed().as_millis();
             guardrail::log_run("claude-bg", mo.as_deref(), dur, plen, rr.is_ok());
@@ -208,7 +208,7 @@ pub async fn start_gemini_stream(
                 claude::RunInput { prompt: enriched_prompt, model: mo.clone(), system_prompt: None, resume_token: None, project_path },
                 move |t| { let _ = pa.emit("gemini:progress", ChunkPayload { message_id: pi.clone(), conversation_id: pc.clone(), text: t }); },
                 move |t| { let _ = c2.emit("gemini:chunk", ChunkPayload { message_id: ci.clone(), conversation_id: cc.clone(), text: t }); },
-                { let c = cid.clone(); let r = cancel_arc; move || { if let Ok(mut s) = r.lock() { s.remove(&c) } else { false } } },
+                { let c = cid.clone(); let r = cancel_arc; move || { r.lock().remove(&c) } },
             );
             let dur = t0.elapsed().as_millis();
             if let Ok(conn) = write_arc.lock() {

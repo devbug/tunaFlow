@@ -69,10 +69,10 @@ export function EvaluationPanel() {
   const refresh = () => {
     if (!selectedConversationId) return;
     invoke<EvalRun[]>("list_eval_runs", { conversationId: selectedConversationId })
-      .then(setRuns).catch(() => {});
+      .then(setRuns).catch((e) => console.warn("[eval]", e));
     if (selectedRunId) {
       invoke<EvalResult[]>("list_eval_results", { evalRunId: selectedRunId })
-        .then(setResults).catch(() => {});
+        .then(setResults).catch((e) => console.warn("[eval]", e));
     }
   };
 
@@ -344,14 +344,14 @@ function ExecuteButton({ run, onDone }: { run: EvalRun; onDone: () => void }) {
                 inputTokens: null, outputTokens: null, costUsd: null,
                 durationMs: Date.now() - t0,
               },
-            }).catch(() => {});
+            }).catch((e) => console.warn("[eval]", e));
           }
         }
       }
 
       await invoke("update_eval_run_status", { id: run.id, status: "done" });
     } catch {
-      await invoke("update_eval_run_status", { id: run.id, status: "failed" }).catch(() => {});
+      await invoke("update_eval_run_status", { id: run.id, status: "failed" }).catch((e) => console.warn("[eval]", e));
     } finally {
       setExecuting(false);
       setProgress("");

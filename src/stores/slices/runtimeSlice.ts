@@ -73,7 +73,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
             sendNotification({ title: "tunaFlow", body: "에이전트 응답이 완료되었습니다." });
           }
         });
-      }).catch(() => {});
+      }).catch((e) => console.debug("[notify]", e));
     }
     // Post-completion background tasks — staggered to avoid blocking main thread.
     // These are synchronous Tauri commands that can take seconds (Claude API, rawq embed).
@@ -203,7 +203,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
       const tsStore = useToolStepsStore.getState();
       const steps = tsStore.getSteps(e.payload.messageId);
       if (steps.length > 0) {
-        invoke("save_progress_content", { messageId: e.payload.messageId, content: serializeSteps(steps) }).catch(() => {});
+        invoke("save_progress_content", { messageId: e.payload.messageId, content: serializeSteps(steps) }).catch((e) => console.debug("[save-steps]", e));
         tsStore.clear(e.payload.messageId);
       }
       // Always reload from DB, apply atomically inside set to avoid race conditions

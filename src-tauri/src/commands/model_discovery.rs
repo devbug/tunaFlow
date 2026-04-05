@@ -10,7 +10,7 @@
 
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use std::time::{Duration, Instant};
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -245,11 +245,10 @@ const ENGINES: &[&str] = &["claude", "codex", "gemini", "opencode", "ollama"];
 fn get_models_for_engine(engine: &str, force: bool) -> (Vec<String>, String) {
     // Check cache
     if !force {
-        if let Ok(cache) = MODEL_CACHE.lock() {
-            if let Some(entry) = cache.get(engine) {
-                if entry.at.elapsed() < CACHE_TTL {
-                    return (entry.models.clone(), entry.source.clone());
-                }
+        let cache = MODEL_CACHE.lock();
+        if let Some(entry) = cache.get(engine) {
+            if entry.at.elapsed() < CACHE_TTL {
+                return (entry.models.clone(), entry.source.clone());
             }
         }
     }
@@ -270,11 +269,10 @@ fn get_models_for_engine(engine: &str, force: bool) -> (Vec<String>, String) {
             models.insert(0, "auto".to_string());
         }
         let source = "discovered".to_string();
-        if let Ok(mut cache) = MODEL_CACHE.lock() {
-            cache.insert(engine.to_string(), CacheEntry {
-                models: models.clone(), source: source.clone(), at: Instant::now(),
-            });
-        }
+        let mut cache = MODEL_CACHE.lock();
+        cache.insert(engine.to_string(), CacheEntry {
+            models: models.clone(), source: source.clone(), at: Instant::now(),
+        });
         return (models, source);
     }
 
@@ -282,11 +280,10 @@ fn get_models_for_engine(engine: &str, force: bool) -> (Vec<String>, String) {
     let fb = fallback_models(engine);
     let models: Vec<String> = fb.iter().map(|(id, _, _)| id.to_string()).collect();
     let source = "fallback".to_string();
-    if let Ok(mut cache) = MODEL_CACHE.lock() {
-        cache.insert(engine.to_string(), CacheEntry {
-            models: models.clone(), source: source.clone(), at: Instant::now(),
-        });
-    }
+    let mut cache = MODEL_CACHE.lock();
+    cache.insert(engine.to_string(), CacheEntry {
+        models: models.clone(), source: source.clone(), at: Instant::now(),
+    });
     (models, source)
 }
 
@@ -325,11 +322,10 @@ fn model_recommended(engine: &str, id: &str) -> bool {
 
 /// Invalidate cache for all engines or a specific one.
 pub fn invalidate_cache(engine: Option<&str>) {
-    if let Ok(mut cache) = MODEL_CACHE.lock() {
-        match engine {
-            Some(e) => { cache.remove(e); }
-            None => { cache.clear(); }
-        }
+    let mut cache = MODEL_CACHE.lock();
+    match engine {
+        Some(e) => { cache.remove(e); }
+        None => { cache.clear(); }
     }
 }
 

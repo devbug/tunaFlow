@@ -93,7 +93,7 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
 
       // Archive old implementation branch
       if (targetPlan.implementationBranchId) {
-        await invoke("archive_branch", { id: targetPlan.implementationBranchId }).catch(() => {});
+        await invoke("archive_branch", { id: targetPlan.implementationBranchId }).catch((e) => console.debug("[archive]", e));
         await planApi.linkPlanBranch(targetPlan.id, "implementation", null);
         closeThread();
         await loadBranches(targetPlan.conversationId);

@@ -69,7 +69,7 @@ export function RuntimeStatusBar() {
   // Poll active jobs
   useEffect(() => {
     const poll = () => {
-      invoke<AgentJob[]>("list_active_jobs").then(setJobs).catch(() => {});
+      invoke<AgentJob[]>("list_active_jobs").then(setJobs).catch((e) => console.debug("[jobs]", e));
     };
     poll();
     const timer = setInterval(poll, 2000);

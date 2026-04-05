@@ -9,31 +9,26 @@ use db::DbState;
 /// Thread-aware cooperative cancellation registry.
 /// Keys are conversation IDs (including branch shadow IDs like "branch:xxx").
 /// A thread checks its own conversation_id; only sees its own cancel flag.
-pub struct CancelRegistry(pub std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>);
+pub struct CancelRegistry(pub std::sync::Arc<parking_lot::Mutex<std::collections::HashSet<String>>>);
 
 impl CancelRegistry {
     /// Mark a conversation/thread as cancelled.
     pub fn cancel(&self, conversation_id: &str) {
-        if let Ok(mut set) = self.0.lock() {
-            set.insert(conversation_id.to_string());
-        }
+        let mut set = self.0.lock();
+        set.insert(conversation_id.to_string());
     }
 
     /// Check and consume the cancel flag for a conversation/thread.
     /// Returns true if cancelled (and clears the flag).
     pub fn check_and_consume(&self, conversation_id: &str) -> bool {
-        if let Ok(mut set) = self.0.lock() {
-            set.remove(conversation_id)
-        } else {
-            false
-        }
+        let mut set = self.0.lock();
+        set.remove(conversation_id)
     }
 
     /// Clear cancel flag for a conversation (e.g., on normal completion).
     pub fn clear(&self, conversation_id: &str) {
-        if let Ok(mut set) = self.0.lock() {
-            set.remove(conversation_id);
-        }
+        let mut set = self.0.lock();
+        set.remove(conversation_id);
     }
 }
 
@@ -75,8 +70,8 @@ pub fn run() {
                 read: std::sync::Arc::new(std::sync::Mutex::new(read_conn)),
             });
 
-            app.manage(CancelRegistry(std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()))));
-            app.manage(commands::projects::RawqIndexing(std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()))));
+            app.manage(CancelRegistry(std::sync::Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new()))));
+            app.manage(commands::projects::RawqIndexing(std::sync::Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new()))));
 
             // Center window on primary monitor if no saved window state
             if let Some(window) = app.get_webview_window("main") {

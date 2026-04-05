@@ -289,7 +289,7 @@ export function SkillsPanel() {
 
   useEffect(() => {
     loadSkills();
-    invoke<SkillsSnapshotInfo>("get_skills_snapshot").then(setSnapshot).catch(() => {});
+    invoke<SkillsSnapshotInfo>("get_skills_snapshot").then(setSnapshot).catch((e) => console.warn("[skills-snapshot]", e));
   }, []);
 
   const { allVendors, filtered, grouped, sortedVendors } = useSkillFiltering(skills, search, vendorFilter);

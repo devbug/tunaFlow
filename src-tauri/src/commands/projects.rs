@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use rusqlite::params;
 use serde::Deserialize;
 use tauri::State;
@@ -8,7 +8,7 @@ use crate::db::{migrations::now_epoch, models::Project, DbState};
 use crate::errors::AppError;
 
 /// Tracks project paths currently being indexed by rawq (prevents duplicate builds).
-pub struct RawqIndexing(pub Arc<Mutex<HashSet<String>>>);
+pub struct RawqIndexing(pub Arc<parking_lot::Mutex<HashSet<String>>>);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

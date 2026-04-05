@@ -144,7 +144,7 @@ export function RoundtableView({ messages, conversationId, onBranch, onBranchRT,
         const roundParticipants = [...new Set(round.filter((m) => m.persona).map((m) => m.persona!))];
         const roundIntent = roundTopics[roundIdx];
         const showIntent = roundIdx > 0 && roundIntent && roundIntent !== originalTopic;
-        const intentSummary = showIntent ? (roundIntent!.length > 80 ? roundIntent!.slice(0, 80) + "…" : roundIntent!) : null;
+        const intentSummary = showIntent && roundIntent ? (roundIntent.length > 80 ? roundIntent.slice(0, 80) + "…" : roundIntent) : null;
 
         return (
           <div key={roundIdx} className="mb-6">
