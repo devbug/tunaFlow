@@ -10,6 +10,7 @@
  * - SidebarContextMenu: conversation items (provided separately)
  */
 
+import { useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { cn } from "@/lib/utils";
 import { Copy, GitBranch, Users, Bookmark, FileText, Forward, Trash2, Pencil, Plus, ClipboardPaste } from "lucide-react";
@@ -43,9 +44,8 @@ export function MessageContextMenu({
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger
-        className="contents"
+        className="block group"
         onContextMenu={(e) => {
-          // Shift+right-click → browser default (devtools)
           if (e.shiftKey) {
             e.stopPropagation();
             return;

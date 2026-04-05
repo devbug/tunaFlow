@@ -126,7 +126,7 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
     >
       <div
         className={cn(
-          "group relative flex gap-2.5 px-4 transition-colors",
+          "relative flex gap-2.5 px-4 transition-colors",
           grouped ? "py-1" : "py-2",
           isCompact && "px-3 py-1",
           "hover:bg-accent/20",

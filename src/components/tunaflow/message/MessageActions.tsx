@@ -37,7 +37,7 @@ export function MessageActions({ messageId, messageContent, isUser, onBranch, on
   }, [showFollowupMenu]);
 
   return (
-    <div className="absolute right-3 -top-2.5 z-10 flex items-center gap-px px-0.5 py-0.5 rounded-md bg-card border border-border/30 shadow-sm opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-100">
+    <div className="absolute right-3 -top-2.5 z-10 flex items-center gap-px px-0.5 py-0.5 rounded-md bg-card border border-border/30 shadow-sm opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-data-[state=open]:opacity-100 group-data-[state=open]:pointer-events-auto transition-opacity duration-100">
       {onBranch && (
         <button onClick={() => onBranch(messageId)} title="Thread"
           className="p-1 rounded hover:bg-accent hover:text-foreground text-muted-foreground/50 transition-colors">
