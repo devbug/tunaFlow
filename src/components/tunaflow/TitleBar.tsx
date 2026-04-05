@@ -20,32 +20,29 @@ export function TitleBar() {
   return (
     <div
       data-tauri-drag-region
-      className="h-[28px] shrink-0 flex items-center select-none bg-sidebar"
-      style={{ paddingLeft: 78 }} // macOS traffic light width (~68px) + gap
+      className="h-[28px] shrink-0 flex items-center justify-center select-none bg-sidebar relative"
     >
-      {/* App name */}
-      <span
-        data-tauri-drag-region
-        className="text-[11px] font-semibold text-muted-foreground/50 tracking-wide"
-      >
-        tunaFlow
-      </span>
+      {/* Center: logo + app name + project name */}
+      <div data-tauri-drag-region className="flex items-center gap-0">
+        <span
+          data-tauri-drag-region
+          className="text-[11px] font-semibold text-muted-foreground/50 tracking-wide"
+        >
+          tunaFlow
+        </span>
 
-      {/* Separator + project name */}
-      {projectName && (
-        <>
-          <span data-tauri-drag-region className="mx-2 text-[10px] text-muted-foreground/20">—</span>
-          <span
-            data-tauri-drag-region
-            className="text-[11px] font-medium text-muted-foreground/40 truncate max-w-[200px]"
-          >
-            {projectName}
-          </span>
-        </>
-      )}
-
-      {/* Spacer — makes entire area draggable */}
-      <div data-tauri-drag-region className="flex-1" />
+        {projectName && (
+          <>
+            <span data-tauri-drag-region className="mx-2 text-[10px] text-muted-foreground/20">—</span>
+            <span
+              data-tauri-drag-region
+              className="text-[11px] font-medium text-muted-foreground/40 truncate max-w-[200px]"
+            >
+              {projectName}
+            </span>
+          </>
+        )}
+      </div>
     </div>
   );
 }
