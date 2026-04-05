@@ -340,14 +340,66 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       {/* Actions */}
       {isActionable && (
         <div className="flex items-center gap-2 pt-2 border-t border-border/30 flex-wrap">
+          {/* Doom loop: Architect redesign request (primary action) */}
+          {isDoomLoop && (
+            <button
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const failHistoryText = reviewHistory.slice(-3).map((h) => {
+                    const targetNote = h.failedIds.length > 0 ? ` (Task ${h.failedIds.join(",")})` : "";
+                    const topFindings = h.findings.slice(0, 3).map((f) => f.slice(0, 200)).join("\n  - ");
+                    return `- ${h.round}차 fail${targetNote}:\n  - ${topFindings || "상세 없음"}`;
+                  }).join("\n");
+                  const list = subtasks.map((s, i) =>
+                    `${i + 1}. ${s.title}${s.details ? ` — ${s.details.slice(0, 100)}` : ""}`
+                  ).join("\n");
+                  const prompt = [
+                    `[설계 재검토 요청] "${plan.title}"`,
+                    "",
+                    `이 Plan은 **Review ${reviewHistory.length}회 연속 실패**로 설계 재검토가 필요합니다.`,
+                    "",
+                    `## 실패 이력`,
+                    failHistoryText,
+                    "",
+                    `## 현재 Subtasks`,
+                    list,
+                    "",
+                    `## 요청`,
+                    `위 실패 이력을 분석하고, **작업 지시서의 Verification 명령과 Changed files를 구체화**하여`,
+                    `수정된 Plan을 \`<!-- tunaflow:plan-proposal -->\` 형식으로 제안하세요.`,
+                    `특히 반복 실패한 subtask의 범위와 검증 방법을 재설계하세요.`,
+                  ].join("\n");
+                  await sendWithEngine(mainEngine, prompt);
+                  await planApi.createPlanEvent(plan.id, "architect_redesign_requested", "user",
+                    `doom loop ${reviewHistory.length} failures`);
+                  onSwitchToChat?.();
+                } catch (e) { console.warn("[tunaflow]", e); }
+                setBusy(false);
+              }}
+              disabled={busy}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-amber-500/15 text-amber-600 hover:bg-amber-500/25 disabled:opacity-50 transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />Architect에게 재설계 요청
+            </button>
+          )}
           <button onClick={handleApprove} disabled={busy}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">
-            <Check className="w-3.5 h-3.5" />승인 → Approved
+            className={cn(
+              "flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium disabled:opacity-50 transition-colors",
+              isDoomLoop
+                ? "bg-muted text-muted-foreground/50 hover:text-muted-foreground"
+                : "bg-status-approved/10 text-status-approved hover:bg-status-approved/20"
+            )}
+            title={isDoomLoop ? "Architect 재설계 후 승인을 권장합니다" : undefined}
+          >
+            <Check className="w-3.5 h-3.5" />{isDoomLoop ? "그대로 승인 (비권장)" : "승인 → Approved"}
           </button>
-          <button onClick={handleSyncToMainPlan} disabled={busy}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors">
-            <FileText className="w-3.5 h-3.5" />Plan 문서 반영
-          </button>
+          {!isDoomLoop && (
+            <button onClick={handleSyncToMainPlan} disabled={busy}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors">
+              <FileText className="w-3.5 h-3.5" />Plan 문서 반영
+            </button>
+          )}
           {/* Debug: 전체 작업지시서 일괄 요청 — details 없는 subtask가 있을 때만 */}
           {subtasks.some((s) => !s.details?.trim()) && (
             <button
