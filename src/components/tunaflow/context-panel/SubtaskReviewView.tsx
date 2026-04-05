@@ -371,8 +371,10 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
                     `특히 반복 실패한 subtask의 범위와 검증 방법을 재설계하세요.`,
                   ].join("\n");
                   await sendWithEngine(mainEngine, prompt);
+                  await planApi.updatePlanPhase(plan.id, "drafting");
                   await planApi.createPlanEvent(plan.id, "architect_redesign_requested", "user",
                     `doom loop ${reviewHistory.length} failures`);
+                  onPlanUpdate(plan.id, { phase: "drafting" as PlanPhase });
                   onSwitchToChat?.();
                 } catch (e) { console.warn("[tunaflow]", e); }
                 setBusy(false);
