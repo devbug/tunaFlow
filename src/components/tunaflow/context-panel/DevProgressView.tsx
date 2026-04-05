@@ -29,6 +29,10 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
   const [busy, setBusy] = useState(false);
   const [showDoc, setShowDoc] = useState(false);
   const [reviewMode, setReviewMode] = useState<"idle" | "select">("idle");
+  const branchRunning = plan.implementationBranchId
+    ? runningThreadIds.includes(`branch:${plan.implementationBranchId}`)
+    : false;
+
   const [selectedReviewerId, setSelectedReviewerId] = useState(() => {
     const reviewer = profiles.find((p) => p.label.toLowerCase().includes("review"));
     return reviewer?.id ?? profiles[0]?.id ?? "";
@@ -206,10 +210,18 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
   return (
     <div className="space-y-3">
       {/* Plan header + branch link */}
-      <div className="rounded-lg border border-border bg-card p-3">
+      <div className={cn(
+        "rounded-lg border bg-card p-3",
+        branchRunning ? "border-primary/30" : "border-border"
+      )}>
         <div className="flex items-center gap-2">
-          <ClipboardList className="w-4 h-4 text-primary/60" />
+          {branchRunning
+            ? <Loader2 className="w-4 h-4 text-primary animate-spin" />
+            : <ClipboardList className="w-4 h-4 text-primary/60" />}
           <span className="text-xs font-medium text-foreground flex-1">{plan.title}</span>
+          {branchRunning && (
+            <span className="text-[9px] text-primary/60">구현 중...</span>
+          )}
           <button onClick={() => setShowDoc(true)} className="flex items-center gap-1 text-[9px] text-muted-foreground/50 hover:text-primary/60 transition-colors">
             <FileText className="w-3 h-3" />문서
           </button>
@@ -226,21 +238,14 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
         {subtasks.map((st, i) => {
           const num = i + 1;
           const isDone = completedNums.has(num);
-          const branchRunning = plan.implementationBranchId
-            ? runningThreadIds.includes(`branch:${plan.implementationBranchId}`)
-            : false;
-          const isNext = !isDone && (i === 0 || completedNums.has(i)) && branchRunning;
 
           return (
             <div key={st.id} className={cn(
               "rounded-md border p-2.5 flex items-start gap-2",
-              isDone ? "border-status-approved/30 bg-status-approved/5" :
-              isNext ? "border-primary/30 bg-primary/5" :
-              "border-border bg-card"
+              isDone ? "border-status-approved/30 bg-status-approved/5" : "border-border bg-card"
             )}>
               <div className="shrink-0 mt-0.5">
                 {isDone ? <Check className="w-3.5 h-3.5 text-status-approved" /> :
-                 isNext ? <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" /> :
                  <Clock className="w-3.5 h-3.5 text-muted-foreground/30" />}
               </div>
               <div className="flex-1 min-w-0">
