@@ -53,15 +53,16 @@ export function useSubtaskProgress(plan: Plan) {
         }
       }
 
-      if (complete && merged.size === 0) {
-        // impl-complete with zero markers + zero DB done → treat all as complete
-        setCompletedNums(new Set(Array.from({ length: 50 }, (_, i) => i + 1)));
-        // Also mark all DB subtasks as done
+      if (complete) {
+        // impl-complete means ALL subtasks are done — fill any gaps
+        const allDone = new Set(merged);
         for (const st of dbSubtasks) {
+          allDone.add(st.idx);
           if (st.status !== "done") {
             planApi.updateSubtaskStatus(st.id, "done").catch(() => {});
           }
         }
+        setCompletedNums(allDone);
       } else {
         setCompletedNums(merged);
       }
