@@ -69,9 +69,18 @@ export function useSubtaskProgress(plan: Plan) {
       } else {
         setCompletedNums(merged);
       }
-      setImplComplete(complete);
+      // Fallback: all subtasks done + agent not running → infer impl-complete
+      // Even if the agent didn't emit the marker, DB state is authoritative
+      const effectiveComplete = complete || (() => {
+        if (dbSubtasks.length === 0) return false;
+        const allDone = dbSubtasks.every((st) => st.status === "done");
+        const shadowConvId = `branch:${plan.implementationBranchId}`;
+        const notRunning = !useChatStore.getState().runningThreadIds.includes(shadowConvId);
+        return allDone && notRunning;
+      })();
+      setImplComplete(effectiveComplete);
 
-      if (complete && !testRanRef.current && !cancelled.current) {
+      if (effectiveComplete && !testRanRef.current && !cancelled.current) {
         testRanRef.current = true;
         try {
           const projectKey = useChatStore.getState().selectedProjectKey;

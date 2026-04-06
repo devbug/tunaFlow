@@ -62,6 +62,11 @@ export function PlansPanel({ activeStage, onPhaseChanged, onSwitchToChat }: Plan
   const handlePlanStatus = async (planId: string, status: PlanStatus) => {
     try {
       await planApi.updatePlanStatus(planId, status);
+      // When marking done/abandoned, also set phase to match (prevents orphaned phase states)
+      if (status === "done") {
+        await planApi.updatePlanPhase(planId, "done");
+        await planApi.createPlanEvent(planId, "manual_done", "user", "수동 완료 처리");
+      }
       // Auto-archive related branches when plan is abandoned or done
       if (status === "abandoned" || status === "done") {
         const plan = plans.find((p) => p.id === planId);
@@ -72,7 +77,8 @@ export function PlansPanel({ activeStage, onPhaseChanged, onSwitchToChat }: Plan
           invoke("archive_branch", { id: plan.reviewBranchId }).catch((e) => console.debug("[archive]", e));
         }
       }
-      setPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, status } : p)));
+      const phaseOverride = status === "done" ? "done" : undefined;
+      setPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, status, ...(phaseOverride ? { phase: phaseOverride } : {}) } : p)));
     } catch (e) {
       console.error("[PlansPanel] plan status update failed:", e);
     }

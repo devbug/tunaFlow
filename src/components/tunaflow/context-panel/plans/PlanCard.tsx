@@ -81,7 +81,14 @@ export function PlanCard({
             const shadowConvId = `branch:${plan.implementationBranchId}`;
             const msgs = await invoke<Message[]>("list_messages", { conversationId: shadowConvId });
             const markers = scanMessagesForMarkers(msgs);
-            if (markers.implComplete) setImplComplete(true);
+            if (markers.implComplete) {
+              setImplComplete(true);
+            } else if (tasks && tasks.length > 0) {
+              // Fallback: all subtasks done in DB + agent not running → infer impl-complete
+              const allDone = tasks.every((st) => st.status === "done");
+              const notRunning = !runningThreadIds.includes(shadowConvId);
+              if (allDone && notRunning) setImplComplete(true);
+            }
           } catch { /* branch may not exist yet */ }
         }
         if (plan.reviewBranchId && plan.phase === "review") {
@@ -421,11 +428,36 @@ export function PlanCard({
             <ContextMenu.Item
               key={a.status}
               className={a.destructive ? ctxMenuDestructive : ctxMenuItem}
-              onSelect={() => onStatusChange(plan.id, a.status)}
+              onSelect={() => {
+                onStatusChange(plan.id, a.status);
+                if (a.status === "done") handlePlanUpdate({ status: "done", phase: "done" as PlanPhase });
+              }}
             >
               {a.icon} {a.label}
             </ContextMenu.Item>
           ))}
+          <ContextMenu.Separator className={ctxMenuSeparator} />
+          <ContextMenu.Label className="px-2.5 py-1 text-[9px] text-muted-foreground/40 font-medium">Phase 전환</ContextMenu.Label>
+          {(["drafting", "approval", "implementation", "review", "done"] as PlanPhase[])
+            .filter((p) => p !== plan.phase)
+            .map((phase) => (
+              <ContextMenu.Item
+                key={phase}
+                className={ctxMenuItem}
+                onSelect={async () => {
+                  await planApi.updatePlanPhase(plan.id, phase);
+                  await planApi.createPlanEvent(plan.id, "phase_manual_override", "user", `→ ${phase}`);
+                  handlePlanUpdate({ phase });
+                  if (phase === "done") {
+                    onStatusChange(plan.id, "done");
+                    handlePlanUpdate({ status: "done" });
+                  }
+                }}
+              >
+                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", PLAN_PHASE_CFG[phase]?.cls?.split(" ")[0] ?? "bg-muted")} />
+                {PLAN_PHASE_CFG[phase]?.label ?? phase}
+              </ContextMenu.Item>
+            ))}
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>
