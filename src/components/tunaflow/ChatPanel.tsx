@@ -131,6 +131,7 @@ export function ChatPanel() {
         <div
           id={`msg-${msg.id}`}
           className={cn(
+            "max-w-4xl mx-auto",
             highlightedMsgId === msg.id &&
               "ring-1 ring-primary/40 rounded-md transition-all duration-500"
           )}
