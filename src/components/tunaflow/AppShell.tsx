@@ -27,6 +27,7 @@ const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min)
 
 export function AppShell() {
   const { loadProjects, createProject, loadEngineModels, threadBranchId } = useChatStore();
+  const drawerPinned = useChatStore((s) => s.drawerPinned);
 
   const [sidebarW, setSidebarW] = useState(SIDEBAR_DEFAULT);
   const [drawerW, setDrawerW] = useState(DRAWER_DEFAULT);
@@ -150,11 +151,49 @@ export function AppShell() {
         />
 
         {/* Main area */}
-        <div className="flex-1 min-w-0 h-full relative">
-          <CenterPanel />
+        <div className="flex-1 min-w-0 h-full relative flex">
+          {/* CenterPanel — full width when no drawer, or flex-1 when pinned */}
+          <div className={drawerOpen && drawerPinned ? "flex-1 min-w-0 h-full" : "flex-1 min-w-0 h-full"}>
+            <CenterPanel />
+          </div>
 
-          {/* ── Thread/RT Drawer overlay ── */}
-          {drawerOpen && (
+          {/* ── Thread/RT Drawer ── */}
+          {drawerOpen && drawerPinned ? (
+            /* Pinned mode — side-by-side with CenterPanel */
+            <>
+              {/* Resize handle between panels */}
+              <div className="shrink-0 w-1.5 cursor-col-resize hover:bg-primary/10 transition-colors relative group"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  const startX = e.clientX;
+                  const startW = drawerW;
+                  const max = drawerMax();
+                  const onMove = (ev: MouseEvent) => {
+                    const delta = startX - ev.clientX;
+                    setDrawerW(clamp(startW + delta, DRAWER_MIN, max));
+                  };
+                  const onUp = () => {
+                    document.removeEventListener("mousemove", onMove);
+                    document.removeEventListener("mouseup", onUp);
+                    document.body.style.cursor = "";
+                    document.body.style.userSelect = "";
+                    persistDrawer();
+                  };
+                  document.addEventListener("mousemove", onMove);
+                  document.addEventListener("mouseup", onUp);
+                  document.body.style.cursor = "col-resize";
+                  document.body.style.userSelect = "none";
+                }}
+              >
+                <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-border/40 group-hover:w-0.5 group-hover:bg-primary/30 transition-all duration-150" />
+              </div>
+              {/* Pinned drawer panel */}
+              <div style={{ width: drawerW }} className="shrink-0 h-full bg-background border-l border-border/30 overflow-hidden">
+                <BranchThreadPanel />
+              </div>
+            </>
+          ) : drawerOpen ? (
+            /* Overlay mode — existing behavior */
             <>
               {/* Backdrop — covers main area only, fade in */}
               <div
@@ -202,7 +241,7 @@ export function AppShell() {
                 </div>
               </div>
             </>
-          )}
+          ) : null}
         </div>
       </div>
 

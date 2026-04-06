@@ -83,6 +83,7 @@ export const createConversationSlice = (set: SetState, get: GetState): Conversat
       messages: [], branches: [], memos: [], artifacts: [],
       threadBranchId: null, threadBranchConvId: null, threadMessages: [],
       threadBranchLabel: null, threadParentMessage: null,
+      drawerPinned: false,
     });
     import("@/lib/appStore").then(({ setSetting }) => setSetting("lastConversationId", id)).catch((e) => console.debug("[settings]", e));
 

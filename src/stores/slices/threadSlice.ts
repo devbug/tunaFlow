@@ -31,10 +31,12 @@ export interface ThreadSlice {
   threadMessages: Message[];
   threadBranchLabel: string | null;
   threadParentMessage: Message | null;
+  drawerPinned: boolean;
   rtParticipantStatuses: Map<string, RtParticipantStatus>;
   rtStatusConversationId: string | null;
   openThread: (branchId: string) => Promise<void>;
   closeThread: () => void;
+  toggleDrawerPin: () => void;
   sendThreadMessage: (prompt: string, engine?: string, model?: string) => Promise<void>;
   sendThreadRoundtable: (prompt: string, participants: RoundtableParticipant[], mode?: RtMode) => Promise<void>;
   sendThreadRoundtableFollowup: (prompt: string, participants: RoundtableParticipant[], mode?: RtMode) => Promise<void>;
@@ -45,6 +47,7 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
   threadBranchConvId: null,
   threadMessages: [],
   threadBranchLabel: null,
+  drawerPinned: false,
   rtParticipantStatuses: new Map(),
   rtStatusConversationId: null,
   threadParentMessage: null,
@@ -154,7 +157,12 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
       threadMessages: [],
       threadBranchLabel: null,
       threadParentMessage: null,
+      drawerPinned: false,
     });
+  },
+
+  toggleDrawerPin: () => {
+    set((state) => ({ drawerPinned: !state.drawerPinned }));
   },
 
   sendThreadMessage: async (prompt: string, engine?: string, model?: string) => {

@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { X, Check, GitBranch, Users, Trash2, ChevronsLeft, ChevronsRight, ChevronRight, AlertTriangle } from "lucide-react";
+import { X, Check, GitBranch, Users, Trash2, ChevronsLeft, ChevronsRight, ChevronRight, AlertTriangle, Pin, PinOff } from "lucide-react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import type { Message, Plan } from "@/types";
 import { AgentAvatar } from "./AgentAvatar";
@@ -34,6 +34,8 @@ export function BranchThreadPanel() {
     loadBranches,
     branches,
     conversations,
+    drawerPinned,
+    toggleDrawerPin,
   } = useChatStore();
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -279,6 +281,13 @@ export function BranchThreadPanel() {
               <Trash2 className="w-3 h-3" />
             </button>
           )}
+          <button
+            onClick={toggleDrawerPin}
+            title={drawerPinned ? "Unpin drawer" : "Pin drawer"}
+            className={cn("p-1 rounded transition-colors", drawerPinned ? "text-primary bg-primary/10" : "text-muted-foreground/50 hover:text-foreground hover:bg-accent")}
+          >
+            {drawerPinned ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
+          </button>
           <button onClick={closeThread} title="Close" className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors">
             <X className="w-3 h-3" />
           </button>
