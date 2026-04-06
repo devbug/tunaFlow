@@ -56,10 +56,12 @@ export function RuntimeStatusBar() {
 
   const [jobs, setJobs] = useState<AgentJob[]>([]);
   const [totalCost, setTotalCost] = useState(0);
+  const [hourlyCost, setHourlyCost] = useState(0);
   const [lastContextMode, setLastContextMode] = useState<string | null>(null);
   const [lastContextSections, setLastContextSections] = useState(0);
   const [lastSkippedLayers, setLastSkippedLayers] = useState(0);
   const [lastContextPct, setLastContextPct] = useState<number | null>(null);
+  const [gitStatus, setGitStatus] = useState<{ branch: string | null; dirty: boolean; added: number; modified: number; untracked: number } | null>(null);
   const [traceOpen, setTraceOpen] = useState(false);
 
   const isRunning = runningThreadIds.length > 0;
@@ -77,6 +79,27 @@ export function RuntimeStatusBar() {
   }, [selectedConversationId, runningThreadIds.length]);
 
   const storeMessages = useChatStore((s) => s.messages);
+  const selectedProjectKey = useChatStore((s) => s.selectedProjectKey);
+
+  // Git status — slow poll (10s)
+  useEffect(() => {
+    if (!selectedProjectKey) { setGitStatus(null); return; }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const project = await invoke<{ path?: string }>("get_project", { key: selectedProjectKey });
+        if (cancelled || !project?.path) return;
+        const status = await invoke<{ isRepo: boolean; branch: string | null; dirty: boolean; added: number; modified: number; untracked: number }>(
+          "get_git_status", { projectPath: project.path },
+        );
+        if (!cancelled && status.isRepo) setGitStatus(status);
+        else if (!cancelled) setGitStatus(null);
+      } catch { if (!cancelled) setGitStatus(null); }
+    };
+    poll();
+    const timer = setInterval(poll, 10000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [selectedProjectKey]);
 
   // Aggregate cost + last context mode from conversation
   useEffect(() => {
@@ -85,6 +108,16 @@ export function RuntimeStatusBar() {
       .then((spans) => {
         const cost = spans.reduce((sum: number, s: any) => sum + (s.costUsd ?? 0), 0);
         setTotalCost(cost);
+        // Hourly cost: totalCost / session duration in hours
+        const firstRecordedAt = spans.length > 0
+          ? Math.min(...spans.map((s: any) => s.recordedAt ?? Infinity))
+          : 0;
+        if (firstRecordedAt > 0 && cost > 0) {
+          const hours = (Date.now() / 1000 - firstRecordedAt) / 3600;
+          setHourlyCost(hours > 0.01 ? cost / hours : 0);
+        } else {
+          setHourlyCost(0);
+        }
         // Find latest span with context metadata
         const withCtx = spans.find((s: any) => s.contextMode);
         if (withCtx) {
@@ -155,15 +188,34 @@ export function RuntimeStatusBar() {
                   lastContextPct >= 60 ? "text-yellow-400" :
                   "text-muted-foreground/40"
                 )}>
+                  {lastContextPct >= 80 ? "\u2757" : lastContextPct >= 60 ? "\u26A0\uFE0F" : "\u{1F9CA}"}{" "}
                   {lastContextPct.toFixed(0)}%
                 </span>
               )}
             </>
           )}
           <span className="w-px h-3 bg-border/30" />
-          <span>{totalCost > 0 ? `$${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)}` : "$0"}</span>
+          <span>
+            {totalCost > 0 ? `$${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)}` : "$0"}
+            {hourlyCost > 0 && <span className="text-muted-foreground/30 ml-0.5">(${hourlyCost < 0.01 ? hourlyCost.toFixed(3) : hourlyCost.toFixed(2)}/h)</span>}
+          </span>
           <SkillsBadge />
         </div>
+
+        {/* Git status */}
+        {gitStatus && gitStatus.branch && (
+          <>
+            <span className="w-px h-3 bg-border/30" />
+            <span className="flex items-center gap-1 px-2 text-muted-foreground/50">
+              <span>{gitStatus.branch}{gitStatus.dirty ? "*" : ""}</span>
+              {(gitStatus.added > 0 || gitStatus.modified > 0 || gitStatus.untracked > 0) && (
+                <span className="text-[8px] text-muted-foreground/30">
+                  {gitStatus.added > 0 && `+${gitStatus.added}`}{gitStatus.added > 0 && gitStatus.modified > 0 && " "}{gitStatus.modified > 0 && `~${gitStatus.modified}`}{(gitStatus.added > 0 || gitStatus.modified > 0) && gitStatus.untracked > 0 && " "}{gitStatus.untracked > 0 && `?${gitStatus.untracked}`}
+                </span>
+              )}
+            </span>
+          </>
+        )}
 
         {/* Separator */}
         <span className="w-px h-3 bg-border/30" />

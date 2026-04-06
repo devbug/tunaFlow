@@ -168,6 +168,9 @@ pub struct GitStatus {
     pub branch: Option<String>,
     pub dirty: bool,
     pub git_root: Option<String>,
+    pub added: u32,
+    pub modified: u32,
+    pub untracked: u32,
 }
 
 #[tauri::command]
@@ -175,7 +178,7 @@ pub fn get_git_status(project_path: String) -> Result<GitStatus, AppError> {
     use std::process::Command;
     let path = std::path::Path::new(&project_path);
     if !path.exists() {
-        return Ok(GitStatus { is_repo: false, branch: None, dirty: false, git_root: None });
+        return Ok(GitStatus { is_repo: false, branch: None, dirty: false, git_root: None, added: 0, modified: 0, untracked: 0 });
     }
 
     // Check if git repo
@@ -187,7 +190,7 @@ pub fn get_git_status(project_path: String) -> Result<GitStatus, AppError> {
         .unwrap_or(false);
 
     if !is_repo {
-        return Ok(GitStatus { is_repo: false, branch: None, dirty: false, git_root: None });
+        return Ok(GitStatus { is_repo: false, branch: None, dirty: false, git_root: None, added: 0, modified: 0, untracked: 0 });
     }
 
     let branch = Command::new("git")
@@ -199,12 +202,29 @@ pub fn get_git_status(project_path: String) -> Result<GitStatus, AppError> {
             Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
         } else { None });
 
-    let dirty = Command::new("git")
+    let porcelain = Command::new("git")
         .args(["status", "--porcelain"])
         .current_dir(&project_path)
         .output()
-        .map(|o| !o.stdout.is_empty())
-        .unwrap_or(false);
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+
+    let dirty = !porcelain.trim().is_empty();
+    let mut added = 0u32;
+    let mut modified = 0u32;
+    let mut untracked = 0u32;
+    for line in porcelain.lines() {
+        if line.len() < 2 { continue; }
+        let code = &line[..2];
+        match code {
+            "??" => untracked += 1,
+            s if s.starts_with('A') || s.ends_with('A') => added += 1,
+            s if s.contains('M') || s.contains('R') || s.contains('C') => modified += 1,
+            s if s.contains('D') => modified += 1, // deletions count as modifications
+            _ => modified += 1,
+        }
+    }
 
     let git_root = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
@@ -215,7 +235,7 @@ pub fn get_git_status(project_path: String) -> Result<GitStatus, AppError> {
             Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
         } else { None });
 
-    Ok(GitStatus { is_repo, branch, dirty, git_root })
+    Ok(GitStatus { is_repo, branch, dirty, git_root, added, modified, untracked })
 }
 
 /// Ensure workflow agent templates exist for an existing project.
