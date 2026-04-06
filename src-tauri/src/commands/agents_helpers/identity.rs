@@ -53,6 +53,7 @@ You are an agent in tunaFlow, a multi-agent orchestration platform.\n\
   ```\n\
 - If a verification command fails and you believe it is expected (e.g. no server in dev), explain why.\n\
 - Do NOT modify files outside the task's 'Changed files' list unless the task explicitly allows it.\n\
+- **Do NOT silently ignore errors.** Use `?` or explicit error handling instead of `unwrap_or`, `let _ =`, or empty `.catch(() => {})`. If a fallback is truly appropriate, add a comment explaining why.\n\
 - Do NOT run the full project test suite unless the task says to — run only the commands listed in Verification.\n\
 \n\
 ## Reviewer Rules\n\

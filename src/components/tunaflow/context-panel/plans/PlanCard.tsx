@@ -286,7 +286,20 @@ export function PlanCard({
                       onClick={async () => {
                         const implShadow = `branch:${plan.implementationBranchId}`;
                         const msgs = await invoke<Message[]>("list_messages", { conversationId: implShadow });
-                        const { branch } = await startReviewRT(plan, msgs);
+                        // Run project tests and pass results to Reviewer
+                        let testOutput: string | undefined;
+                        try {
+                          const projectKey = useChatStore.getState().selectedProjectKey;
+                          if (projectKey) {
+                            const project = await invoke<{ path?: string }>("get_project", { key: projectKey });
+                            if (project?.path) {
+                              const { runProjectTests } = await import("@/lib/api/testRunner");
+                              const result = await runProjectTests(project.path);
+                              testOutput = result.output;
+                            }
+                          }
+                        } catch (e) { console.debug("[test-before-review]", e); }
+                        const { branch } = await startReviewRT(plan, msgs, testOutput);
                         handlePlanUpdate({ phase: "review", reviewBranchId: branch.id });
                         await loadBranches(plan.conversationId);
                         await openThread(branch.id);
