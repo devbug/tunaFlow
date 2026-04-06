@@ -27,7 +27,7 @@ jobs:
           workspaces: src-tauri
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Cargo check
         working-directory: src-tauri
