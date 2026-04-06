@@ -159,16 +159,21 @@ function DecisionCard({ artifact, onOpen }: { artifact: Artifact; onOpen: (a: Ar
 
 // ─── Detail Modal ───────────────────────────────────────────────────────────
 
-const PROSE_CLS = "prose prose-sm prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&>hr]:border-sidebar-foreground/20";
+const PROSE_CLS = "prose prose-sm prose-invert max-w-none text-[13px] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&>hr]:border-sidebar-foreground/20 [&>h2]:text-[15px] [&>h2]:font-semibold [&>h2]:mt-4 [&>h2]:mb-2 [&>h3]:text-[13px] [&>h3]:font-semibold [&>h3]:mt-3 [&>h3]:mb-1.5 [&>ul]:space-y-1 [&>ul>li]:text-[12px]";
 
 function ReviewDetailModal({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
+  const isVerdict = artifact.type === "review-findings";
+  const parsed = isVerdict ? parseVerdictContent(artifact.content) : null;
+  const cfg = parsed?.verdict ? VERDICT_CFG[parsed.verdict] : null;
+
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
       <div className="relative bg-card border border-border/40 rounded-xl shadow-2xl w-[640px] max-h-[80vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center gap-2 px-5 pt-4 pb-3 shrink-0 border-b border-border/20">
-          <span className="text-[13px] font-semibold text-foreground flex-1 truncate">{artifact.title}</span>
+          {cfg && <span className={cn("shrink-0", cfg.cls.split(" ")[0])}>{cfg.icon}</span>}
+          <span className="text-[14px] font-semibold text-foreground flex-1 truncate">{artifact.title}</span>
           <span className="text-[9px] text-muted-foreground/40 font-mono">
             {new Date(artifact.updatedAt * 1000).toLocaleString()}
           </span>
@@ -177,13 +182,56 @@ function ReviewDetailModal({ artifact, onClose }: { artifact: Artifact; onClose:
           </button>
         </div>
 
-        {/* Content — full markdown rendering */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          <div className={PROSE_CLS}>
-            <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]}>
-              {artifact.content}
-            </ReactMarkdown>
-          </div>
+        {/* Structured content for verdicts, markdown for others */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {parsed && cfg ? (
+            <>
+              {/* Verdict badge */}
+              <div className={cn("inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[13px] font-semibold", cfg.cls)}>
+                {cfg.icon} {cfg.label}
+              </div>
+
+              {/* Findings */}
+              {parsed.findings.length > 0 && (
+                <div>
+                  <h3 className="text-[12px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-2">Findings</h3>
+                  <div className="space-y-1.5">
+                    {parsed.findings.map((f, i) => (
+                      <div key={i} className="flex gap-2 text-[12px] text-foreground/80 leading-snug">
+                        <span className="text-muted-foreground/40 shrink-0 font-mono text-[10px] pt-0.5">{i + 1}.</span>
+                        <span>{f}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {parsed.findings.length === 0 && (
+                <p className="text-[12px] text-muted-foreground/40">No findings</p>
+              )}
+
+              {/* Recommendations */}
+              {parsed.recommendations.length > 0 && (
+                <div>
+                  <h3 className="text-[12px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-2">Recommendations</h3>
+                  <div className="space-y-1.5">
+                    {parsed.recommendations.map((r, i) => (
+                      <div key={i} className="flex gap-2 text-[12px] text-foreground/60 leading-snug">
+                        <span className="text-muted-foreground/30 shrink-0">•</span>
+                        <span>{r}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            /* Fallback: full markdown for decisions and unknown types */
+            <div className={PROSE_CLS}>
+              <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]}>
+                {artifact.content}
+              </ReactMarkdown>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -198,9 +246,15 @@ export function ReviewPanel() {
   const [findingsCollapsed, setFindingsCollapsed] = useState(false);
   const [decisionsCollapsed, setDecisionsCollapsed] = useState(false);
 
+  const VERDICT_ORDER: Record<string, number> = { FAIL: 0, CONDITIONAL: 1, PASS: 2 };
   const reviewFindings = artifacts
     .filter((a) => a.type === "review-findings")
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+    .sort((a, b) => {
+      const va = parseVerdictContent(a.content).verdict ?? "PASS";
+      const vb = parseVerdictContent(b.content).verdict ?? "PASS";
+      const orderDiff = (VERDICT_ORDER[va] ?? 9) - (VERDICT_ORDER[vb] ?? 9);
+      return orderDiff !== 0 ? orderDiff : b.updatedAt - a.updatedAt;
+    });
   const decisions = artifacts
     .filter((a) => a.type === "architect-decision")
     .sort((a, b) => b.updatedAt - a.updatedAt);
