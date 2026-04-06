@@ -100,18 +100,25 @@ export function ReviewVerdictCard({
         </div>
       )}
 
-      {/* User decision — always both options regardless of verdict */}
-      <div className="flex items-center gap-2 pt-1 border-t border-current/10">
-        <span className="text-[9px] text-muted-foreground/50">사용자 판단:</span>
-        <button onClick={handleApprove} disabled={busy}
-          className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">
-          완료 → Decision
-        </button>
-        <button onClick={handleRework} disabled={busy}
-          className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-rejected/10 text-status-rejected hover:bg-status-rejected/20 disabled:opacity-50 transition-colors">
-          Rework
-        </button>
-      </div>
+      {/* User decision — only show when plan is still in review/rework phase */}
+      {plan.phase !== "done" && (
+        <div className="flex items-center gap-2 pt-1 border-t border-current/10">
+          <span className="text-[9px] text-muted-foreground/50">사용자 판단:</span>
+          <button onClick={handleApprove} disabled={busy}
+            className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">
+            완료 → Decision
+          </button>
+          <button onClick={handleRework} disabled={busy}
+            className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-rejected/10 text-status-rejected hover:bg-status-rejected/20 disabled:opacity-50 transition-colors">
+            Rework
+          </button>
+        </div>
+      )}
+      {plan.phase === "done" && (
+        <div className="pt-1 border-t border-current/10 text-[9px] text-muted-foreground/50">
+          자동 처리 완료
+        </div>
+      )}
     </div>
   );
 }

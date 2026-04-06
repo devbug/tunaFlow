@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,10 @@ export function PlanCard({
 }) {
   const { sendFollowup, setHandoffSource, branches, openThread, loadBranches, runningThreadIds } = useChatStore();
   const [plan, setPlan] = useState(initialPlan);
+  // Sync local plan state when parent re-renders with updated plan (e.g., auto-detect verdict)
+  useEffect(() => {
+    setPlan(initialPlan);
+  }, [initialPlan.status, initialPlan.phase]);
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [subtasks, setSubtasks] = useState<PlanSubtask[] | null>(null);
   const [events, setEvents] = useState<PlanEvent[]>([]);
