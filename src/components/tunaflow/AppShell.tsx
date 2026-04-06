@@ -159,10 +159,14 @@ export function AppShell() {
 
           {/* ── Thread/RT Drawer ── */}
           {drawerOpen && drawerPinned ? (
-            /* Pinned mode — side-by-side with CenterPanel */
-            <>
-              {/* Resize handle between panels */}
-              <div className="shrink-0 w-1.5 cursor-col-resize hover:bg-primary/10 transition-colors relative group"
+            /* Pinned mode — side-by-side with CenterPanel, edge-grab resize */
+            <div
+              style={{ width: drawerW }}
+              className="shrink-0 h-full bg-background overflow-hidden relative"
+            >
+              {/* Left edge resize handle — invisible, cursor changes on hover */}
+              <div
+                className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-primary/8 transition-colors"
                 onMouseDown={(e) => {
                   e.preventDefault();
                   const startX = e.clientX;
@@ -184,16 +188,11 @@ export function AppShell() {
                   document.body.style.cursor = "col-resize";
                   document.body.style.userSelect = "none";
                 }}
-              >
-                <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-border/40 group-hover:w-0.5 group-hover:bg-primary/30 transition-all duration-150" />
-              </div>
-              {/* Pinned drawer panel */}
-              <div style={{ width: drawerW }} className="shrink-0 h-full bg-background border-l border-border/30 overflow-hidden">
-                <BranchThreadPanel />
-              </div>
-            </>
+              />
+              <BranchThreadPanel />
+            </div>
           ) : drawerOpen ? (
-            /* Overlay mode — existing behavior */
+            /* Overlay mode — edge-grab resize, no visible line */
             <>
               {/* Backdrop — covers main area only, fade in */}
               <div
@@ -205,10 +204,11 @@ export function AppShell() {
               {/* Drawer — anchored to right edge, slide in from right */}
               <div
                 style={{ width: drawerW, animation: "slide-in-from-right 200ms ease-out" }}
-                className="absolute top-1.5 right-1.5 bottom-1.5 z-50 flex"
+                className="absolute top-1.5 right-1.5 bottom-1.5 z-50 relative"
               >
-                {/* Left-edge resize handle */}
-                <div className="shrink-0 w-2 cursor-col-resize relative group"
+                {/* Left edge resize handle — invisible, overlays drawer left edge */}
+                <div
+                  className="absolute left-0 top-0 bottom-0 w-2 cursor-col-resize z-10 hover:bg-primary/8 transition-colors"
                   onMouseDown={(e) => {
                     e.preventDefault();
                     const startX = e.clientX;
@@ -231,12 +231,10 @@ export function AppShell() {
                     document.body.style.cursor = "col-resize";
                     document.body.style.userSelect = "none";
                   }}
-                >
-                  <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-border/40 group-hover:w-0.5 group-hover:bg-primary/30 transition-all duration-150" />
-                </div>
+                />
 
                 {/* Drawer content */}
-                <div className="flex-1 min-w-0 bg-background shadow-[-4px_0_16px_-2px_rgba(0,0,0,0.2)] rounded-l-md overflow-hidden border-l border-border/30">
+                <div className="h-full bg-background shadow-[-4px_0_16px_-2px_rgba(0,0,0,0.2)] rounded-l-md overflow-hidden">
                   <BranchThreadPanel />
                 </div>
               </div>
