@@ -300,6 +300,14 @@ tunaFlow/
 - **문서**: 코드 품질 감사 결과, artifact + failure learning 아이디어, larksuite/cli 레퍼런스
 - Rust 185 tests, Frontend 175 tests. DB v26 (변경 없음).
 
+### ✅ 해결됨 (세션 14: Failure Learning + Artifacts 그룹핑 + Insight 설계)
+- **Failure Learning 시스템**: `failure_lessons` 테이블 (DB v27) + FTS5 검색 + Rust 7개 commands + TS API. `processReviewVerdict` fail 시 findings 자동 저장. Rework phase에서 유사 실패 FTS5+파일경로 하이브리드 검색 → `## Previous Similar Failures` 섹션 자동 주입. Review pass 시 미해결 lessons resolution 자동 채움.
+- **Artifacts Plan 그룹핑**: `artifacts.plan_id` 컬럼 (DB v28) + subtask_id 기반 backfill. `create_artifact`에서 active plan auto-resolve (branch shadow conv 지원). ArtifactsPanel: Plan별 접힘/펼침 그룹 (`PlanGroup` 컴포넌트) + Plan 제목 lazy load + "Plan" 토글 버튼.
+- **워크플로우 artifact 자동 생성**: Plan 승인 → `architect-decision`, Review RT 시작(테스트 있을 때) → `test-report`, Review verdict(pass/fail) → `review-findings`. 모두 plan_id 자동 연결.
+- **Insight 탭 설계**: `docs/ideas/insightTabDesign.md` — Review+Test 탭을 Insight로 통합. 카테고리 기반 분석 (안정성/테스트/아키텍처/성능/보안/기술부채). fix_difficulty 자동 평가 (auto/guided/manual). SQALE+Quadrant 우선순위. Auto Fix 파이프라인 (CodeCureAgent 패턴). 학술 참고 11건 출처 포함.
+- **기존 테스트 버그 수정**: conditional verdict 테스트가 `review_failed` 기대 → `review_conditional`로 수정
+- Rust 188 tests, Frontend 175 tests. DB v28.
+
 ### 기타 알려진 이슈
 - Claude CLI 동시 실행 충돌 (같은 프로젝트 브랜치+메인, P1 — 다른 엔진으로 우회)
 - window-state: dev 모드 Ctrl+C 종료 시 상태 미저장 (X 버튼으로 닫아야 함)
@@ -356,7 +364,7 @@ tunaFlow/
 
 ---
 
-## 8. DB 스키마 (v25)
+## 8. DB 스키마 (v28)
 
 | 테이블 | 핵심 필드 |
 |---|---|
@@ -366,7 +374,9 @@ tunaFlow/
 | `messages_fts` | FTS5 가상 테이블 (v15, 트리거 기반 동기화) |
 | `branches` | id, conversation_id(FK), label, status, checkpoint_id, mode(chat/roundtable), parent_branch_id, git_branch |
 | `memos` | id, message_id, content, type, tags |
-| `artifacts` | id, conversation_id, type, title, status, subtask_id |
+| `artifacts` | id, conversation_id, type, title, status, subtask_id, plan_id (v28) |
+| `failure_lessons` | id, project_key, plan_id, file_path, pattern, finding, resolution (v27) |
+| `failure_lessons_fts` | FTS5 가상 테이블 (v27, 트리거 기반 동기화) |
 | `plans` | id, conversation_id, title, status, phase, architect_engine, developer_engine, reviewer_engines, implementation_branch_id, review_branch_id, parent_plan_id |
 | `plan_subtasks` | id, plan_id(FK), title, status, owner_agent, depends_on(JSON), parallel_group |
 | `plan_events` | id, plan_id(FK), event_type, actor, detail, created_at (v18) |
@@ -414,6 +424,7 @@ tunaFlow/
 | 11 | 2026-04-04 | 전수조사→문서 정합성 복구, expect 패닉 제거, 스트리밍 중복 150줄 제거, useMemo, 경고 0, 테스트 백로그 문서화 |
 | 12 | 2026-04-05 | 테스트 180→352, CLI resolve 통합, 컴포넌트 분할 3개, **3-role 프롬프트 근본 수정** (Dev↔Review 루프 해결), 에스컬레이션 경로 완성, 스마트 scaffold, microcompact, 커스텀 타이틀바+우클릭 메뉴, DB v26 slug, UI 수정 20+건, 실사용 검증으로 발견한 워크플로우 버그 대량 수정 |
 | 13 | 2026-04-05~06 | Review 자동 감지, doom loop 안정화, 크로스 프로젝트 격리, 코드 품질 감사 7항목 (CSP/catch/non-null/parking_lot/CJK/AppError/coverage), Plan UX (컨텍스트 메뉴/All 탭), 하네스 품질 (에러 규칙/승격 프롬프트/testOutput 배선), 파서 멀티라인 details, artifact+failure learning 설계 |
+| 14 | 2026-04-06 | **Failure Learning 시스템** (DB v27, FTS5 검색, rework 자동 주입, resolution 자동 채움), **Artifacts Plan 그룹핑** (DB v28, auto-resolve plan_id, UI 그룹핑), **워크플로우 artifact 자동 생성** (architect-decision/test-report/review-findings), **Insight 탭 설계** (카테고리 기반 분석, fix_difficulty, SQALE+Quadrant, 학술 참고 11건) |
 
 ---
 
@@ -490,9 +501,16 @@ tunaFlow/
 - Plan UX (컨텍스트 메뉴/All 탭), 하네스 품질 (에러 규칙/승격 프롬프트/testOutput 배선)
 - 파서 개선, artifact+failure learning 설계
 
+### ✅ 완료: Failure Learning + Artifacts Plan 그룹핑 + Insight 설계 (세션 14)
+- Failure Learning 시스템 (DB v27 + FTS5 + Rust commands + TS API + rework 자동 주입 + resolution 자동 채움)
+- Artifacts Plan 그룹핑 (DB v28 + auto-resolve plan_id + UI 그룹핑)
+- 워크플로우 artifact 자동 생성 (architect-decision/test-report/review-findings)
+- Insight 탭 설계 완료 (`docs/ideas/insightTabDesign.md`)
+- Rust 188 tests, Frontend 175 tests. DB v28.
+
 ### 다음 세션 첫 작업
-1. **Failure Learning 시스템 구현** — `docs/ideas/artifactAndFailureLearningIdea.md` 기준
-2. **Artifacts 탭 Plan별 그룹핑** — plan_id 컬럼 추가 + UI
+1. **Insight 탭 구현** — `docs/ideas/insightTabDesign.md` Phase A부터
+2. **Review/Test 탭 삭제** → 4탭 전환 (Chat | Plan | Artifacts | Insight)
 3. **실사용 검증 이어가기** — seCall, tunapi 워크플로우 풀사이클
 
 ### P1: RT 재검증
