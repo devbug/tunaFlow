@@ -1,5 +1,6 @@
 import { cn, AGENT_TEXT_COLORS, AGENT_DISPLAY_NAMES, formatTimestamp, normalizeEngine } from "@/lib/utils";
 import { GitBranch } from "lucide-react";
+import { AgentAvatar } from "../AgentAvatar";
 import type { Message, Branch } from "@/types";
 
 interface MessageMetaProps {
@@ -17,7 +18,8 @@ export function MessageMeta({ message, isCompact = false, threadBranches, onOpen
   const nameColorClass = engine ? AGENT_TEXT_COLORS[engine] : "text-foreground/80";
 
   return (
-    <div className={cn("flex items-baseline gap-2 mb-1", isCompact && "mb-0.5")}>
+    <div className={cn("flex items-center gap-1.5 mb-1", isCompact && "mb-0.5")}>
+      <AgentAvatar engine={message.engine} isUser={isUser} size="xs" />
       {isUser ? (
         <span className={cn("font-medium text-foreground/80", isCompact ? "text-[11px]" : "text-[13px]")}>You</span>
       ) : (

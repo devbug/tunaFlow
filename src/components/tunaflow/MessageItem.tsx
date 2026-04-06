@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import type { Message, Branch } from "@/types";
-import { AgentAvatar } from "./AgentAvatar";
+
 import { markdownComponents } from "./chat/MarkdownComponents";
 import { PlanProposalCard } from "./chat/PlanProposalCard";
 import { MessageMeta } from "./message/MessageMeta";
@@ -126,19 +126,14 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
     >
       <div
         className={cn(
-          "relative flex gap-2.5 px-4 transition-colors",
+          "relative px-4 transition-colors",
           grouped ? "py-1" : "py-2",
           isCompact && "px-3 py-1",
           "hover:bg-accent/20",
         )}
       >
-        {/* Avatar — hidden for grouped messages, placeholder for alignment */}
-        <div className="shrink-0 self-start pt-0.5 w-7">
-          {!grouped && <AgentAvatar engine={message.engine} isUser={isUser} size="sm" />}
-        </div>
-
         {/* Content */}
-        <div className={cn("flex-1 min-w-0", isCompact && "space-y-0.5")}>
+        <div className={cn("min-w-0", isCompact && "space-y-0.5")}>
           {/* Header — hidden for grouped consecutive messages */}
           {!grouped && (
             <MessageMeta
