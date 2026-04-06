@@ -42,6 +42,7 @@ export function CenterPanel() {
   const parentConversationId = useChatStore((s) => s.parentConversationId);
   const threadBranchId = useChatStore((s) => s.threadBranchId);
   const threadBranchLabel = useChatStore((s) => s.threadBranchLabel);
+  const drawerPinned = useChatStore((s) => s.drawerPinned);
   const runningThreadIds = useChatStore((s) => s.runningThreadIds);
   const messageQueue = useChatStore((s) => s.messageQueue);
   const renameConversation = useChatStore((s) => s.renameConversation);
@@ -243,19 +244,29 @@ export function CenterPanel() {
             )}
           </div>
 
-          {/* Search */}
-          <SearchBox
-            projectKey={useChatStore.getState().selectedProjectKey}
-            onSelectResult={(convId) => {
-              setActiveTab("chat");
-              if (convId.startsWith("branch:")) {
-                const branchId = convId.replace("branch:", "");
-                useChatStore.getState().openThread(branchId);
-              } else {
-                selectConversation(convId);
-              }
-            }}
-          />
+          {/* Search — icon-only when drawer is pinned, full box otherwise */}
+          {drawerPinned ? (
+            <button
+              onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
+              title="Search (Cmd+K)"
+              className="p-1.5 rounded text-muted-foreground/40 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+            >
+              <Search className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <SearchBox
+              projectKey={useChatStore.getState().selectedProjectKey}
+              onSelectResult={(convId) => {
+                setActiveTab("chat");
+                if (convId.startsWith("branch:")) {
+                  const branchId = convId.replace("branch:", "");
+                  useChatStore.getState().openThread(branchId);
+                } else {
+                  selectConversation(convId);
+                }
+              }}
+            />
+          )}
         </div>
       </div>
 
