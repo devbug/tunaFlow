@@ -231,21 +231,30 @@
 
 ## 차용할 가치가 있는 패턴
 
-### 1. 계층 분리
+### 1. Risk 레벨 분류 + Scope Pre-check
 
-- high-level action
-- execution command
-- low-level debug/raw
+- read / write / high-risk-write 구분 + `--yes` 확인
+- 실행 전 권한 로컬 체크 → 실패 전 힌트
+- **적용 시점**: SDK 전환 없이도 CLI subprocess 환경에서 적용 가능. 예: `--permission-mode` 선택을 Risk 레벨 기반으로 자동 결정
+- 다른 레퍼런스(claw-code, Optio)에서도 동일 패턴 수렴 확인
 
-### 2. 공통 실행 규칙 분리
+### 2. Error Enrichment
 
+- 에러 → 분류 → 추천 액션 → 콘솔 URL
+- **현재 상태**: `AppError → { code, message }` 구조화 완료 (세션 13). “추천 액션”까지 확장은 후순위
+- Optio error-classifier와 동일 방향
+
+### 3. 공통 실행 규칙 분리 (Skill 의존성 마커)
+
+- `CRITICAL — 이 스킬을 먼저 읽어라` 패턴
+- 현재 CLAUDE.md + PLATFORM_TIER0가 이 역할 수행. 스킬 시스템 Phase 2에서 분리 검토
 - auth/scope/security에 해당하는 공통 규칙을 shared 문서/규약으로 유지
 
-### 3. declarative execution pipeline
+### 4. declarative execution pipeline
 
 `resolve → validate → dry-run → execute` 같은 명시적 단계는 tunaFlow workflow action에도 잘 맞는다.
 
-### 4. resumable async contract
+### 5. resumable async contract
 
 특정 장기 작업에만 선택적으로 도입 가능
 
@@ -253,21 +262,17 @@
 
 ## 차용 가치가 낮은 것
 
-### 1. CLI 자체 구조
-
-`tunaFlow`의 메인 인터페이스는 UI/대화/워크플로우이지 CLI가 아니다.
-
-### 2. skill = role 대응
-
-도메인 skill 구조를 에이전트 인지 역할 구조에 그대로 가져오면 잘 안 맞는다.
-
-### 3. 문서 규약 기반 “auto-load”를 런타임 메커니즘으로 오해하는 것
-
-`lark-shared`는 실제 자동 로더라기보다 문서 의존성 패턴이다.
-
-### 4. API/resource 중심 설계
-
-`tunaFlow`는 리소스 조작 툴보다 workflow orchestration이 중심이다.
+| 패턴 | 이유 |
+|------|------|
+| 3-tier 커맨드 구조 | tunaFlow는 데스크톱 앱. cmdk 커맨드 팔레트로 충분 |
+| Device Flow OAuth | CLI agent 자체 인증 위임. 자체 OAuth 불필요 |
+| OpenAPI 메타데이터 기반 명령 자동 생성 | 고정된 Tauri command. 동적 생성 불필요 |
+| Lark MCP | Lark 내부 프로토콜. tunaFlow에 해당 없음 |
+| Multi-brand 엔드포인트 | feishu/lark 분기. 해당 없음 |
+| npm 패키지 배포 | 데스크톱 바이너리 |
+| skill = role 대응 | 도메인 skill 구조를 에이전트 인지 역할 구조에 그대로 가져오면 안 맞음 |
+| 문서 규약 기반 “auto-load” | 런타임 메커니즘이 아닌 문서 의존성 패턴 |
+| API/resource 중심 설계 | tunaFlow는 workflow orchestration 중심 |
 
 ---
 
@@ -282,10 +287,11 @@
 
 하지만 다음 항목은 참고 가치가 있다.
 
-1. 실행 계층 분리 원칙
-2. shared capability/base rule 문서화
-3. resumable async pattern
+1. Risk 레벨 분류 + Scope Pre-check (SDK 전환 없이도 적용 가능)
+2. Error Enrichment (AppError 구조화 완료, 추천 액션 확장은 후순위)
+3. Skill 의존성 마커 + shared base 패턴 (스킬 Phase 2)
 4. declarative action pipeline
+5. resumable async pattern
 
 ---
 
