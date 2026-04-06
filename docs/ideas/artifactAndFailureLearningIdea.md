@@ -143,7 +143,44 @@ CREATE TABLE failure_lessons (
 
 ---
 
-## 7. 하지 않는 것
+## 7. Artifacts 탭 UX 개선 — Plan별 그룹핑
+
+### 7.1 현재 문제
+
+- Artifacts 탭은 **플랫 리스트** (타입 필터만 있음: All/Notes/Code/Specs/Harness)
+- HarnessStrip이 타입별 카운트를 보여주지만 **Plan별 구분 없음**
+- 프로젝트가 커지면 (Plan 10+ × artifact 3~4 = 40+개) 어떤 Plan의 산출물인지 찾기 어려움
+- artifact DB에 `subtask_id`는 있지만 **`plan_id`가 없음** → Plan별 그룹핑 불가
+
+### 7.2 개선 방향
+
+```
+▾ seCall MVP (done)
+  - Review findings (2건)
+  - Test summary
+
+▾ seCall Extensions (done)
+  - Review findings
+  - Decision: embedder trait 선택
+
+▾ 미분류
+  - 수동 메모들
+```
+
+- **Plan별 그룹핑**이 카테고리별 탭보다 자연스러움
+- "Review 전체 보기"보다 "이 Plan에서 뭐가 나왔지?"가 실제 사용 패턴
+- Harness 필터 내에서 Plan별로 접힘/펼침
+
+### 7.3 구현 필요사항
+
+- `artifacts` 테이블에 `plan_id` 컬럼 추가 (DB migration)
+- artifact 생성 시 현재 active plan의 ID를 자동 연결
+- ArtifactsPanel에서 plan_id 기준 그룹핑 렌더링
+- 미분류(plan_id NULL) 그룹 별도 표시
+
+---
+
+## 8. 하지 않는 것
 
 - 컨텍스트팩 상시 주입 (토큰 낭비)
 - 에이전트가 스스로 실패 이력 검색 (tool-request 의존은 불확실)
