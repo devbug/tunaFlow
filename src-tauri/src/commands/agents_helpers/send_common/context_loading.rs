@@ -177,6 +177,13 @@ pub fn load_context_data(
         });
     }
 
+    // Pre-load project_key for failure lessons (used in rework phase)
+    let project_key_for_failures: Option<String> = conn.query_row(
+        "SELECT project_key FROM conversations WHERE id = ?1",
+        [conversation_id],
+        |row| row.get(0),
+    ).ok();
+
     // Load plan documents from filesystem (plan, result, review)
     let plan_document: Option<String> = if has_active_plan {
         if let Some(pp) = project_path {
@@ -227,6 +234,26 @@ pub fn load_context_data(
                     if let Some(doc) = latest_review {
                         combined.push_str("\n\n---\n\n");
                         combined.push_str(&doc);
+                    }
+
+                    // Failure learning: search similar past failures for rework context
+                    if let Some(pk) = &project_key_for_failures {
+                        let similar = search_failure_lessons_for_rework(conn, pk, &combined);
+                        if !similar.is_empty() {
+                            combined.push_str("\n\n---\n\n## Previous Similar Failures\n\n");
+                            combined.push_str("아래는 같은 프로젝트에서 과거 발생한 유사한 실패 사례입니다. 같은 실수를 반복하지 마세요.\n\n");
+                            for (i, lesson) in similar.iter().enumerate() {
+                                combined.push_str(&format!("### Case {}\n", i + 1));
+                                if let Some(fp) = &lesson.file_path {
+                                    combined.push_str(&format!("- **File**: `{}`\n", fp));
+                                }
+                                combined.push_str(&format!("- **Finding**: {}\n", lesson.finding));
+                                if let Some(res) = &lesson.resolution {
+                                    combined.push_str(&format!("- **Resolution**: {}\n", res));
+                                }
+                                combined.push('\n');
+                            }
+                        }
                     }
                 }
 
@@ -384,4 +411,110 @@ pub fn load_context_data(
         context_mode_override: context_mode_override.map(|s| s.to_string()),
         context_budget_cap,
     }
+}
+
+/// Search failure lessons relevant to the current rework context.
+/// Uses FTS5 keyword search + file path matching from the combined plan document.
+fn search_failure_lessons_for_rework(
+    conn: &Connection,
+    project_key: &str,
+    plan_document: &str,
+) -> Vec<crate::db::models::FailureLesson> {
+    use rusqlite::params;
+
+    // Extract file paths mentioned in the plan document
+    let file_paths: Vec<String> = plan_document
+        .split_whitespace()
+        .filter_map(|w| {
+            let clean = w.trim_matches(|c: char| c == '`' || c == '\'' || c == '"' || c == '(' || c == ')' || c == ',');
+            if clean.contains('/') && clean.contains('.') && clean.len() > 4 && !clean.starts_with("http") {
+                Some(clean.to_string())
+            } else {
+                None
+            }
+        })
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .take(10)
+        .collect();
+
+    // Extract keywords from the last review section (after "## Findings" or similar)
+    let query_text = plan_document
+        .rsplit_once("Finding")
+        .or_else(|| plan_document.rsplit_once("finding"))
+        .map(|(_, rest)| rest)
+        .unwrap_or(plan_document);
+    let keywords: Vec<&str> = query_text
+        .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
+        .filter(|t| t.len() >= 3)
+        .take(20)
+        .collect();
+    let fts_query = keywords.join(" OR ");
+
+    let mut results: Vec<(f64, crate::db::models::FailureLesson)> = Vec::new();
+
+    // FTS5 search
+    if !fts_query.is_empty() {
+        let sql = "SELECT fl.id, fl.project_key, fl.plan_id, fl.file_path, fl.pattern, fl.finding, fl.resolution, fl.created_at,
+                          bm25(failure_lessons_fts, 1.0, 0.5, 0.3) AS score
+                   FROM failure_lessons_fts
+                   JOIN failure_lessons fl ON fl.rowid = failure_lessons_fts.rowid
+                   WHERE failure_lessons_fts MATCH ?1
+                     AND fl.project_key = ?2
+                   ORDER BY score
+                   LIMIT 10";
+        if let Ok(mut stmt) = conn.prepare(sql) {
+            if let Ok(rows) = stmt.query_map(params![fts_query, project_key], |row| {
+                Ok((row.get::<_, f64>(8)?, crate::db::models::FailureLesson {
+                    id: row.get(0)?,
+                    project_key: row.get(1)?,
+                    plan_id: row.get(2)?,
+                    file_path: row.get(3)?,
+                    pattern: row.get(4)?,
+                    finding: row.get(5)?,
+                    resolution: row.get(6)?,
+                    created_at: row.get(7)?,
+                }))
+            }) {
+                for r in rows.flatten() {
+                    results.push(r);
+                }
+            }
+        }
+    }
+
+    // File path exact match
+    for fp in &file_paths {
+        let sql = "SELECT id, project_key, plan_id, file_path, pattern, finding, resolution, created_at
+                   FROM failure_lessons WHERE project_key = ?1 AND file_path = ?2 ORDER BY created_at DESC LIMIT 3";
+        if let Ok(mut stmt) = conn.prepare(sql) {
+            if let Ok(rows) = stmt.query_map(params![project_key, fp], |row| {
+                Ok(crate::db::models::FailureLesson {
+                    id: row.get(0)?,
+                    project_key: row.get(1)?,
+                    plan_id: row.get(2)?,
+                    file_path: row.get(3)?,
+                    pattern: row.get(4)?,
+                    finding: row.get(5)?,
+                    resolution: row.get(6)?,
+                    created_at: row.get(7)?,
+                })
+            }) {
+                for lesson in rows.flatten() {
+                    if !results.iter().any(|(_, l)| l.id == lesson.id) {
+                        results.push((-10.0, lesson));
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort, deduplicate, limit to 5
+    results.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut seen = std::collections::HashSet::new();
+    results.into_iter()
+        .filter(|(_, l)| seen.insert(l.id.clone()))
+        .take(5)
+        .map(|(_, l)| l)
+        .collect()
 }

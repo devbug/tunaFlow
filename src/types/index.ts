@@ -80,6 +80,7 @@ export interface Artifact {
   conversationId?: string;
   branchId?: string;
   subtaskId?: string;
+  planId?: string;
   type: string;
   title: string;
   content: string;
@@ -241,6 +242,7 @@ export interface CreateArtifactInput {
   conversationId?: string;
   branchId?: string;
   subtaskId?: string;
+  planId?: string;
   type: string;
   title: string;
   content: string;
@@ -339,6 +341,17 @@ export interface PlanSubtask {
 export interface SubtaskInput {
   title: string;
   details?: string;
+}
+
+export interface FailureLesson {
+  id: string;
+  projectKey: string;
+  planId?: string;
+  filePath?: string;
+  pattern?: string;
+  finding: string;
+  resolution?: string;
+  createdAt: number;
 }
 
 export interface CreatePlanInput {

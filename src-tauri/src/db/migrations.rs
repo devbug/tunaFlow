@@ -103,6 +103,12 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     if current < 26 {
         apply_v26(conn)?;
     }
+    if current < 27 {
+        apply_v27(conn)?;
+    }
+    if current < 28 {
+        apply_v28(conn)?;
+    }
     Ok(())
 }
 
@@ -552,6 +558,59 @@ pub fn find_unique_slug(conn: &Connection, base: &str, exclude_id: Option<&str>)
         counter += 1;
         candidate = format!("{}-{}", base, counter);
     }
+}
+
+fn apply_v28(conn: &Connection) -> Result<(), AppError> {
+    // Artifacts: plan_id column for plan-based grouping
+    add_column_if_missing(conn, "artifacts", "plan_id", "TEXT")?;
+    // Backfill: link artifacts with subtask_id to their plan
+    conn.execute_batch("
+        UPDATE artifacts SET plan_id = (
+            SELECT ps.plan_id FROM plan_subtasks ps WHERE ps.id = artifacts.subtask_id
+        ) WHERE subtask_id IS NOT NULL AND plan_id IS NULL;
+    ")?;
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (28, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+fn apply_v27(conn: &Connection) -> Result<(), AppError> {
+    // Failure learning system: stores review failures for rework prompt injection
+    conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS failure_lessons (
+            id          TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            plan_id     TEXT,
+            file_path   TEXT,
+            pattern     TEXT,
+            finding     TEXT NOT NULL,
+            resolution  TEXT,
+            created_at  INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_failure_lessons_project
+            ON failure_lessons(project_key);
+        CREATE INDEX IF NOT EXISTS idx_failure_lessons_plan
+            ON failure_lessons(plan_id);
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS failure_lessons_fts
+            USING fts5(finding, pattern, file_path, content=failure_lessons, content_rowid=rowid);
+
+        CREATE TRIGGER IF NOT EXISTS failure_lessons_ai AFTER INSERT ON failure_lessons BEGIN
+            INSERT INTO failure_lessons_fts(rowid, finding, pattern, file_path)
+            VALUES (new.rowid, new.finding, COALESCE(new.pattern, ''), COALESCE(new.file_path, ''));
+        END;
+        CREATE TRIGGER IF NOT EXISTS failure_lessons_ad AFTER DELETE ON failure_lessons BEGIN
+            INSERT INTO failure_lessons_fts(failure_lessons_fts, rowid, finding, pattern, file_path)
+            VALUES ('delete', old.rowid, old.finding, COALESCE(old.pattern, ''), COALESCE(old.file_path, ''));
+        END;
+        CREATE TRIGGER IF NOT EXISTS failure_lessons_au AFTER UPDATE ON failure_lessons BEGIN
+            INSERT INTO failure_lessons_fts(failure_lessons_fts, rowid, finding, pattern, file_path)
+            VALUES ('delete', old.rowid, old.finding, COALESCE(old.pattern, ''), COALESCE(old.file_path, ''));
+            INSERT INTO failure_lessons_fts(rowid, finding, pattern, file_path)
+            VALUES (new.rowid, new.finding, COALESCE(new.pattern, ''), COALESCE(new.file_path, ''));
+        END;
+    ")?;
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (27, ?1)", [now_epoch()])?;
+    Ok(())
 }
 
 /// Seconds since Unix epoch

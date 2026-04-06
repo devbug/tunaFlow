@@ -8,6 +8,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Branch, Plan, Message, RoundtableParticipant } from "@/types";
 import * as planApi from "./api/plans";
+import * as failureLessonsApi from "./api/failureLessons";
+import * as artifactApi from "./api/artifacts";
 
 /** Generate ASCII-only slug from plan title for file paths.
  *  DEPRECATED for direct use — prefer plan.slug from DB (unique, collision-free).
@@ -221,6 +223,9 @@ export async function approveAndStartImplementation(
   await planApi.createPlanEvent(plan.id, "approved", "user");
   await planApi.assignPlanEngines(plan.id, { developer: developerEngine });
 
+  // Create architect-decision artifact
+  createArchitectDecisionArtifact(plan);
+
   // Create implementation branch
   const { branch, shadowConvId } = await createAndLinkBranch(
     plan, "implementation", `Impl: ${plan.title}`, "chat",
@@ -285,6 +290,11 @@ export async function startReviewRT(
   // Generate implementation result report before review
   syncResultReport(plan.id, implMessages, plan.developerEngine ?? undefined,
     plan.implementationBranchId ? `Impl: ${plan.title}` : undefined);
+
+  // Create test-report artifact if test output exists
+  if (testOutput) {
+    createTestReportArtifact(plan, testOutput);
+  }
 
   const engines = reviewerEngines ?? ["claude", "gemini"];
 
@@ -383,6 +393,15 @@ export async function processReviewVerdict(
     await planApi.updatePlanPhase(plan.id, "done");
     await planApi.updatePlanStatus(plan.id, "done");
     await planApi.createPlanEvent(plan.id, "review_passed", "reviewer", detail);
+    // Resolve unresolved failure lessons for this plan
+    try {
+      await failureLessonsApi.resolveFailureLessonsByPlan(
+        plan.id,
+        `Review passed — ${verdict.recommendations?.[0] ?? "resolved"}`,
+      );
+    } catch (e) { console.warn("[failure-learning] resolve failed:", e); }
+    // Create review-findings artifact (pass record)
+    await createVerdictArtifact(plan, verdict);
     // Archive all related branches when plan is done
     if (plan.implementationBranchId) {
       await invoke("archive_branch", { id: plan.implementationBranchId }).catch((e) => console.debug("[archive]", e));
@@ -393,6 +412,10 @@ export async function processReviewVerdict(
   } else if (verdict.verdict === "fail") {
     await planApi.updatePlanPhase(plan.id, "rework");
     await planApi.createPlanEvent(plan.id, "review_failed", "reviewer", detail);
+    // Save failure lessons from findings
+    await saveFailureLessons(plan, verdict.findings);
+    // Create review-findings artifact
+    await createVerdictArtifact(plan, verdict);
 
     // Doom loop detection: count review_failed events SINCE last escalation
     const events = await planApi.listPlanEvents(plan.id);
@@ -455,6 +478,102 @@ export async function processReviewVerdict(
 
   // Generate review report document
   syncReviewReport(plan.id, verdict);
+}
+
+// ─── Failure Learning ───────────────────────────────────────────────────────
+
+/** Extract file path from a finding string (best-effort). */
+function extractFilePath(finding: string): string | undefined {
+  for (const word of finding.split(/\s+/)) {
+    const clean = word.replace(/[`'"(),]/g, "");
+    if (clean.includes("/") && clean.includes(".") && clean.length > 4 && !clean.startsWith("http")) {
+      return clean;
+    }
+  }
+  return undefined;
+}
+
+/** Save failure lessons from review findings (fire-and-forget). */
+async function saveFailureLessons(plan: Plan, findings: string[]): Promise<void> {
+  if (findings.length === 0) return;
+  try {
+    const { useChatStore } = await import("@/stores/chatStore");
+    const projectKey = useChatStore.getState().selectedProjectKey;
+    if (!projectKey) return;
+    const inputs = findings.map((finding) => ({
+      projectKey,
+      planId: plan.id,
+      filePath: extractFilePath(finding),
+      pattern: finding.length > 80 ? finding.slice(0, 80).trim() + "..." : finding.trim(),
+      finding,
+    }));
+    await failureLessonsApi.createFailureLessonsBatch(inputs);
+  } catch (e) { console.warn("[failure-learning] save failed:", e); }
+}
+
+// ─── Workflow Artifact auto-creation ────────────────────────────────────────
+
+/** Create review-findings artifact from verdict (fire-and-forget). */
+async function createVerdictArtifact(plan: Plan, verdict: ParsedReviewVerdict): Promise<void> {
+  try {
+    const lines: string[] = [];
+    lines.push(`## Review Verdict: ${verdict.verdict.toUpperCase()}`);
+    lines.push("");
+    if (verdict.findings.length > 0) {
+      lines.push("### Findings");
+      for (const f of verdict.findings) lines.push(`- ${f}`);
+      lines.push("");
+    }
+    if (verdict.recommendations.length > 0) {
+      lines.push("### Recommendations");
+      for (const r of verdict.recommendations) lines.push(`- ${r}`);
+    }
+
+    await artifactApi.createArtifact({
+      conversationId: plan.conversationId,
+      planId: plan.id,
+      type: "review-findings",
+      title: `Review: ${plan.title} (${verdict.verdict})`,
+      content: lines.join("\n"),
+    });
+  } catch (e) { console.warn("[artifact] verdict artifact failed:", e); }
+}
+
+/** Create architect-decision artifact when plan is approved (fire-and-forget). */
+async function createArchitectDecisionArtifact(plan: Plan): Promise<void> {
+  try {
+    const subtasks = await planApi.listSubtasks(plan.id);
+    const lines: string[] = [];
+    lines.push(`## Plan Approved: ${plan.title}`);
+    if (plan.description) lines.push("", plan.description);
+    if (plan.expectedOutcome) lines.push("", `**Expected**: ${plan.expectedOutcome}`);
+    if (subtasks.length > 0) {
+      lines.push("", "### Subtasks");
+      for (const st of subtasks) {
+        lines.push(`${st.idx + 1}. ${st.title}${st.details ? ` — ${st.details}` : ""}`);
+      }
+    }
+    await artifactApi.createArtifact({
+      conversationId: plan.conversationId,
+      planId: plan.id,
+      type: "architect-decision",
+      title: `Decision: ${plan.title}`,
+      content: lines.join("\n"),
+    });
+  } catch (e) { console.warn("[artifact] architect decision artifact failed:", e); }
+}
+
+/** Create test-report artifact from test output (fire-and-forget). */
+async function createTestReportArtifact(plan: Plan, testOutput: string): Promise<void> {
+  try {
+    await artifactApi.createArtifact({
+      conversationId: plan.conversationId,
+      planId: plan.id,
+      type: "test-report",
+      title: `Test: ${plan.title}`,
+      content: testOutput.slice(0, 10000),
+    });
+  } catch (e) { console.warn("[artifact] test report artifact failed:", e); }
 }
 
 // ─── Plan Revision (from Implementation Branch) ────────────────────────────

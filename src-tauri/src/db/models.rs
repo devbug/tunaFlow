@@ -95,6 +95,7 @@ pub struct Artifact {
     pub conversation_id: Option<String>,
     pub branch_id: Option<String>,
     pub subtask_id: Option<String>,
+    pub plan_id: Option<String>,
     #[serde(rename = "type")]
     pub artifact_type: String,
     pub title: String,
@@ -223,5 +224,19 @@ pub struct Branch {
     pub mode: Option<String>,
     /// Link to plan subtask — developer lane uses this to track which task a branch implements.
     pub subtask_id: Option<String>,
+    pub created_at: i64,
+}
+
+/// A recorded failure from review verdict — used for rework prompt injection.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FailureLesson {
+    pub id: String,
+    pub project_key: String,
+    pub plan_id: Option<String>,
+    pub file_path: Option<String>,
+    pub pattern: Option<String>,
+    pub finding: String,
+    pub resolution: Option<String>,
     pub created_at: i64,
 }

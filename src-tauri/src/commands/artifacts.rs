@@ -12,6 +12,7 @@ pub struct CreateArtifactInput {
     pub conversation_id: Option<String>,
     pub branch_id: Option<String>,
     pub subtask_id: Option<String>,
+    pub plan_id: Option<String>,
     #[serde(rename = "type")]
     pub artifact_type: String,
     pub title: String,
@@ -31,17 +32,18 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Artifact> {
         conversation_id: row.get(1)?,
         branch_id: row.get(2)?,
         subtask_id: row.get(3)?,
-        artifact_type: row.get(4)?,
-        title: row.get(5)?,
-        content: row.get(6)?,
-        status: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        plan_id: row.get(4)?,
+        artifact_type: row.get(5)?,
+        title: row.get(6)?,
+        content: row.get(7)?,
+        status: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 
 const SELECT_COLS: &str =
-    "id, conversation_id, branch_id, subtask_id, type, title, content, status, created_at, updated_at";
+    "id, conversation_id, branch_id, subtask_id, plan_id, type, title, content, status, created_at, updated_at";
 
 #[tauri::command]
 pub fn list_artifacts(
@@ -86,14 +88,36 @@ pub fn create_artifact(
     let id = Uuid::new_v4().to_string();
     let now = now_epoch_ms();
 
+    // Auto-resolve plan_id from active plan if not provided
+    let plan_id = input.plan_id.or_else(|| {
+        // Try to find active plan for this conversation (or parent conversation for branches)
+        let conv_id = input.conversation_id.as_deref()?;
+        // For branch shadow conversations, look up the parent conversation's plan
+        let lookup_conv = if conv_id.starts_with("branch:") {
+            let branch_id = conv_id.strip_prefix("branch:")?;
+            conn.query_row(
+                "SELECT conversation_id FROM branches WHERE id = ?1",
+                [branch_id], |row| row.get::<_, String>(0),
+            ).ok()
+        } else {
+            Some(conv_id.to_string())
+        };
+        let lookup = lookup_conv.as_deref()?;
+        conn.query_row(
+            "SELECT id FROM plans WHERE conversation_id = ?1 AND status = 'active' ORDER BY updated_at DESC LIMIT 1",
+            [lookup], |row| row.get::<_, String>(0),
+        ).ok()
+    });
+
     conn.execute(
-        "INSERT INTO artifacts (id, conversation_id, branch_id, subtask_id, type, title, content, status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'draft', ?8, ?9)",
+        "INSERT INTO artifacts (id, conversation_id, branch_id, subtask_id, plan_id, type, title, content, status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'draft', ?9, ?10)",
         params![
             id,
             input.conversation_id,
             input.branch_id,
             input.subtask_id,
+            plan_id,
             input.artifact_type,
             input.title,
             input.content,
@@ -107,6 +131,7 @@ pub fn create_artifact(
         conversation_id: input.conversation_id,
         branch_id: input.branch_id,
         subtask_id: input.subtask_id,
+        plan_id,
         artifact_type: input.artifact_type,
         title: input.title,
         content: input.content,

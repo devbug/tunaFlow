@@ -5,6 +5,17 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve()),
 }));
 
+// Mock failure lessons API
+vi.mock("@/lib/api/failureLessons", () => ({
+  createFailureLessonsBatch: vi.fn(() => Promise.resolve([])),
+  resolveFailureLessonsByPlan: vi.fn(() => Promise.resolve(0)),
+}));
+
+// Mock artifacts API
+vi.mock("@/lib/api/artifacts", () => ({
+  createArtifact: vi.fn(() => Promise.resolve({ id: "art-1" })),
+}));
+
 // Mock plan API
 vi.mock("@/lib/api/plans", () => ({
   updatePlanPhase: vi.fn(() => Promise.resolve()),
@@ -120,7 +131,7 @@ describe("processReviewVerdict", () => {
     });
 
     expect(planApi.updatePlanPhase).not.toHaveBeenCalled();
-    expect(planApi.createPlanEvent).toHaveBeenCalledWith("p-1", "review_failed", "reviewer", expect.any(String));
+    expect(planApi.createPlanEvent).toHaveBeenCalledWith("p-1", "review_conditional", "reviewer", expect.any(String));
   });
 });
 

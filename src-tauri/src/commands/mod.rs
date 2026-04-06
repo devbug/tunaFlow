@@ -8,6 +8,7 @@ pub mod context_queries;
 pub mod conversation_memory;
 pub mod conversations;
 pub mod evaluation;
+pub mod failure_lessons;
 pub mod files;
 pub mod jobs;
 pub mod memos;

@@ -241,6 +241,14 @@ pub fn run() {
             commands::plans::generate_plan_document,
             commands::plans::generate_review_report,
             commands::plans::generate_result_report,
+            // Failure Lessons
+            commands::failure_lessons::create_failure_lesson,
+            commands::failure_lessons::create_failure_lessons_batch,
+            commands::failure_lessons::list_failure_lessons,
+            commands::failure_lessons::search_similar_failures,
+            commands::failure_lessons::resolve_failure_lesson,
+            commands::failure_lessons::resolve_failure_lessons_by_plan,
+            commands::failure_lessons::delete_failure_lesson,
             // Test Runner
             commands::test_runner::run_project_tests,
         ])

@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { copyToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import {
   FileText, Clock, CheckCircle2, XCircle, Plus, X,
-  ClipboardCheck, FileSearch, Gavel, TestTube,
+  ClipboardCheck, FileSearch, Gavel, TestTube, ChevronDown, ChevronRight,
 } from "lucide-react";
-import type { Artifact } from "@/types";
+import type { Artifact, Plan } from "@/types";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -136,6 +137,45 @@ function HarnessStrip({ artifacts }: { artifacts: Artifact[] }) {
   );
 }
 
+// ─── Plan Group ─────────────────────────────────────────────────────────────
+
+function PlanGroup({
+  planId,
+  planTitle,
+  artifacts,
+  onOpen,
+}: {
+  planId: string | null;
+  planTitle?: string;
+  artifacts: Artifact[];
+  onOpen: (a: Artifact) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const label = planId
+    ? (planTitle ?? "Plan...")
+    : "Ungrouped";
+
+  return (
+    <div className="rounded-md border border-border/20 bg-card/30">
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-left hover:bg-accent/30 transition-colors rounded-t-md"
+      >
+        {collapsed
+          ? <ChevronRight className="w-3 h-3 text-muted-foreground/40 shrink-0" />
+          : <ChevronDown className="w-3 h-3 text-muted-foreground/40 shrink-0" />}
+        <span className="text-[11px] font-medium text-foreground/80 truncate flex-1">{label}</span>
+        <span className="text-[9px] text-muted-foreground/40 font-mono shrink-0">{artifacts.length}</span>
+      </button>
+      {!collapsed && (
+        <div className="px-1.5 pb-1.5 space-y-1">
+          {artifacts.map((a) => <ArtifactCard key={a.id} artifact={a} onOpen={onOpen} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ArtifactsPanel (main export) ────────────────────────────────────────────
 
 // Navigate to artifact source conversation/branch
@@ -169,7 +209,31 @@ export function ArtifactsPanel() {
   const [artType, setArtType] = useState("note");
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("newest");
+  const [groupByPlan, setGroupByPlan] = useState(true);
   const [detailArtifact, setDetailArtifact] = useState<Artifact | null>(null);
+
+  // Load plan titles for grouping
+  const [planTitles, setPlanTitles] = useState<Record<string, string>>({});
+  const planIds = useMemo(
+    () => [...new Set(artifacts.map((a) => a.planId).filter(Boolean))] as string[],
+    [artifacts],
+  );
+  useEffect(() => {
+    if (planIds.length === 0) return;
+    const newIds = planIds.filter((id) => !planTitles[id]);
+    if (newIds.length === 0) return;
+    Promise.all(
+      newIds.map((id) =>
+        invoke<Plan>("get_plan", { id }).then((p) => [id, p.title] as const).catch(() => null),
+      ),
+    ).then((results) => {
+      const map = { ...planTitles };
+      for (const r of results) {
+        if (r) map[r[0]] = r[1];
+      }
+      setPlanTitles(map);
+    });
+  }, [planIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreate = async () => {
     if (!title.trim() || !content.trim() || !selectedConversationId) return;
@@ -191,6 +255,27 @@ export function ArtifactsPanel() {
     return a.title.localeCompare(b.title);
   });
 
+  // Group by plan
+  const groups = useMemo(() => {
+    if (!groupByPlan || planIds.length === 0) return null;
+    const map = new Map<string | null, Artifact[]>();
+    for (const a of sorted) {
+      const key = a.planId ?? null;
+      const list = map.get(key) ?? [];
+      list.push(a);
+      map.set(key, list);
+    }
+    // Sort groups: plans first (by most recent artifact), then ungrouped
+    const entries = [...map.entries()].sort((a, b) => {
+      if (a[0] === null) return 1;
+      if (b[0] === null) return -1;
+      const aTime = Math.max(...a[1].map((x) => x.updatedAt));
+      const bTime = Math.max(...b[1].map((x) => x.updatedAt));
+      return bTime - aTime;
+    });
+    return entries;
+  }, [sorted, groupByPlan, planIds.length]);
+
   return (
     <div className="space-y-3">
       {/* Filter + Sort bar */}
@@ -206,6 +291,16 @@ export function ArtifactsPanel() {
           ))}
         </div>
         <span className="flex-1" />
+        {planIds.length > 0 && (
+          <button
+            onClick={() => setGroupByPlan(!groupByPlan)}
+            className={cn("px-1.5 py-0.5 rounded text-[10px] transition-colors",
+              groupByPlan ? "bg-accent text-foreground" : "text-muted-foreground/40 hover:text-foreground"
+            )}
+          >
+            Plan
+          </button>
+        )}
         <select value={sort} onChange={(e) => setSort(e.target.value)}
           className="bg-transparent text-[10px] text-muted-foreground/50 outline-none cursor-pointer">
           {SORT_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -215,11 +310,25 @@ export function ArtifactsPanel() {
       {/* Summary strip */}
       {artifacts.length > 0 && <HarnessStrip artifacts={artifacts} />}
 
-      {/* Artifact cards */}
+      {/* Artifact cards — grouped or flat */}
       {sorted.length > 0 ? (
-        <div className="space-y-1.5">
-          {sorted.map((a) => <ArtifactCard key={a.id} artifact={a} onOpen={setDetailArtifact} />)}
-        </div>
+        groups ? (
+          <div className="space-y-2">
+            {groups.map(([planId, items]) => (
+              <PlanGroup
+                key={planId ?? "__ungrouped"}
+                planId={planId}
+                planTitle={planId ? planTitles[planId] : undefined}
+                artifacts={items}
+                onOpen={setDetailArtifact}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {sorted.map((a) => <ArtifactCard key={a.id} artifact={a} onOpen={setDetailArtifact} />)}
+          </div>
+        )
       ) : artifacts.length > 0 ? (
         <div className="text-center py-4 text-[12px] text-muted-foreground/40">
           No artifacts match this filter
