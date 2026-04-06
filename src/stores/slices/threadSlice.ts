@@ -256,11 +256,18 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
       autoSyncImplCompletion(convId, threadMessages);
       // Auto-detect review verdict after tool-request handling
       autoDetectReviewVerdict(convId, threadMessages);
+      // Notify thread completion
+      import("@/stores/notificationStore").then(({ notify }) => {
+        notify("completed", "tunaFlow", "드로어 에이전트 응답 완료", convId);
+      }).catch(() => {});
       get()._endRun(convId);
     });
     const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
       if (e.payload.conversationId !== convId) return;
       cleanup(); set({ error: e.payload.error });
+      import("@/stores/notificationStore").then(({ notify }) => {
+        notify("error", "tunaFlow", `드로어 에이전트 오류: ${e.payload.error.slice(0, 100)}`, convId);
+      }).catch(() => {});
       const threadMessages = await invoke<Message[]>("list_messages", { conversationId: convId });
       set({ threadMessages }); get()._endRun(convId);
     });
@@ -355,12 +362,19 @@ async function runThreadRoundtable(
       const latestMsgs = await invoke<Message[]>("list_messages", { conversationId: threadBranchConvId });
       autoDetectReviewVerdict(threadBranchConvId, latestMsgs);
     }
+    // Notify RT completion
+    import("@/stores/notificationStore").then(({ notify }) => {
+      notify("completed", "tunaFlow", "Roundtable 토론 완료", threadBranchConvId);
+    }).catch(() => {});
     setTimeout(() => set({ rtParticipantStatuses: new Map(), rtStatusConversationId: null }), 2000);
     get()._endRun(threadBranchConvId);
   });
   const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
     if (e.payload.conversationId !== threadBranchConvId) return;
     cleanup();
+    import("@/stores/notificationStore").then(({ notify }) => {
+      notify("error", "tunaFlow", `RT 에이전트 오류: ${e.payload.error.slice(0, 100)}`, threadBranchConvId);
+    }).catch(() => {});
     if (get().threadBranchConvId === threadBranchConvId) {
       set({ error: e.payload.error });
       const threadMessages = await invoke<Message[]>("list_messages", { conversationId: threadBranchConvId });

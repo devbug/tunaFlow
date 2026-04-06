@@ -1,4 +1,5 @@
 import { useChatStore } from "@/stores/chatStore";
+import { NotificationBell } from "./NotificationBell";
 
 /**
  * Custom title bar — overlays the macOS traffic light area.
@@ -42,6 +43,11 @@ export function TitleBar() {
             </span>
           </>
         )}
+      </div>
+
+      {/* Right: notification bell */}
+      <div className="absolute right-3 top-0 h-full flex items-center">
+        <NotificationBell />
       </div>
     </div>
   );

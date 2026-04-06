@@ -66,14 +66,10 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
       const next = state.runningThreadIds.filter((id) => id !== threadId);
       return { runningThreadIds: next };
     });
-    // Notify if app is not focused
-    if (document.hidden) {
-      import("@tauri-apps/plugin-notification").then(({ sendNotification, isPermissionGranted }) => {
-        isPermissionGranted().then((granted) => {
-          if (granted) {
-            sendNotification({ title: "tunaFlow", body: "에이전트 응답이 완료되었습니다." });
-          }
-        });
+    // Notify completion — skip if error was set (error handler sends its own notification)
+    if (!get().error) {
+      import("@/stores/notificationStore").then(({ notify }) => {
+        notify("completed", "tunaFlow", "에이전트 응답이 완료되었습니다.", threadId);
       }).catch((e) => console.debug("[notify]", e));
     }
     // Post-completion background tasks — staggered to avoid blocking main thread.
@@ -244,6 +240,9 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
       if (e.payload.conversationId !== selectedConversationId) return;
       pendingChunk = null;
       cleanup();
+      import("@/stores/notificationStore").then(({ notify }) => {
+        notify("error", "tunaFlow", `에이전트 오류: ${e.payload.error.slice(0, 100)}`, selectedConversationId);
+      }).catch(() => {});
       const freshMessages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
       set((state) => {
         if (state.selectedConversationId === selectedConversationId) {
@@ -387,6 +386,9 @@ async function runRoundtable(
   const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
     if (e.payload.conversationId !== selectedConversationId) return;
     cleanup();
+    import("@/stores/notificationStore").then(({ notify }) => {
+      notify("error", "tunaFlow", `에이전트 오류: ${e.payload.error.slice(0, 100)}`, selectedConversationId);
+    }).catch(() => {});
     if (isStillActive()) {
       set({ error: e.payload.error });
       const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
