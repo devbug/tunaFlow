@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Bell } from "lucide-react";
+import { Bell, Volume2, VolumeX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { useNotificationStore, type AppNotification } from "@/stores/notificationStore";
@@ -53,6 +53,13 @@ export function NotificationBell() {
   const unreadCount = useNotificationStore((s) => s.unreadCount);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
   const clearAll = useNotificationStore((s) => s.clearAll);
+  const soundEnabled = useNotificationStore((s) => s.soundEnabled);
+  const toggleSound = useNotificationStore((s) => s.toggleSound);
+
+  // Load persisted sound setting on mount
+  useEffect(() => {
+    useNotificationStore.getState().loadSoundSetting();
+  }, []);
 
   const selectConversation = useChatStore((s) => s.selectConversation);
   const openThread = useChatStore((s) => s.openThread);
@@ -102,11 +109,22 @@ export function NotificationBell() {
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-border/30 shrink-0">
             <span className="text-[11px] font-medium text-foreground/80">Notifications</span>
-            {notifications.length > 0 && (
-              <button onClick={clearAll} className="text-[9px] text-muted-foreground/40 hover:text-foreground transition-colors">
-                Clear all
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleSound}
+                title={soundEnabled ? "알림음 끄기" : "알림음 켜기"}
+                className="text-muted-foreground/40 hover:text-foreground transition-colors"
+              >
+                {soundEnabled
+                  ? <Volume2 className="w-3 h-3" />
+                  : <VolumeX className="w-3 h-3" />}
               </button>
-            )}
+              {notifications.length > 0 && (
+                <button onClick={clearAll} className="text-[9px] text-muted-foreground/40 hover:text-foreground transition-colors">
+                  Clear all
+                </button>
+              )}
+            </div>
           </div>
 
           {/* List */}
