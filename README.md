@@ -10,7 +10,7 @@
 [![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)](https://sqlite.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tests](https://img.shields.io/badge/Tests-363_passing-22c55e)](.)
-[![DB Schema](https://img.shields.io/badge/DB_Schema-v28-8b5cf6)](.)
+[![DB Schema](https://img.shields.io/badge/DB_Schema-v29-8b5cf6)](.)
 
 [![Language: Korean](https://img.shields.io/badge/Language-한국어-2563eb)](./README.md)
 [![English](https://img.shields.io/badge/English-9ca3af)](./README.en.md)
@@ -36,7 +36,7 @@
 - [기술 스택](#기술-스택)
 - [사전 준비](#사전-준비)
 - [시작하기](#시작하기)
-- [DB 스키마](#db-스키마-v28)
+- [DB 스키마](#db-스키마-v29)
 - [프로젝트 구조](#프로젝트-구조)
 - [개발 이력](#개발-이력)
 - [참고 문헌](#참고-문헌)
@@ -120,7 +120,43 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 - Review pass 시 미해결 lessons에 resolution 자동 채움
 - 프로젝트 범위 내 검색 (다른 프로젝트의 실패는 포함하지 않음)
 
-### 6. ContextPack — 4-engine 공통 프롬프트 조립
+### 6. Insight — 프로젝트 품질 분석
+
+기존 Test 탭을 대체한 프로젝트 전체 품질 분석 시스템입니다. Review 탭은 워크플로우 verdict/findings 전용으로 유지됩니다.
+
+**핵심 원칙**: 에이전트에게 "프로젝트 전체를 읽어봐"가 아니라, **시스템이 사전 추출한 데이터만** 분석하게 하여 토큰을 절감합니다 (50k~200k → 5k~20k).
+
+```
+사전 추출 (rawq/CRG/lessons/test/memory)
+  → 카테고리별 컨텍스트 조립
+  → 에이전트 타겟 분석
+  → findings 파싱 + fix_difficulty 평가
+  → Quadrant 뷰로 표시 (Quick Wins / Strategic / Fill-ins / Deprioritize)
+```
+
+**6개 분석 카테고리**:
+
+| 카테고리 | 분석 대상 | 데이터 소스 |
+|----------|----------|------------|
+| 안정성 (stability) | 에러 처리, panic, silent catch | rawq + failure_lessons |
+| 테스트 (test) | 커버리지 갭, 실패 테스트 | test_runner + rawq |
+| 아키텍처 (architecture) | 순환참조, 커플링, 레이어 위반 | code-graph + memory |
+| 성능 (performance) | 불필요한 복사, N+1, 블로킹 호출 | rawq |
+| 보안 (security) | 인젝션, XSS, 시크릿 노출 | rawq |
+| 기술 부채 (debt) | dead code, TODO/FIXME, deprecated | rawq + code-graph |
+
+**Auto Fix 파이프라인** (CodeCureAgent 패턴):
+- `auto` 난이도 findings → 에이전트 자동 수정 → 테스트 검증 → rawq 재스캔 → 패턴 사라짐 확인
+- 실패 시 사용자에게 보고 (git revert 필요)
+
+**Quadrant 우선순위** (SQALE + Impact×Cost):
+- **Quick Wins**: auto + critical/major → "Run All" 버튼으로 일괄 자동 수정
+- **Strategic**: guided + high impact → Architect에게 Plan 생성 요청
+- **Fill-ins**: low impact → 여유 있을 때 수정
+- **Deprioritize**: manual → 메모 또는 무시
+
+
+### 7. ContextPack — 4-engine 공통 프롬프트 조립
 
 매 요청마다 동일한 구조의 normalized prompt를 조립하여 모든 엔진에 전달합니다.
 
@@ -152,14 +188,14 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 - **Multi-agent context**: participants meta + budget-based dynamic window + per-agent last-message guarantee
 - **마커 기반 멀티턴 도구 호출**: `<!-- tunaflow:tool-request:TYPE:QUERY -->` — docs/rawq/graph/plans 4종
 
-### 7. 장기기억 & 벡터 검색
+### 8. 장기기억 & 벡터 검색
 
 - **주제별 메모리**: 12+ 메시지 시 JSON 배열 토픽 분할 저장 (1-5개 토픽/대화), provenance/model 기록
 - **자동 세션 발견**: FTS5 + Vector 하이브리드로 관련 대화 자동 연결 (session_links 테이블)
 - **Vector DB**: rawq embed CLI 활용 (snowflake-arctic-embed-s 384차원), conversation_chunks BLOB 임베딩, brute-force cosine 검색
 - **수동 핀**: 사용자가 관련 대화를 직접 연결 가능
 
-### 8. rawq — 코드 검색 엔진
+### 9. rawq — 코드 검색 엔진
 
 - **Sidecar binary**: 앱 시작 시 daemon 자동 실행, 임베딩 모델 상주 (30분 idle timeout)
 - `.gitignore` 존중 인덱싱 (node_modules, target 등 자동 제외)
@@ -168,14 +204,14 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 - `prompt_needs_rawq()` 게이트: 10자+ 프롬프트에 자동 포함
 - 에이전트 완료 시 자동 re-index (fs watcher)
 
-### 9. code-review-graph 통합
+### 10. code-review-graph 통합
 
 - CLI query/impact 명령으로 의존성/영향도 분석
 - Rust sidecar 통합 + ContextPack 자동 주입
 - `agent:completed` 시 auto update
 - 마커 기반 도구 호출: `<!-- tunaflow:tool-request:graph:QUERY -->`
 
-### 10. Skills — 스킬 시스템
+### 11. Skills — 스킬 시스템
 
 4-layer 스킬 아키텍처:
 
@@ -191,7 +227,7 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 - **멀티툴 스킬 스캔**: 12개 도구 경로 + Claude 플러그인 수집
 - **워크플로우 phase별 자동 주입**: 각 phase에 맞는 스킬 자동 포함
 
-### 11. Artifacts — 산출물 관리
+### 12. Artifacts — 산출물 관리
 
 - **Plan별 그룹핑**: 각 artifact가 plan_id로 자동 연결, Artifacts 탭에서 Plan별 접힘/펼침 그룹 표시
 - **워크플로우 자동 생성**: Plan 승인 → architect-decision, Review RT → test-report, Review verdict → review-findings
@@ -199,9 +235,9 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 - **Harness 타입**: task-brief, test-report, review-findings, architect-decision
 - **Forward**: 다른 에이전트에게 artifact 전달 가능
 
-### 12. UI/UX
+### 13. UI/UX
 
-- **Linear-inspired 레이아웃**: 사이드바 + 5-tab CenterPanel + 드로어 + RuntimeStatusBar
+- **Linear-inspired 레이아웃**: 사이드바 + 5-tab CenterPanel (Chat/Plan/Artifacts/Review/Insight) + 드로어 + RuntimeStatusBar
 - **react-virtuoso**: 대량 메시지 가상 스크롤 (followOutput + scrollToIndex)
 - **cmdk**: Cmd+K 커맨드 팔레트 (탭/대화/프로젝트 전환, 새 대화, 설정)
 - **RuntimeStatusBar**: trace(active/skipped) + context mode + memory + rawq 상태 + cost + tok/s + context %
@@ -219,7 +255,7 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 ┌──────────────────────────────────────────────────────────────┐
 │ Frontend (React 18 + Zustand 5 + Tailwind CSS 4)            │
 │ ├─ Sidebar — Project selector / Chats / Artifacts / Skills  │
-│ ├─ CenterPanel — Chat / Plan / Artifacts / Review / Test    │
+│ ├─ CenterPanel — Chat / Plan / Artifacts / Review / Insight  │
 │ ├─ Drawers — Branch / RT (오른쪽 슬라이더)                    │
 │ ├─ Settings — Agents / Personas / Runtime                   │
 │ └─ RuntimeStatusBar + TraceModal + CommandPalette           │
@@ -230,7 +266,8 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 │ ├─ Context — ContextPack, compression, vector search        │
 │ ├─ Workflow — Plan/Approval/Review/Verdict pipeline         │
 │ ├─ Failure Learning — FTS5 search + rework injection        │
-│ └─ DB — SQLite WAL, dual read/write, v28 schema            │
+│ ├─ Insight — pre-extraction + agent analysis pipeline        │
+│ └─ DB — SQLite WAL, dual read/write, v29 schema            │
 ├──────────────────────────────────────────────────────────────┤
 │ CLI Agents / Sidecars                                       │
 │ ├─ claude (Anthropic) — CLI subprocess                      │
@@ -306,7 +343,7 @@ cd src-tauri && cargo test --lib  # Rust unit (188 tests)
 
 ---
 
-## DB 스키마 (v28)
+## DB 스키마 (v29)
 
 | 테이블 | 용도 |
 |--------|------|
@@ -321,6 +358,9 @@ cd src-tauri && cargo test --lib  # Rust unit (188 tests)
 | `artifacts` | 산출물 (type, status, subtask/plan 연결) |
 | `failure_lessons` | 실패 학습 (finding, pattern, file_path, resolution) |
 | `failure_lessons_fts` | FTS5 실패 학습 검색 (트리거 동기화) |
+| `insight_sessions` | Insight 분석 세션 (status, categories, summary) |
+| `insight_findings` | Insight 발견사항 (category, severity, fix_difficulty, status) |
+| `insight_reports` | Insight 카테고리/메타 보고서 |
 | `memos` | 메모 (message 연결, tags) |
 | `trace_log` | ContextPack 트레이스 (mode, sections, length, truncation) |
 | `agent_jobs` | 에이전트 작업 레지스트리 |
@@ -328,7 +368,7 @@ cd src-tauri && cargo test --lib  # Rust unit (188 tests)
 | `session_links` | 자동 세션 발견 링크 (score, method) |
 | `conversation_chunks` | 벡터 임베딩 (BLOB, 384차원) |
 
-28개 migration + FTS5 가상 테이블 2개.
+29개 migration + FTS5 가상 테이블 2개.
 
 ---
 
@@ -350,7 +390,7 @@ tunaFlow/
 │   │   │   ├── session_discovery.rs    # FTS5+Vector 세션 발견
 │   │   │   ├── vector_search.rs        # 벡터 임베딩/검색
 │   │   │   └── ...
-│   │   ├── db/               # SQLite schema, migrations (v1-v28), models
+│   │   ├── db/               # SQLite schema, migrations (v1-v29), models
 │   │   ├── errors.rs         # AppError enum
 │   │   └── guardrail.rs      # Context budget limits
 │   ├── binaries/             # rawq sidecar (gitignored)
@@ -358,12 +398,12 @@ tunaFlow/
 ├── src/                      # React frontend
 │   ├── components/tunaflow/
 │   │   ├── chat/             # Markdown rendering, FileViewer
-│   │   ├── context-panel/    # Plans, Review, Test, Trace, Skills, Artifacts, Evaluation
+│   │   ├── context-panel/    # Plans, Review, Insight, Trace, Skills, Artifacts, Evaluation
 │   │   ├── settings/         # Agents, Personas, Runtime sections
 │   │   ├── input/            # EngineSelector, ModelSelector, RoundtableControls
 │   │   ├── message/          # MessageMeta, MessageActions, ProgressSurface
 │   │   ├── sidebar/          # Chats, TreeRow, Artifacts, Files
-│   │   ├── CenterPanel.tsx   # 5-tab center (Chat/Plan/Artifacts/Review/Test)
+│   │   ├── CenterPanel.tsx   # 5-tab center (Chat/Plan/Artifacts/Review/Insight)
 │   │   └── RuntimeStatusBar.tsx
 │   ├── stores/slices/        # Zustand slices (6개)
 │   ├── lib/                  # utils, schemas, parsers, api/, engineConfig
@@ -400,6 +440,7 @@ tunaFlow/
 | 12 | 2026-04-05 | 테스트 180→352, 3-role 프롬프트 근본 수정, 에스컬레이션 경로 완성 |
 | 13 | 2026-04-05~06 | Review 자동 감지, doom loop 안정화, 코드 품질 감사 7항목 |
 | 14 | 2026-04-06 | Failure Learning, Artifacts Plan 그룹핑, Insight 탭 설계 |
+| 15 | 2026-04-07 | **Insight 탭 구현** (Phase A~G), 사전 추출 파이프라인, Auto Fix, 5탭→5탭 (Test→Insight) |
 
 ---
 

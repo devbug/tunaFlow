@@ -2,21 +2,23 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { MessageSquare, ClipboardList, FileText, GitBranch, Users, Loader2, Search, StickyNote, Lightbulb } from "lucide-react";
+import { MessageSquare, ClipboardList, FileSearch, FileText, GitBranch, Users, Loader2, Search, StickyNote, Lightbulb } from "lucide-react";
 
 import { ChatPanel } from "./ChatPanel";
 import { PlansPanel } from "./context-panel/PlansPanel";
 import { HarnessSummary, type WorkflowStageId } from "./context-panel/HarnessSummary";
+import { ReviewPanel } from "./context-panel/ReviewPanel";
 import { InsightPanel } from "./context-panel/InsightPanel";
 import { ArtifactsPanel } from "./context-panel/ArtifactsPanel";
 import { InlineRename } from "./InlineRename";
 
-type CenterTab = "chat" | "plan" | "artifacts" | "insight";
+type CenterTab = "chat" | "plan" | "artifacts" | "review" | "insight";
 
 const TABS: { id: CenterTab; label: string; icon: React.ReactNode }[] = [
   { id: "chat", label: "Chat", icon: <MessageSquare className="w-3.5 h-3.5" /> },
   { id: "plan", label: "Plan", icon: <ClipboardList className="w-3.5 h-3.5" /> },
   { id: "artifacts", label: "Artifacts", icon: <FileText className="w-3.5 h-3.5" /> },
+  { id: "review", label: "Review", icon: <FileSearch className="w-3.5 h-3.5" /> },
   { id: "insight", label: "Insight", icon: <Lightbulb className="w-3.5 h-3.5" /> },
 ];
 
@@ -78,7 +80,7 @@ export function CenterPanel() {
   const deleteMemo = useChatStore((s) => s.deleteMemo);
   const selectConversation = useChatStore((s) => s.selectConversation);
 
-  // Review/Test counts removed — now handled by Insight tab
+  const reviewCount = artifacts.filter((a) => a.type === "review-findings" || a.type === "architect-decision").length;
 
   // Memo popover
   const [memoOpen, setMemoOpen] = useState(false);
@@ -114,6 +116,11 @@ export function CenterPanel() {
               {tab.id === "artifacts" && artifacts.length > 0 && (
                 <span className="text-[8px] bg-primary/10 text-primary/70 px-1 rounded">
                   {artifacts.length}
+                </span>
+              )}
+              {tab.id === "review" && reviewCount > 0 && (
+                <span className="text-[8px] bg-status-draft/10 text-status-draft/70 px-1 rounded">
+                  {reviewCount}
                 </span>
               )}
             </button>
@@ -292,6 +299,15 @@ export function CenterPanel() {
                 }}
                 onSwitchToChat={() => setActiveTab("chat")}
               />
+            </div>
+          </div>
+        )}
+
+        {effectiveTab === "review" && (
+          <div className="flex-1 overflow-y-auto p-5">
+            <div className="max-w-4xl mx-auto">
+              <h3 className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-3">Review</h3>
+              <ReviewPanel />
             </div>
           </div>
         )}
