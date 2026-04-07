@@ -27,10 +27,23 @@
 
 > **100% AI-authored codebase** — 모든 코드는 Claude Code가 작성했으며, 사용자는 아키텍처와 방향만 결정합니다.
 
+### 왜 이렇게 설계했나
+
+멀티 에이전트 오케스트레이션에는 [세 가지 근본 문제](https://shalomeir.substack.com/p/multi-agent-orchestration-problems)가 있습니다:
+
+| 문제 | 비율 | tunaFlow 대응 |
+|------|------|--------------|
+| **맥락 붕괴** — 위임 단계마다 원래 의도 변질, 토큰 10배+ 증가 | 41.8% | ContextPack이 매 요청마다 전체 맥락 재조립 (Plan + 메모리 + 역할 문서) |
+| **유령 위임** — DONE 신호 보냈지만 인수인계 실패, 무한 대기 | 36.9% | orphan 자동 복구 + doom loop 감지 (3회 실패 → Architect 에스컬레이션) |
+| **검증 오류** — 자기가 쓴 답을 자기가 채점 → 환각 통과 | 21.3% | Developer ≠ Reviewer 역할 분리 + Review RT 교차 검증 + 기계적 테스트 |
+
+tunaFlow는 "에이전트 여러 개를 회사처럼 돌리는" 접근이 아니라, **총괄-워커 패턴**(Architect가 Plan 유지, Developer/Reviewer는 워커)과 **블랙보드 패턴**(DB가 공유 상태)으로 이 문제들을 구조적으로 회피합니다. DeepMind 연구에 따르면 에이전트 4개를 넘으면 조율 이득이 사라지는데, tunaFlow는 3-role + RT 2-agent로 이 범위 안에서 동작합니다.
+
 ---
 
 ## 목차
 
+- [왜 이렇게 설계했나](#왜-이렇게-설계했나)
 - [주요 기능](#주요-기능)
 - [아키텍처](#아키텍처)
 - [기술 스택](#기술-스택)
@@ -423,7 +436,31 @@ tunaFlow/
 
 ## 개발 이력
 
-14개 세션에 걸쳐 개발되었으며, 모든 코드는 Claude Code가 작성했습니다.
+### 프로젝트 계보
+
+tunaFlow는 4개 프로젝트의 경험이 수렴된 결과물입니다.
+
+```
+tunaDish (채팅 UI, 3/20)  ──┐
+                             ├→ tunaChat (합체 1차, Python sidecar, 3/24)
+tunaPi (브릿지 서버, 3/22) ──┘           │
+                                        ↓
+                                  tunaFlow (합체 2차, 전체 Rust, 3/26~)
+                                        ↑
+tunaInsight (분석 서비스) ──────────────┘ (Insight 탭으로 통합)
+```
+
+| 프로젝트 | 역할 | 주요 기여 |
+|---------|------|----------|
+| **tunaPi** | 채팅앱 ↔ AI 에이전트 브릿지 (Python) | RT 토론, Branch, rawq, 크로스 세션, 3,538 tests |
+| **tunaDish** | tunaPi 전용 웹/모바일 UI | Tauri v2, 브랜치 UI, 실시간 스트리밍, 모바일 |
+| **tunaChat** | 스탠드얼론 데스크톱 1차 시도 | tunaDish+tunaPi 합체, Python sidecar 아키텍처 |
+| **tunaInsight** | 멀티 에이전트 GitHub 분석 | 페르소나별 병렬 분석 → tunaFlow Insight 탭으로 흡수 |
+| **tunaFlow** | 최종 통합 — 전체 Rust 전환 | 위 4개 프로젝트의 핵심 기능을 네이티브로 재구현 |
+
+### 세션별 성과
+
+12일, 415 commits, 42k lines — 모든 코드는 Claude Code가 작성했습니다.
 
 | 세션 | 날짜 | 핵심 성과 |
 |------|------|----------|
@@ -453,6 +490,7 @@ tunaFlow/
 | [Implementation Status](./docs/reference/implementationStatus.md) | 기능별 구현 현황 |
 | [Plans Index](./docs/plans/index.md) | 구현 계획 인덱스 (~100개) |
 | [Insight Design](./docs/ideas/insightTabDesign.md) | Insight 탭 설계 (카테고리 기반 프로젝트 분석) |
+| [Multi-Agent Analysis](./docs/reference/multiAgentOrchestrationAnalysis.md) | 오케스트레이션 문제 분석 + tunaFlow 대응 |
 | [Known Issues](./docs/reference/knownIssues_2026-04-05.md) | 미해결 이슈 |
 
 ---
@@ -460,6 +498,10 @@ tunaFlow/
 ## 참고 문헌
 
 이 프로젝트의 설계에 참고한 연구 및 방법론입니다.
+
+### 멀티 에이전트 오케스트레이션
+
+0. shalomeir, "Multi-Agent Orchestration Problems", 2025. — 맥락 붕괴(41.8%), 유령 위임(36.9%), 검증 오류(21.3%) 분석. 총괄-워커/블랙보드 패턴 권장. [Substack](https://shalomeir.substack.com/p/multi-agent-orchestration-problems)
 
 ### 에이전트 코드 수정 성공률 연구
 
