@@ -352,16 +352,19 @@ pub async fn run_insight_extraction(
 
 // ─── Single-turn agent analysis ──────────────────────────────────────────────
 
-/// Run a single-turn analysis via Claude CLI.
-/// The prompt already contains all pre-extracted data — the agent only needs
-/// to analyze what is provided (no tool use, no codebase scanning).
+/// Run a single-turn analysis via CLI agent.
+/// Supports claude, gemini, codex engines. The prompt already contains all
+/// pre-extracted data — the agent only needs to analyze what is provided.
 #[tauri::command]
 pub async fn run_insight_analysis(
     project_key: String,
     prompt: String,
+    engine: Option<String>,
+    model: Option<String>,
+    system_prompt: Option<String>,
     state: State<'_, DbState>,
 ) -> Result<String, AppError> {
-    use crate::agents::claude;
+    use crate::agents::claude::{RunInput, RunOutput};
 
     // Resolve project path for cwd
     let project_path = {
@@ -373,31 +376,58 @@ pub async fn run_insight_analysis(
         ).ok().flatten()
     };
 
-    let system_prompt = "You are a code quality analyst. Analyze the provided code snippets and context. \
+    let fallback_system = "You are a code quality analyst. Analyze the provided code snippets and context. \
         Report findings in the exact JSON format requested. Be precise with file paths and line numbers. \
         Only report issues you can verify from the provided data. \
         Respond in Korean for descriptions but keep technical terms in English.".to_string();
 
-    let input = claude::RunInput {
+    let input = RunInput {
         prompt,
-        model: None, // use default
-        system_prompt: Some(system_prompt),
+        model,
+        system_prompt: Some(system_prompt.unwrap_or(fallback_system)),
         resume_token: None,
         project_path,
     };
 
-    // Run synchronously in a blocking thread
-    let result = tokio::task::spawn_blocking(move || {
-        claude::stream_run(
-            input,
-            |_progress| {}, // ignore thinking/tool events
-            |_chunk| {},     // ignore streaming chunks — we just want the final result
-            || false,        // never cancel
-        )
-    })
-    .await
-    .map_err(|e| AppError::Agent(format!("spawn_blocking failed: {}", e)))?
-    .map_err(|e| AppError::Agent(format!("claude analysis failed: {}", e)))?;
+    let engine_name = engine.unwrap_or_else(|| "claude".to_string());
+
+    // Run synchronously in a blocking thread — dispatch by engine
+    let result: RunOutput = match engine_name.as_str() {
+        "gemini" => {
+            tokio::task::spawn_blocking(move || {
+                crate::agents::gemini::stream_run(
+                    input,
+                    |_| {}, |_| {}, || false,
+                )
+            })
+            .await
+            .map_err(|e| AppError::Agent(format!("spawn_blocking failed: {}", e)))?
+            .map_err(|e| AppError::Agent(format!("gemini analysis failed: {}", e)))?
+        }
+        "codex" => {
+            tokio::task::spawn_blocking(move || {
+                crate::agents::codex::stream_run(
+                    input,
+                    |_| {}, |_| {},
+                )
+            })
+            .await
+            .map_err(|e| AppError::Agent(format!("spawn_blocking failed: {}", e)))?
+            .map_err(|e| AppError::Agent(format!("codex analysis failed: {}", e)))?
+        }
+        _ => {
+            // Default: claude
+            tokio::task::spawn_blocking(move || {
+                crate::agents::claude::stream_run(
+                    input,
+                    |_| {}, |_| {}, || false,
+                )
+            })
+            .await
+            .map_err(|e| AppError::Agent(format!("spawn_blocking failed: {}", e)))?
+            .map_err(|e| AppError::Agent(format!("claude analysis failed: {}", e)))?
+        }
+    };
 
     Ok(result.content)
 }

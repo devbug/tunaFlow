@@ -113,6 +113,232 @@ const BUDGET_MAX = 120_000;
 const BUDGET_STEP = 10_000;
 const BUDGET_DEFAULT = 60_000;
 
+// ─── Insight Agent Config ───────────────────────────────────────────────────
+
+interface InsightPreset {
+  id: string;
+  label: string;
+  desc: string;
+  engine: string;
+  model: string;
+  systemPrompt: string;
+}
+
+const INSIGHT_PRESETS: InsightPreset[] = [
+  {
+    id: "balanced",
+    label: "Balanced (Claude)",
+    desc: "정확도와 비용의 균형. 일반적 코드 품질 분석에 적합",
+    engine: "claude",
+    model: "",
+    systemPrompt: `You are a senior code quality analyst performing a targeted review.
+
+## Rules
+- ONLY report issues verifiable from the provided code snippets
+- NEVER hallucinate file paths or line numbers — if uncertain, omit them
+- Each finding must reference a specific snippet from the input data
+- Assign severity based on production impact:
+  - critical: data loss, security breach, crash in production
+  - major: incorrect behavior, resource leak, missing error handling
+  - minor: code smell, inconsistency, minor inefficiency
+  - info: style, documentation gap, potential improvement
+- Estimate files to change conservatively (round up)
+- Respond in Korean for descriptions, English for technical terms`,
+  },
+  {
+    id: "thorough",
+    label: "Thorough (Claude)",
+    desc: "정밀 분석. 더 많은 토큰 소비, 더 높은 정확도",
+    engine: "claude",
+    model: "",
+    systemPrompt: `You are a principal software engineer conducting a thorough code quality audit.
+
+## Analysis Framework
+1. For each code snippet, identify the SPECIFIC anti-pattern or vulnerability
+2. Explain the CONCRETE risk — what could go wrong in production
+3. Provide a MINIMAL fix suggestion (pseudocode, not full implementation)
+4. Cross-reference related snippets if they share the same root cause
+
+## Severity Criteria (be strict)
+- critical: Exploitable vulnerability, data corruption, or guaranteed crash path
+- major: Likely bug under realistic conditions, significant performance regression
+- minor: Code smell that increases maintenance cost but won't cause incidents
+- info: Improvement opportunity with no current risk
+
+## Anti-hallucination
+- ONLY reference files and line numbers present in the provided snippets
+- If a snippet is ambiguous, note the uncertainty in your finding description
+- Prefer fewer high-confidence findings over many speculative ones
+- Group related issues into a single finding when they share root cause
+
+Respond in Korean for descriptions, keep technical terms in English.`,
+  },
+  {
+    id: "security",
+    label: "Security Focus (Claude)",
+    desc: "보안 취약점 중심 분석. OWASP Top 10 기반",
+    engine: "claude",
+    model: "",
+    systemPrompt: `You are a security engineer conducting a focused vulnerability assessment.
+
+## OWASP Top 10 Checklist (prioritize these)
+1. Injection (SQL, command, LDAP, XSS)
+2. Broken Authentication / Session Management
+3. Sensitive Data Exposure (secrets, tokens, PII in logs)
+4. XML External Entities (XXE)
+5. Broken Access Control
+6. Security Misconfiguration (default credentials, verbose errors)
+7. Cross-Site Scripting (XSS) — stored, reflected, DOM-based
+8. Insecure Deserialization
+9. Using Components with Known Vulnerabilities
+10. Insufficient Logging & Monitoring
+
+## Rules
+- ONLY report issues verifiable from the provided snippets
+- For each finding, identify the CWE number if applicable
+- Severity = exploitability × impact (CVSS-like reasoning)
+- critical: Remotely exploitable without authentication
+- major: Exploitable with authenticated access or local context
+- minor: Requires specific conditions unlikely in normal operation
+- info: Defense-in-depth recommendation
+
+Respond in Korean for descriptions, English for technical terms and CWE references.`,
+  },
+  {
+    id: "gemini",
+    label: "Balanced (Gemini)",
+    desc: "Gemini 엔진 사용. 다른 관점의 분석",
+    engine: "gemini",
+    model: "",
+    systemPrompt: `You are a senior code quality analyst performing a targeted review.
+
+## Rules
+- ONLY report issues verifiable from the provided code snippets
+- NEVER hallucinate file paths or line numbers — if uncertain, omit them
+- Each finding must reference a specific snippet from the input data
+- Assign severity: critical (production crash/security) > major (bug/leak) > minor (smell) > info (style)
+- Estimate files to change conservatively
+- Respond in Korean for descriptions, English for technical terms`,
+  },
+];
+
+const DEFAULT_INSIGHT_CONFIG = {
+  engine: "claude",
+  model: "",
+  systemPrompt: INSIGHT_PRESETS[0].systemPrompt,
+  presetId: "balanced",
+};
+
+function InsightAgentConfig() {
+  const [config, setConfig] = useState(DEFAULT_INSIGHT_CONFIG);
+  const [expanded, setExpanded] = useState(false);
+  const engineModels = useChatStore((s) => s.engineModels);
+
+  useEffect(() => {
+    getSetting("insightAgentConfig", DEFAULT_INSIGHT_CONFIG).then(setConfig);
+  }, []);
+
+  const update = (patch: Partial<typeof config>) => {
+    const next = { ...config, ...patch };
+    setConfig(next);
+    setSetting("insightAgentConfig", next);
+  };
+
+  const applyPreset = (preset: InsightPreset) => {
+    update({
+      engine: preset.engine,
+      model: preset.model,
+      systemPrompt: preset.systemPrompt,
+      presetId: preset.id,
+    });
+  };
+
+  const modelsForEngine = engineModels.filter((m) => m.engine === config.engine);
+
+  return (
+    <div className="rounded-lg border border-border/30 bg-background/50 p-4 space-y-3">
+      <div>
+        <h3 className="text-[13px] font-medium text-foreground">Insight Agent</h3>
+        <p className="text-[11px] text-muted-foreground/60 mt-0.5">Insight 탭 분석에 사용할 에이전트 설정</p>
+      </div>
+
+      {/* Preset buttons */}
+      <div className="space-y-1.5">
+        <span className="text-[10px] text-muted-foreground/50">프리셋</span>
+        <div className="flex flex-wrap gap-1.5">
+          {INSIGHT_PRESETS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => applyPreset(p)}
+              className={cn(
+                "text-[10px] px-2 py-1 rounded border transition-colors",
+                config.presetId === p.id
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-border/30 text-muted-foreground/60 hover:text-foreground hover:border-border/50",
+              )}
+              title={p.desc}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Engine + Model */}
+      <div className="flex gap-3">
+        <div className="space-y-1 flex-1">
+          <span className="text-[10px] text-muted-foreground/50">엔진</span>
+          <select
+            value={config.engine}
+            onChange={(e) => update({ engine: e.target.value, model: "", presetId: "custom" })}
+            className="w-full text-[11px] bg-transparent border border-border/30 rounded px-2 py-1 text-foreground"
+          >
+            <option value="claude">Claude</option>
+            <option value="codex">Codex</option>
+            <option value="gemini">Gemini</option>
+            <option value="opencode">OpenCode</option>
+            <option value="ollama">Ollama</option>
+          </select>
+        </div>
+        <div className="space-y-1 flex-1">
+          <span className="text-[10px] text-muted-foreground/50">모델</span>
+          <select
+            value={config.model}
+            onChange={(e) => update({ model: e.target.value, presetId: "custom" })}
+            className="w-full text-[11px] bg-transparent border border-border/30 rounded px-2 py-1 text-foreground"
+          >
+            <option value="">Engine default</option>
+            {modelsForEngine.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.recommended ? "★ " : ""}{m.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* System prompt (collapsible) */}
+      <div className="space-y-1">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-1 text-[10px] text-muted-foreground/50 hover:text-foreground"
+        >
+          {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          시스템 프롬프트 {config.presetId !== "custom" && `(${config.presetId})`}
+        </button>
+        {expanded && (
+          <textarea
+            value={config.systemPrompt}
+            onChange={(e) => update({ systemPrompt: e.target.value, presetId: "custom" })}
+            rows={10}
+            className="w-full text-[10px] font-mono bg-muted/20 border border-border/20 rounded p-2 text-foreground/80 resize-y leading-relaxed"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ContextBudgetControl() {
   const [config, setConfig] = useState({ mode: "auto", totalCap: BUDGET_DEFAULT });
   const [loaded, setLoaded] = useState(false);
@@ -351,6 +577,7 @@ export function RuntimeSection() {
 
       <ContextBudgetControl />
       <WorkflowSkillsConfig />
+      <InsightAgentConfig />
       <ContextHubPanel hubHealth={hubHealth} />
 
       {/* Background / Daemon */}

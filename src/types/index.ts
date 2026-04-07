@@ -402,6 +402,13 @@ export interface InsightReport {
   createdAt: number;
 }
 
+export interface InsightAgentConfig {
+  engine: string;
+  model: string;
+  systemPrompt: string;
+  presetId: string; // "balanced" | "thorough" | "security-focused" | "custom"
+}
+
 export interface CreatePlanInput {
   conversationId: string;
   branchId?: string;

@@ -15,8 +15,10 @@ import type {
   InsightCategory,
   InsightSession,
   InsightFinding,
+  InsightAgentConfig,
 } from "@/types";
 import * as insightApi from "./api/insight";
+import { getSetting } from "./appStore";
 import type {
   ExtractionResult,
   CategoryExtraction,
@@ -35,16 +37,21 @@ import type { InsightFindingItemInput } from "./schemas/insightFindings";
 function evaluateFixDifficulty(finding: InsightFindingItemInput): "auto" | "guided" | "manual" {
   const files = finding.estimated_files ?? 1;
   const hasSnippet = !!finding.snippet;
+  const hasEvidence = !!finding.evidence;
+  const confidence = finding.confidence ?? "medium";
 
-  // Single file with snippet = likely auto-fixable
-  if (files === 1 && hasSnippet) {
+  // Low confidence findings → always guided or manual (never auto-fix uncertain things)
+  if (confidence === "low") return files <= 3 ? "guided" : "manual";
+
+  // Single file with snippet + evidence = likely auto-fixable
+  if (files === 1 && (hasSnippet || hasEvidence)) {
     // Pattern-based fixes (empty catch, missing error handling) are auto
-    const autoPatterns = ["catch", "unwrap", "expect", "TODO", "FIXME", "deprecated", "console.log"];
-    const isSimplePattern = autoPatterns.some(
-      (p) => finding.title.toLowerCase().includes(p.toLowerCase()) ||
-        finding.description.toLowerCase().includes(p.toLowerCase()),
-    );
-    if (isSimplePattern) return "auto";
+    const autoPatterns = ["catch", "unwrap", "expect", "TODO", "FIXME", "deprecated", "console.log",
+      "unused", "dead code", "silent", "empty"];
+    const text = `${finding.title} ${finding.description}`.toLowerCase();
+    const isSimplePattern = autoPatterns.some((p) => text.includes(p.toLowerCase()));
+    if (isSimplePattern && confidence === "high") return "auto";
+    if (isSimplePattern) return "guided"; // medium confidence → guided, not auto
   }
 
   if (files <= 1) return "guided";
@@ -71,40 +78,46 @@ function buildAnalysisPrompt(
 
   let prompt = `### 📊 Insight Analysis — ${label}
 
-You are analyzing a project for **${label}** issues.
+아래에 코드베이스에서 사전 추출한 데이터가 있습니다. **${label}** 관점에서 분석하세요.
 
-Below is pre-extracted data from the codebase. Analyze these findings and produce a structured report.
+## 분석 규칙 (반드시 준수)
 
-**IMPORTANT**:
-- Only report issues you can verify from the provided snippets and context
-- Do not hallucinate file paths or line numbers
-- Be specific: include file path and line number for each finding
-- Assign severity: critical (blocking/security), major (should fix), minor (nice to fix), info (observation)
-- Estimate how many files need changes for each fix
+1. **증거 기반**: 아래 제공된 스니펫에서 확인할 수 있는 문제만 보고
+2. **환각 금지**: 입력에 없는 파일 경로나 줄번호를 만들지 마세요
+3. **evidence 필수**: 각 finding에 해당 코드를 그대로 인용 (evidence 필드)
+4. **confidence 표기**: high(코드에서 명확히 확인) / medium(패턴 일치) / low(추정)
+5. **severity 기준**:
+   - critical: 프로덕션 크래시, 데이터 손실, 보안 취약점
+   - major: 버그, 리소스 누수, 에러 처리 누락
+   - minor: 코드 스멜, 비일관성, 경미한 비효율
+   - info: 스타일, 문서화 부족, 개선 가능성
 
 `;
 
-  // Add code snippets
+  // Add code snippets with line anchors
   if (extraction.snippets.length > 0) {
-    prompt += `## Code Snippets (from codebase search)\n\n`;
+    prompt += `## 코드 스니펫 (코드베이스 검색 결과)\n\n`;
     for (const s of extraction.snippets) {
-      prompt += `### ${s.file}:${s.line}${s.scope ? ` (${s.scope})` : ""} [confidence: ${s.confidence.toFixed(2)}]\n`;
-      prompt += `Query: "${s.query}"\n`;
-      prompt += `\`\`\`\n${s.snippet}\n\`\`\`\n\n`;
+      prompt += `### ${s.file}:${s.line}${s.scope ? ` (${s.scope})` : ""}\n`;
+      prompt += `검색어: "${s.query}" | 신뢰도: ${s.confidence.toFixed(2)}\n`;
+      // Add line numbers to snippet for precise referencing
+      const lines = s.snippet.split("\n");
+      const numbered = lines.map((line, i) => `${s.line + i}: ${line}`).join("\n");
+      prompt += `\`\`\`\n${numbered}\n\`\`\`\n\n`;
     }
   }
 
   // Add extra context
   if (extraction.extraContext.length > 0) {
-    prompt += `## Additional Context\n\n`;
+    prompt += `## 추가 컨텍스트\n\n`;
     for (const ctx of extraction.extraContext) {
       prompt += `${ctx}\n\n`;
     }
   }
 
-  prompt += `## Output Format
+  prompt += `## 출력 형식
 
-Respond with your findings inside markers:
+아래 마커 안에 JSON으로 응답하세요:
 
 <!-- tunaflow:insight-findings -->
 \`\`\`json
@@ -113,20 +126,24 @@ Respond with your findings inside markers:
     {
       "category": "${category}",
       "severity": "major",
-      "title": "Short title of the issue",
-      "description": "Detailed description of the problem and why it matters",
+      "confidence": "high",
+      "title": "문제의 짧은 제목",
+      "description": "문제에 대한 상세 설명과 프로덕션에서의 영향",
+      "evidence": "문제를 증명하는 정확한 코드 인용 (입력 스니펫에서 복사)",
       "file_path": "src/path/to/file.ts",
       "line_number": 42,
-      "snippet": "problematic code snippet",
+      "snippet": "수정이 필요한 코드 영역",
       "estimated_files": 1
     }
   ],
-  "summary": "Brief overall assessment for this category"
+  "summary": "이 카테고리에 대한 전체 평가 요약"
 }
 \`\`\`
 <!-- /tunaflow:insight-findings -->
 
-If no issues are found in the provided data, return an empty findings array with a summary explaining why.`;
+- confidence가 "low"인 finding은 최소화하세요 (확실한 것만 보고)
+- 같은 근본 원인을 공유하는 문제는 하나의 finding으로 묶으세요
+- 발견 사항이 없으면 빈 findings 배열과 이유를 summary에 작성하세요`;
 
   return prompt;
 }
@@ -299,14 +316,29 @@ export async function runInsightAnalysis(
  * Uses Claude CLI single-turn mode. The prompt includes pre-extracted
  * data so the agent does NOT need to search the codebase.
  */
+const DEFAULT_INSIGHT_CONFIG: InsightAgentConfig = {
+  engine: "claude",
+  model: "",
+  systemPrompt: "",
+  presetId: "balanced",
+};
+
+async function loadInsightConfig(): Promise<InsightAgentConfig> {
+  return getSetting("insightAgentConfig", DEFAULT_INSIGHT_CONFIG);
+}
+
 async function sendAnalysisToAgent(
   projectKey: string,
   prompt: string,
 ): Promise<string | null> {
   try {
+    const config = await loadInsightConfig();
     const response = await invoke<string>("run_insight_analysis", {
       projectKey,
       prompt,
+      engine: config.engine,
+      model: config.model || null,
+      systemPrompt: config.systemPrompt || null,
     });
     return response || null;
   } catch (err) {
