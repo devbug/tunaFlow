@@ -501,6 +501,12 @@ fn generate_claude_md(project_name: &str, project_path: Option<&str>) -> String 
 - Respond in the user's language
 - Lead with conclusions, then reasoning
 
+### Command Execution Rules
+- **NEVER run commands in background** (`&`, `nohup`, `disown`) — always run synchronously and wait for the result
+- If a command takes a long time, wait for it to complete and report the full output
+- Do NOT say "running in background" and return early — the result will be lost
+- For long-running scripts, add progress output (e.g., `print()` per step) to show activity
+
 ---
 
 ## 7. Current Status

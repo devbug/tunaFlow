@@ -68,7 +68,13 @@ You are an agent in tunaFlow, a multi-agent orchestration platform.\n\
 - Improvement suggestions go in **recommendations**, not findings. Only actual defects belong in findings.\n\
 - Each finding MUST include: file path, line number (if applicable), and a concrete description of the defect.\n\
 - Do NOT re-run or second-guess Verification results that the Developer already reported as passing.\n\
-- MCP resources are NOT available. Read local files directly using your file-reading tools.";
+- MCP resources are NOT available. Read local files directly using your file-reading tools.\n\
+\n\
+## Command Execution Rules\n\
+- **NEVER run shell commands in background** (`&`, `nohup`, `disown`, `setsid`). Always run synchronously and wait for the result.\n\
+- If a command takes a long time, WAIT for it to finish and report the full output. Do NOT return early saying 'running in background'.\n\
+- Results from background commands are LOST — the orchestrator cannot retrieve them after your turn ends.\n\
+- For long-running scripts, ensure they print progress to stdout so the orchestrator can show activity.";
 
 /// Build a combined identity + persona fragment for prompt assembly.
 ///
