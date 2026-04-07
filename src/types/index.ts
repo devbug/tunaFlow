@@ -354,6 +354,54 @@ export interface FailureLesson {
   createdAt: number;
 }
 
+// ── Insight ─────────────────────────────────────────────────
+
+export type InsightCategory = "stability" | "test" | "architecture" | "performance" | "security" | "debt";
+export type InsightSeverity = "critical" | "major" | "minor" | "info";
+export type InsightFixDifficulty = "auto" | "guided" | "manual";
+export type InsightFindingStatus = "open" | "selected" | "in_progress" | "resolved" | "dismissed";
+export type InsightSessionStatus = "pending" | "analyzing" | "completed" | "failed";
+
+export interface InsightSession {
+  id: string;
+  projectKey: string;
+  status: InsightSessionStatus;
+  categories?: string; // JSON array
+  testOutput?: string;
+  summary?: string;
+  createdAt: number;
+  completedAt?: number;
+}
+
+export interface InsightFinding {
+  id: string;
+  sessionId: string;
+  projectKey: string;
+  category: InsightCategory;
+  severity: InsightSeverity;
+  fixDifficulty: InsightFixDifficulty;
+  title: string;
+  description: string;
+  filePath?: string;
+  lineNumber?: number;
+  snippet?: string;
+  estimatedFiles?: number;
+  resolution?: string;
+  planId?: string;
+  status: InsightFindingStatus;
+  createdAt: number;
+}
+
+export interface InsightReport {
+  id: string;
+  sessionId: string;
+  projectKey: string;
+  type: "category" | "meta";
+  category?: string;
+  content: string;
+  createdAt: number;
+}
+
 export interface CreatePlanInput {
   conversationId: string;
   branchId?: string;

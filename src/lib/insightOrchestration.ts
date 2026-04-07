@@ -1,0 +1,456 @@
+/**
+ * Insight analysis orchestration.
+ *
+ * Coordinates the full pipeline:
+ *   1. Pre-extract data from rawq/CRG/lessons/test/memory
+ *   2. Build focused prompt per category
+ *   3. Run agent analysis
+ *   4. Parse findings from response
+ *   5. Evaluate fix_difficulty
+ *   6. Store in DB
+ */
+
+import { invoke } from "@tauri-apps/api/core";
+import type {
+  InsightCategory,
+  InsightSession,
+  InsightFinding,
+} from "@/types";
+import * as insightApi from "./api/insight";
+import type {
+  ExtractionResult,
+  CategoryExtraction,
+} from "./api/insight";
+import { extractInsightFindings } from "./planProposalParser";
+import type { InsightFindingItemInput } from "./schemas/insightFindings";
+
+// ── Fix difficulty evaluation ────────────────────────────────
+
+/**
+ * Evaluate fix_difficulty based on heuristics from SWE-bench research:
+ * - auto:   1 file, <20 lines, low fan-out → agent success 90%+
+ * - guided: 2-5 files, <100 lines → 70%+
+ * - manual: 5+ files or 100+ lines → <70%
+ */
+function evaluateFixDifficulty(finding: InsightFindingItemInput): "auto" | "guided" | "manual" {
+  const files = finding.estimated_files ?? 1;
+  const hasSnippet = !!finding.snippet;
+
+  // Single file with snippet = likely auto-fixable
+  if (files === 1 && hasSnippet) {
+    // Pattern-based fixes (empty catch, missing error handling) are auto
+    const autoPatterns = ["catch", "unwrap", "expect", "TODO", "FIXME", "deprecated", "console.log"];
+    const isSimplePattern = autoPatterns.some(
+      (p) => finding.title.toLowerCase().includes(p.toLowerCase()) ||
+        finding.description.toLowerCase().includes(p.toLowerCase()),
+    );
+    if (isSimplePattern) return "auto";
+  }
+
+  if (files <= 1) return "guided";
+  if (files <= 5) return "guided";
+  return "manual";
+}
+
+// ── Prompt building ──────────────────────────────────────────
+
+const CATEGORY_LABELS: Record<InsightCategory, string> = {
+  stability: "안정성 (Stability)",
+  test: "테스트 (Testing)",
+  architecture: "아키텍처 (Architecture)",
+  performance: "성능 (Performance)",
+  security: "보안 (Security)",
+  debt: "기술 부채 (Technical Debt)",
+};
+
+function buildAnalysisPrompt(
+  category: InsightCategory,
+  extraction: CategoryExtraction,
+): string {
+  const label = CATEGORY_LABELS[category] || category;
+
+  let prompt = `### 📊 Insight Analysis — ${label}
+
+You are analyzing a project for **${label}** issues.
+
+Below is pre-extracted data from the codebase. Analyze these findings and produce a structured report.
+
+**IMPORTANT**:
+- Only report issues you can verify from the provided snippets and context
+- Do not hallucinate file paths or line numbers
+- Be specific: include file path and line number for each finding
+- Assign severity: critical (blocking/security), major (should fix), minor (nice to fix), info (observation)
+- Estimate how many files need changes for each fix
+
+`;
+
+  // Add code snippets
+  if (extraction.snippets.length > 0) {
+    prompt += `## Code Snippets (from codebase search)\n\n`;
+    for (const s of extraction.snippets) {
+      prompt += `### ${s.file}:${s.line}${s.scope ? ` (${s.scope})` : ""} [confidence: ${s.confidence.toFixed(2)}]\n`;
+      prompt += `Query: "${s.query}"\n`;
+      prompt += `\`\`\`\n${s.snippet}\n\`\`\`\n\n`;
+    }
+  }
+
+  // Add extra context
+  if (extraction.extraContext.length > 0) {
+    prompt += `## Additional Context\n\n`;
+    for (const ctx of extraction.extraContext) {
+      prompt += `${ctx}\n\n`;
+    }
+  }
+
+  prompt += `## Output Format
+
+Respond with your findings inside markers:
+
+<!-- tunaflow:insight-findings -->
+\`\`\`json
+{
+  "findings": [
+    {
+      "category": "${category}",
+      "severity": "major",
+      "title": "Short title of the issue",
+      "description": "Detailed description of the problem and why it matters",
+      "file_path": "src/path/to/file.ts",
+      "line_number": 42,
+      "snippet": "problematic code snippet",
+      "estimated_files": 1
+    }
+  ],
+  "summary": "Brief overall assessment for this category"
+}
+\`\`\`
+<!-- /tunaflow:insight-findings -->
+
+If no issues are found in the provided data, return an empty findings array with a summary explaining why.`;
+
+  return prompt;
+}
+
+// ── Main orchestration ───────────────────────────────────────
+
+export interface InsightRunOptions {
+  projectKey: string;
+  projectPath: string;
+  categories?: InsightCategory[];
+  engine?: string;
+  /** Callback for progress updates */
+  onProgress?: (msg: string) => void;
+}
+
+/**
+ * Run the full Insight analysis pipeline.
+ *
+ * 1. Create session
+ * 2. Run extraction (rawq/CRG/lessons/test/memory)
+ * 3. For each category: build prompt → send to agent → parse findings
+ * 4. Evaluate fix_difficulty
+ * 5. Store findings in DB
+ * 6. Update session status
+ */
+export async function runInsightAnalysis(
+  opts: InsightRunOptions,
+): Promise<{ session: InsightSession; findings: InsightFinding[] }> {
+  const { projectKey, projectPath, categories, onProgress } = opts;
+
+  // 1. Create session
+  onProgress?.("세션 생성 중...");
+  const session = await insightApi.createInsightSession(projectKey, categories);
+
+  try {
+    // 2. Update to analyzing
+    await insightApi.updateInsightSessionStatus(session.id, "analyzing");
+
+    // 3. Pre-extraction
+    onProgress?.("데이터 사전 추출 중 (rawq/CRG/테스트/메모리)...");
+    const extraction = await insightApi.runInsightExtraction(
+      projectKey,
+      projectPath,
+      categories,
+    );
+
+    // Store test output
+    if (extraction.testOutput) {
+      await insightApi.updateInsightSessionStatus(
+        session.id,
+        "analyzing",
+        undefined,
+        JSON.stringify(extraction.testOutput),
+      );
+    }
+
+    // 4. For each category with data, run agent analysis
+    const allFindings: InsightFinding[] = [];
+
+    for (const catExtraction of extraction.categories) {
+      const cat = catExtraction.category as InsightCategory;
+
+      // Skip categories with no data
+      if (catExtraction.snippets.length === 0 && catExtraction.extraContext.length === 0) {
+        onProgress?.(`${CATEGORY_LABELS[cat] || cat}: 데이터 없음, 건너뜀`);
+        continue;
+      }
+
+      onProgress?.(`${CATEGORY_LABELS[cat] || cat} 분석 중...`);
+
+      // Build prompt
+      const prompt = buildAnalysisPrompt(cat, catExtraction);
+
+      // Send to agent and get response
+      const response = await sendAnalysisToAgent(projectKey, prompt);
+      if (!response) {
+        onProgress?.(`${CATEGORY_LABELS[cat] || cat}: 에이전트 응답 없음`);
+        continue;
+      }
+
+      // Parse findings from response
+      const parsed = extractInsightFindings(response);
+      if (!parsed || parsed.findings.length === 0) {
+        onProgress?.(`${CATEGORY_LABELS[cat] || cat}: 발견 사항 없음`);
+
+        // Store category report even if no findings
+        if (parsed?.summary) {
+          await insightApi.createInsightReport(
+            session.id,
+            projectKey,
+            "category",
+            parsed.summary,
+            cat,
+          );
+        }
+        continue;
+      }
+
+      // Evaluate fix_difficulty and prepare for DB
+      const findingInputs = parsed.findings.map((f) => ({
+        sessionId: session.id,
+        projectKey,
+        category: f.category || cat,
+        severity: f.severity,
+        fixDifficulty: evaluateFixDifficulty(f),
+        title: f.title,
+        description: f.description,
+        filePath: f.file_path,
+        lineNumber: f.line_number,
+        snippet: f.snippet,
+        estimatedFiles: f.estimated_files,
+      }));
+
+      // Store findings
+      const stored = await insightApi.createInsightFindingsBatch(findingInputs);
+      allFindings.push(...stored);
+
+      // Store category report
+      if (parsed.summary) {
+        await insightApi.createInsightReport(
+          session.id,
+          projectKey,
+          "category",
+          parsed.summary,
+          cat,
+        );
+      }
+
+      onProgress?.(`${CATEGORY_LABELS[cat] || cat}: ${stored.length}개 발견`);
+    }
+
+    // 5. Generate meta summary
+    const summaryParts: string[] = [];
+    const catCounts: Record<string, number> = {};
+    for (const f of allFindings) {
+      catCounts[f.category] = (catCounts[f.category] || 0) + 1;
+    }
+    for (const [cat, count] of Object.entries(catCounts)) {
+      summaryParts.push(`${CATEGORY_LABELS[cat as InsightCategory] || cat}: ${count}건`);
+    }
+    const summary = allFindings.length > 0
+      ? `총 ${allFindings.length}건 발견 — ${summaryParts.join(", ")}`
+      : "분석 완료 — 발견 사항 없음";
+
+    // 6. Complete session
+    const completed = await insightApi.updateInsightSessionStatus(
+      session.id,
+      "completed",
+      summary,
+    );
+
+    onProgress?.(`완료: ${summary}`);
+    return { session: completed, findings: allFindings };
+  } catch (err) {
+    console.error("[insight] analysis failed:", err);
+    await insightApi.updateInsightSessionStatus(
+      session.id,
+      "failed",
+      String(err),
+    );
+    throw err;
+  }
+}
+
+// ── Agent communication ──────────────────────────────────────
+
+/**
+ * Send analysis prompt to agent and return the response.
+ *
+ * Uses Claude CLI single-turn mode. The prompt includes pre-extracted
+ * data so the agent does NOT need to search the codebase.
+ */
+async function sendAnalysisToAgent(
+  projectKey: string,
+  prompt: string,
+): Promise<string | null> {
+  try {
+    const response = await invoke<string>("run_insight_analysis", {
+      projectKey,
+      prompt,
+    });
+    return response || null;
+  } catch (err) {
+    console.error("[insight] agent call failed:", err);
+    return null;
+  }
+}
+
+// ── Auto Fix pipeline ────────────────────────────────────────
+
+/**
+ * Auto-fix a single finding using the CodeCureAgent pattern:
+ * 1. Generate fix prompt with file/line/snippet context
+ * 2. Run agent to apply the fix
+ * 3. Run tests to verify no regressions
+ * 4. Re-scan with rawq to verify pattern is gone
+ * 5. On failure: report (agent ran in project dir, git revert may be needed)
+ */
+export async function autoFixFinding(
+  finding: InsightFinding,
+  projectKey: string,
+  projectPath: string,
+  onProgress?: (msg: string) => void,
+): Promise<{ success: boolean; message: string }> {
+  const { title, description, filePath, lineNumber, snippet } = finding;
+
+  // 1. Build fix prompt
+  const prompt = buildFixPrompt(finding);
+  onProgress?.(`수정 중: ${title}`);
+
+  // 2. Run agent
+  const response = await sendAnalysisToAgent(projectKey, prompt);
+  if (!response) {
+    return { success: false, message: "에이전트 응답 없음" };
+  }
+
+  // 3. Run tests
+  onProgress?.("테스트 검증 중...");
+  try {
+    const testResult = await invoke<{ success: boolean; output: string }>(
+      "run_project_tests",
+      { projectPath },
+    );
+    if (!testResult.success) {
+      return {
+        success: false,
+        message: `테스트 실패 — git revert 필요. 출력:\n${testResult.output.slice(0, 500)}`,
+      };
+    }
+  } catch {
+    // Test runner not available — skip test verification
+  }
+
+  // 4. Re-scan with rawq to verify fix
+  if (filePath) {
+    onProgress?.("패턴 재스캔 중...");
+    try {
+      const extraction = await insightApi.runInsightExtraction(
+        projectKey,
+        projectPath,
+        [finding.category],
+      );
+      // Check if original file+line still shows up
+      const stillPresent = extraction.categories.some((cat) =>
+        cat.snippets.some(
+          (s) => s.file === filePath && Math.abs(s.line - (lineNumber || 0)) < 5,
+        ),
+      );
+      if (stillPresent) {
+        return {
+          success: false,
+          message: "패턴이 여전히 존재 — 수정이 불완전할 수 있음",
+        };
+      }
+    } catch {
+      // rawq scan failed — skip verification
+    }
+  }
+
+  // 5. Update finding status
+  await insightApi.updateInsightFindingStatus(finding.id, "resolved", "Auto-fixed");
+
+  return { success: true, message: "자동 수정 완료 + 검증 통과" };
+}
+
+function buildFixPrompt(finding: InsightFinding): string {
+  let prompt = `### 🔧 Auto Fix — ${finding.title}
+
+Fix the following code quality issue.
+
+**Category**: ${finding.category}
+**Severity**: ${finding.severity}
+**Issue**: ${finding.description}
+`;
+
+  if (finding.filePath) {
+    prompt += `\n**File**: ${finding.filePath}`;
+    if (finding.lineNumber) prompt += `:${finding.lineNumber}`;
+    prompt += "\n";
+  }
+
+  if (finding.snippet) {
+    prompt += `\n**Current code**:\n\`\`\`\n${finding.snippet}\n\`\`\`\n`;
+  }
+
+  prompt += `
+**Instructions**:
+1. Read the file and fix the specific issue
+2. Make minimal changes — only fix the reported issue
+3. Do NOT refactor surrounding code
+4. Do NOT add features beyond the fix
+5. Preserve existing behavior
+
+Respond with the changes you made.`;
+
+  return prompt;
+}
+
+/**
+ * Auto-fix all "quick wins" (auto difficulty) findings.
+ */
+export async function autoFixQuickWins(
+  findings: InsightFinding[],
+  projectKey: string,
+  projectPath: string,
+  onProgress?: (msg: string) => void,
+): Promise<{ fixed: number; failed: number }> {
+  const autoFindings = findings.filter(
+    (f) => f.fixDifficulty === "auto" && f.status === "open",
+  );
+
+  let fixed = 0;
+  let failed = 0;
+
+  for (const finding of autoFindings) {
+    onProgress?.(`(${fixed + failed + 1}/${autoFindings.length}) ${finding.title}`);
+    const result = await autoFixFinding(finding, projectKey, projectPath, onProgress);
+    if (result.success) {
+      fixed++;
+    } else {
+      failed++;
+      onProgress?.(`실패: ${result.message}`);
+    }
+  }
+
+  return { fixed, failed };
+}

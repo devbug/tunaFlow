@@ -6,6 +6,7 @@
  * - `<!-- tunaflow:impl-plan -->` — Developer implementation plan report
  * - `<!-- tunaflow:impl-complete -->` — Implementation completion signal
  * - `<!-- tunaflow:review-verdict -->` — Reviewer verdict
+ * - `<!-- tunaflow:insight-findings -->` — Insight analysis findings
  * - `<!-- tunaflow:tool-request:TYPE:QUERY -->` — Agent tool call request (docs, rawq, graph)
  *
  * All parsers validate output against zod schemas (src/lib/schemas/).
@@ -428,4 +429,50 @@ export function extractToolRequests(content: string): ToolRequest[] {
     }
   }
   return requests;
+}
+
+// ─── Insight Findings ────────────────────────────────────────────────────────
+
+import { InsightFindingsSchema } from "@/lib/schemas/insightFindings";
+import type { InsightFindingsInput, InsightFindingItemInput } from "@/lib/schemas/insightFindings";
+
+const INSIGHT_OPEN = "<!-- tunaflow:insight-findings -->";
+const INSIGHT_CLOSE = "<!-- /tunaflow:insight-findings -->";
+
+export type { InsightFindingsInput, InsightFindingItemInput };
+
+export function hasInsightFindings(content: string): boolean {
+  return content.includes(INSIGHT_OPEN);
+}
+
+export function extractInsightFindings(content: string): InsightFindingsInput | null {
+  const openIdx = content.indexOf(INSIGHT_OPEN);
+  if (openIdx === -1) return null;
+
+  const afterOpen = openIdx + INSIGHT_OPEN.length;
+  const closeIdx = content.indexOf(INSIGHT_CLOSE, afterOpen);
+  const raw = closeIdx !== -1
+    ? content.slice(afterOpen, closeIdx).trim()
+    : content.slice(afterOpen).trim();
+
+  // Strip markdown code fences
+  const jsonStr = raw.replace(/^```(?:json)?\s*/m, "").replace(/\s*```$/m, "").trim();
+  if (!jsonStr) return null;
+
+  try {
+    const parsed = JSON.parse(jsonStr);
+    const result = InsightFindingsSchema.safeParse(parsed);
+    if (result.success) {
+      return result.data;
+    }
+    console.warn("[insight-findings] zod validation failed:", result.error.issues);
+    // Graceful degradation: try to use raw parsed data
+    if (parsed.findings && Array.isArray(parsed.findings)) {
+      return parsed as InsightFindingsInput;
+    }
+    return null;
+  } catch (e) {
+    console.warn("[insight-findings] JSON parse failed:", e);
+    return null;
+  }
 }

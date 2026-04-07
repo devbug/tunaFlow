@@ -240,3 +240,62 @@ pub struct FailureLesson {
     pub resolution: Option<String>,
     pub created_at: i64,
 }
+
+// ── Insight ─────────────────────────────────────────────────
+
+/// Insight analysis session (DATA_MODEL §insight)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightSession {
+    pub id: String,
+    pub project_key: String,
+    /// "pending" | "analyzing" | "completed" | "failed"
+    pub status: String,
+    /// JSON array of selected categories
+    pub categories: Option<String>,
+    pub test_output: Option<String>,
+    pub summary: Option<String>,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
+}
+
+/// Individual finding from Insight analysis
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightFinding {
+    pub id: String,
+    pub session_id: String,
+    pub project_key: String,
+    /// "stability" | "test" | "architecture" | "performance" | "security" | "debt"
+    pub category: String,
+    /// "critical" | "major" | "minor" | "info"
+    pub severity: String,
+    /// "auto" | "guided" | "manual"
+    pub fix_difficulty: String,
+    pub title: String,
+    pub description: String,
+    pub file_path: Option<String>,
+    pub line_number: Option<i64>,
+    pub snippet: Option<String>,
+    pub estimated_files: Option<i64>,
+    pub resolution: Option<String>,
+    pub plan_id: Option<String>,
+    /// "open" | "selected" | "in_progress" | "resolved" | "dismissed"
+    pub status: String,
+    pub created_at: i64,
+}
+
+/// Category or meta report from Insight analysis
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightReport {
+    pub id: String,
+    pub session_id: String,
+    pub project_key: String,
+    /// "category" | "meta"
+    #[serde(rename = "type")]
+    pub report_type: String,
+    pub category: Option<String>,
+    pub content: String,
+    pub created_at: i64,
+}

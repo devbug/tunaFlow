@@ -21,3 +21,6 @@ export type { SubtaskDoneInput } from "./subtaskDone";
 
 export { ImplCompleteSchema } from "./implComplete";
 export type { ImplCompleteInput } from "./implComplete";
+
+export { InsightFindingsSchema, InsightFindingItemSchema } from "./insightFindings";
+export type { InsightFindingsInput, InsightFindingItemInput } from "./insightFindings";

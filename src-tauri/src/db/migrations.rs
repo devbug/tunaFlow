@@ -109,6 +109,9 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     if current < 28 {
         apply_v28(conn)?;
     }
+    if current < 29 {
+        apply_v29(conn)?;
+    }
     Ok(())
 }
 
@@ -570,6 +573,63 @@ fn apply_v28(conn: &Connection) -> Result<(), AppError> {
         ) WHERE subtask_id IS NOT NULL AND plan_id IS NULL;
     ")?;
     conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (28, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+fn apply_v29(conn: &Connection) -> Result<(), AppError> {
+    // Insight system: sessions, findings, reports
+    conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS insight_sessions (
+            id           TEXT PRIMARY KEY,
+            project_key  TEXT NOT NULL,
+            status       TEXT NOT NULL DEFAULT 'pending',
+            categories   TEXT,
+            test_output  TEXT,
+            summary      TEXT,
+            created_at   INTEGER NOT NULL,
+            completed_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_insight_sessions_project
+            ON insight_sessions(project_key);
+
+        CREATE TABLE IF NOT EXISTS insight_findings (
+            id              TEXT PRIMARY KEY,
+            session_id      TEXT NOT NULL,
+            project_key     TEXT NOT NULL,
+            category        TEXT NOT NULL,
+            severity        TEXT NOT NULL,
+            fix_difficulty  TEXT NOT NULL,
+            title           TEXT NOT NULL,
+            description     TEXT NOT NULL,
+            file_path       TEXT,
+            line_number     INTEGER,
+            snippet         TEXT,
+            estimated_files INTEGER DEFAULT 1,
+            resolution      TEXT,
+            plan_id         TEXT,
+            status          TEXT NOT NULL DEFAULT 'open',
+            created_at      INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_insight_findings_session
+            ON insight_findings(session_id);
+        CREATE INDEX IF NOT EXISTS idx_insight_findings_project
+            ON insight_findings(project_key);
+        CREATE INDEX IF NOT EXISTS idx_insight_findings_status
+            ON insight_findings(status);
+
+        CREATE TABLE IF NOT EXISTS insight_reports (
+            id          TEXT PRIMARY KEY,
+            session_id  TEXT NOT NULL,
+            project_key TEXT NOT NULL,
+            type        TEXT NOT NULL,
+            category    TEXT,
+            content     TEXT NOT NULL,
+            created_at  INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_insight_reports_session
+            ON insight_reports(session_id);
+    ")?;
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (29, ?1)", [now_epoch()])?;
     Ok(())
 }
 

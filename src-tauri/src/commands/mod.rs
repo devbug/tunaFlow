@@ -9,6 +9,8 @@ pub mod conversation_memory;
 pub mod conversations;
 pub mod evaluation;
 pub mod failure_lessons;
+pub mod insight;
+pub mod insight_extract;
 pub mod files;
 pub mod jobs;
 pub mod memos;

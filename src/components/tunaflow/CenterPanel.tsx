@@ -2,24 +2,22 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { MessageSquare, ClipboardList, FileSearch, TestTube, FileText, GitBranch, Users, Loader2, Search, StickyNote } from "lucide-react";
+import { MessageSquare, ClipboardList, FileText, GitBranch, Users, Loader2, Search, StickyNote, Lightbulb } from "lucide-react";
 
 import { ChatPanel } from "./ChatPanel";
 import { PlansPanel } from "./context-panel/PlansPanel";
 import { HarnessSummary, type WorkflowStageId } from "./context-panel/HarnessSummary";
-import { ReviewPanel } from "./context-panel/ReviewPanel";
-import { TestPanel } from "./context-panel/TestPanel";
+import { InsightPanel } from "./context-panel/InsightPanel";
 import { ArtifactsPanel } from "./context-panel/ArtifactsPanel";
 import { InlineRename } from "./InlineRename";
 
-type CenterTab = "chat" | "plan" | "artifacts" | "review" | "test";
+type CenterTab = "chat" | "plan" | "artifacts" | "insight";
 
 const TABS: { id: CenterTab; label: string; icon: React.ReactNode }[] = [
   { id: "chat", label: "Chat", icon: <MessageSquare className="w-3.5 h-3.5" /> },
   { id: "plan", label: "Plan", icon: <ClipboardList className="w-3.5 h-3.5" /> },
   { id: "artifacts", label: "Artifacts", icon: <FileText className="w-3.5 h-3.5" /> },
-  { id: "review", label: "Review", icon: <FileSearch className="w-3.5 h-3.5" /> },
-  { id: "test", label: "Test", icon: <TestTube className="w-3.5 h-3.5" /> },
+  { id: "insight", label: "Insight", icon: <Lightbulb className="w-3.5 h-3.5" /> },
 ];
 
 /** Map PlanPhase → WorkflowStageId for auto-switching */
@@ -27,7 +25,7 @@ const PHASE_TO_STAGE: Record<string, WorkflowStageId> = {
   drafting: "plan", subtask_review: "subtask",
   approval: "approved",
   implementation: "dev", rework: "dev",
-  review: "review", done: "decision",
+  review: "review", done: "decision", // review stage in HarnessSummary, not tab
 };
 
 export function CenterPanel() {
@@ -80,8 +78,7 @@ export function CenterPanel() {
   const deleteMemo = useChatStore((s) => s.deleteMemo);
   const selectConversation = useChatStore((s) => s.selectConversation);
 
-  const reviewCount = artifacts.filter((a) => a.type === "review-findings" || a.type === "architect-decision").length;
-  const testCount = artifacts.filter((a) => a.type === "test-report").length;
+  // Review/Test counts removed — now handled by Insight tab
 
   // Memo popover
   const [memoOpen, setMemoOpen] = useState(false);
@@ -117,16 +114,6 @@ export function CenterPanel() {
               {tab.id === "artifacts" && artifacts.length > 0 && (
                 <span className="text-[8px] bg-primary/10 text-primary/70 px-1 rounded">
                   {artifacts.length}
-                </span>
-              )}
-              {tab.id === "review" && reviewCount > 0 && (
-                <span className="text-[8px] bg-status-draft/10 text-status-draft/70 px-1 rounded">
-                  {reviewCount}
-                </span>
-              )}
-              {tab.id === "test" && testCount > 0 && (
-                <span className="text-[8px] bg-agent-codex/10 text-agent-codex/70 px-1 rounded">
-                  {testCount}
                 </span>
               )}
             </button>
@@ -309,22 +296,8 @@ export function CenterPanel() {
           </div>
         )}
 
-        {effectiveTab === "review" && (
-          <div className="flex-1 overflow-y-auto p-5">
-            <div className="max-w-4xl mx-auto">
-              <h3 className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-3">Review</h3>
-              <ReviewPanel />
-            </div>
-          </div>
-        )}
-
-        {effectiveTab === "test" && (
-          <div className="flex-1 overflow-y-auto p-5">
-            <div className="max-w-4xl mx-auto">
-              <h3 className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-3">Test</h3>
-              <TestPanel />
-            </div>
-          </div>
+        {effectiveTab === "insight" && (
+          <InsightPanel />
         )}
 
       </div>

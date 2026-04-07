@@ -6,8 +6,7 @@ import {
   FolderOpen,
   ClipboardList,
   FileText,
-  FileSearch,
-  TestTube,
+  Lightbulb,
   Settings,
   Plus,
   Search,
@@ -77,8 +76,7 @@ export function CommandPalette() {
             <PaletteItem icon={<MessageSquare />} onSelect={() => switchTab("chat")}>Chat</PaletteItem>
             <PaletteItem icon={<ClipboardList />} onSelect={() => switchTab("plan")}>Plan</PaletteItem>
             <PaletteItem icon={<FileText />} onSelect={() => switchTab("artifacts")}>Artifacts</PaletteItem>
-            <PaletteItem icon={<FileSearch />} onSelect={() => switchTab("review")}>Review</PaletteItem>
-            <PaletteItem icon={<TestTube />} onSelect={() => switchTab("test")}>Test</PaletteItem>
+            <PaletteItem icon={<Lightbulb />} onSelect={() => switchTab("insight")}>Insight</PaletteItem>
           </Command.Group>
 
           {/* Conversations */}

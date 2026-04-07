@@ -251,6 +251,20 @@ pub fn run() {
             commands::failure_lessons::delete_failure_lesson,
             // Test Runner
             commands::test_runner::run_project_tests,
+            // Insight
+            commands::insight::create_insight_session,
+            commands::insight::get_insight_session,
+            commands::insight::list_insight_sessions,
+            commands::insight::update_insight_session_status,
+            commands::insight::create_insight_findings_batch,
+            commands::insight::list_insight_findings,
+            commands::insight::update_insight_finding_status,
+            commands::insight::update_insight_findings_batch_status,
+            commands::insight::resolve_insight_findings_by_plan,
+            commands::insight::create_insight_report,
+            commands::insight::list_insight_reports,
+            commands::insight_extract::run_insight_extraction,
+            commands::insight_extract::run_insight_analysis,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
