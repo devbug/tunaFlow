@@ -45,8 +45,8 @@ export function TitleBar() {
         )}
       </div>
 
-      {/* Right: notification bell */}
-      <div className="absolute right-3 top-0 h-full flex items-center">
+      {/* Right: notification bell — NO drag region (interactive element) */}
+      <div className="absolute right-3 top-0 h-full flex items-center z-10">
         <NotificationBell />
       </div>
     </div>
