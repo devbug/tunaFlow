@@ -200,57 +200,92 @@ export async function runInsightAnalysis(
       );
     }
 
-    // 4. For each category with data, run agent analysis
+    // 4. For each category, run agent analysis
     const allFindings: InsightFinding[] = [];
+
+    // Log extraction summary
+    const snippetTotal = extraction.categories.reduce((sum, c) => sum + c.snippets.length, 0);
+    const contextTotal = extraction.categories.reduce((sum, c) => sum + c.extraContext.length, 0);
+    onProgress?.(`사전 추출 완료: 스니펫 ${snippetTotal}개, 컨텍스트 ${contextTotal}개, 카테고리 ${extraction.categories.length}개`);
+
+    if (snippetTotal === 0 && contextTotal === 0) {
+      onProgress?.("⚠️ 사전 추출 데이터 없음 — rawq 인덱싱 여부 확인 필요");
+    }
 
     for (const catExtraction of extraction.categories) {
       const cat = catExtraction.category as InsightCategory;
+      const catLabel = CATEGORY_LABELS[cat] || cat;
+      const hasData = catExtraction.snippets.length > 0 || catExtraction.extraContext.length > 0;
 
-      // Skip categories with no data
-      if (catExtraction.snippets.length === 0 && catExtraction.extraContext.length === 0) {
-        onProgress?.(`${CATEGORY_LABELS[cat] || cat}: 데이터 없음, 건너뜀`);
+      if (!hasData) {
+        onProgress?.(`${catLabel}: 사전 추출 데이터 없음, 건너뜀`);
         continue;
       }
 
-      onProgress?.(`${CATEGORY_LABELS[cat] || cat} 분석 중...`);
+      onProgress?.(`${catLabel} 분석 중... (스니펫 ${catExtraction.snippets.length}개)`);
 
       // Build prompt
       const prompt = buildAnalysisPrompt(cat, catExtraction);
 
       // Send to agent and get response
-      const response = await sendAnalysisToAgent(projectKey, prompt);
-      if (!response) {
-        onProgress?.(`${CATEGORY_LABELS[cat] || cat}: 에이전트 응답 없음`);
+      let response: string | null;
+      try {
+        response = await sendAnalysisToAgent(projectKey, prompt);
+      } catch (err) {
+        onProgress?.(`${catLabel}: 에이전트 호출 실패 — ${err}`);
+        console.error(`[insight] ${cat} agent error:`, err);
         continue;
       }
 
+      if (!response) {
+        onProgress?.(`${catLabel}: 에이전트 응답 없음 (빈 응답)`);
+        continue;
+      }
+
+      onProgress?.(`${catLabel}: 응답 수신, 파싱 중...`);
+
       // Parse findings from response
       const parsed = extractInsightFindings(response);
-      if (!parsed || parsed.findings.length === 0) {
-        onProgress?.(`${CATEGORY_LABELS[cat] || cat}: 발견 사항 없음`);
+      if (!parsed) {
+        // Marker not found — store raw response as report for debugging
+        onProgress?.(`${catLabel}: insight-findings 마커 없음 — 원본 응답 저장`);
+        console.warn(`[insight] ${cat}: no markers found in response (${response.length} chars)`);
+        await insightApi.createInsightReport(
+          session.id,
+          projectKey,
+          "category",
+          response.slice(0, 5000), // save first 5k chars for debugging
+          cat,
+        );
+        continue;
+      }
 
-        // Store category report even if no findings
-        if (parsed?.summary) {
-          await insightApi.createInsightReport(
-            session.id,
-            projectKey,
-            "category",
-            parsed.summary,
-            cat,
-          );
+      if (parsed.findings.length === 0) {
+        onProgress?.(`${catLabel}: 발견 사항 없음`);
+        if (parsed.summary) {
+          await insightApi.createInsightReport(session.id, projectKey, "category", parsed.summary, cat);
         }
         continue;
       }
 
+      // Filter out low-confidence findings
+      const reliable = parsed.findings.filter((f) => (f.confidence ?? "medium") !== "low");
+      const filtered = parsed.findings.length - reliable.length;
+      if (filtered > 0) {
+        onProgress?.(`${catLabel}: ${filtered}개 low-confidence finding 필터링`);
+      }
+
       // Evaluate fix_difficulty and prepare for DB
-      const findingInputs = parsed.findings.map((f) => ({
+      const findingInputs = reliable.map((f) => ({
         sessionId: session.id,
         projectKey,
         category: f.category || cat,
         severity: f.severity,
         fixDifficulty: evaluateFixDifficulty(f),
         title: f.title,
-        description: f.description,
+        description: f.evidence
+          ? `${f.description}\n\n**Evidence**: \`${f.evidence}\``
+          : f.description,
         filePath: f.file_path,
         lineNumber: f.line_number,
         snippet: f.snippet,
@@ -263,16 +298,10 @@ export async function runInsightAnalysis(
 
       // Store category report
       if (parsed.summary) {
-        await insightApi.createInsightReport(
-          session.id,
-          projectKey,
-          "category",
-          parsed.summary,
-          cat,
-        );
+        await insightApi.createInsightReport(session.id, projectKey, "category", parsed.summary, cat);
       }
 
-      onProgress?.(`${CATEGORY_LABELS[cat] || cat}: ${stored.length}개 발견`);
+      onProgress?.(`${catLabel}: ${stored.length}개 발견 (${filtered}개 필터링됨)`);
     }
 
     // 5. Generate meta summary
@@ -331,20 +360,23 @@ async function sendAnalysisToAgent(
   projectKey: string,
   prompt: string,
 ): Promise<string | null> {
-  try {
-    const config = await loadInsightConfig();
-    const response = await invoke<string>("run_insight_analysis", {
-      projectKey,
-      prompt,
-      engine: config.engine,
-      model: config.model || null,
-      systemPrompt: config.systemPrompt || null,
-    });
-    return response || null;
-  } catch (err) {
-    console.error("[insight] agent call failed:", err);
-    return null;
+  const config = await loadInsightConfig();
+  console.log("[insight] sendAnalysisToAgent: engine=%s, model=%s, prompt_len=%d",
+    config.engine, config.model || "(default)", prompt.length);
+
+  const response = await invoke<string>("run_insight_analysis", {
+    projectKey,
+    prompt,
+    engine: config.engine,
+    model: config.model || null,
+    systemPrompt: config.systemPrompt || null,
+  });
+
+  console.log("[insight] agent response: %d chars", response?.length ?? 0);
+  if (!response) {
+    throw new Error("에이전트가 빈 응답을 반환했습니다");
   }
+  return response;
 }
 
 // ── Auto Fix pipeline ────────────────────────────────────────

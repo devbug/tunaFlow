@@ -141,7 +141,9 @@ fn extract_rawq_for_category(
                     }
                 }
             }
-            Err(_) => {} // rawq not available or no results — skip
+            Err(e) => {
+                eprintln!("[insight] rawq search '{}' for {}: {}", query, pattern.category, e);
+            }
         }
     }
 
@@ -264,12 +266,20 @@ pub async fn run_insight_extraction(
 
     // 1. rawq extractions (sequential — rawq CLI is single-threaded)
     let mut category_extractions: Vec<CategoryExtraction> = Vec::new();
-    if rawq::is_indexed(&pp).unwrap_or(false) {
+    let rawq_indexed = rawq::is_indexed(&pp).unwrap_or(false);
+    eprintln!("[insight] extraction start: project={}, path={}, rawq_indexed={}, categories={:?}",
+        pk, pp, rawq_indexed, selected);
+
+    if rawq_indexed {
         for pattern in CATEGORY_PATTERNS {
             if selected.contains(&pattern.category) {
-                category_extractions.push(extract_rawq_for_category(&pp, pattern));
+                let extraction = extract_rawq_for_category(&pp, pattern);
+                eprintln!("[insight] rawq {} → {} snippets", pattern.category, extraction.snippets.len());
+                category_extractions.push(extraction);
             }
         }
+    } else {
+        eprintln!("[insight] rawq NOT indexed for {} — skipping rawq extraction", pp);
     }
 
     // Add "test" category placeholder (filled by test runner below)
@@ -288,15 +298,15 @@ pub async fn run_insight_extraction(
         None
     };
 
-    // Add test failures as context to the test category
+    // Add test results to the test category (always — even if all pass)
     if let Some(ref result) = test_output {
         if let Some(cat) = category_extractions.iter_mut().find(|c| c.category == "test") {
-            if result.failed > 0 {
-                cat.extra_context.push(format!(
-                    "Test results: {} passed, {} failed, {} skipped",
-                    result.passed, result.failed, result.skipped
-                ));
-                // Include first 2000 chars of output for failed tests
+            cat.extra_context.push(format!(
+                "Test results: {} passed, {} failed, {} skipped ({})",
+                result.passed, result.failed, result.skipped,
+                if result.success { "SUCCESS" } else { "FAILURE" }
+            ));
+            if result.failed > 0 || !result.success {
                 let output_preview = truncate_snippet(&result.output, 2000);
                 cat.extra_context.push(format!("Test output:\n```\n{}\n```", output_preview));
             }
@@ -390,6 +400,8 @@ pub async fn run_insight_analysis(
     };
 
     let engine_name = engine.unwrap_or_else(|| "claude".to_string());
+    eprintln!("[insight] run_insight_analysis: engine={}, model={:?}, prompt_len={}, project_path={:?}",
+        engine_name, input.model, input.prompt.len(), input.project_path);
 
     // Run synchronously in a blocking thread — dispatch by engine
     let result: RunOutput = match engine_name.as_str() {
