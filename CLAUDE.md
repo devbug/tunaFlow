@@ -306,6 +306,17 @@ tunaFlow/
 - **워크플로우 artifact 자동 생성**: Plan 승인 → `architect-decision`, Review RT 시작(테스트 있을 때) → `test-report`, Review verdict(pass/fail) → `review-findings`. 모두 plan_id 자동 연결.
 - **Insight 탭 설계**: `docs/ideas/insightTabDesign.md` — Review+Test 탭을 Insight로 통합. 카테고리 기반 분석 (안정성/테스트/아키텍처/성능/보안/기술부채). fix_difficulty 자동 평가 (auto/guided/manual). SQALE+Quadrant 우선순위. Auto Fix 파이프라인 (CodeCureAgent 패턴). 학술 참고 11건 출처 포함.
 - **기존 테스트 버그 수정**: conditional verdict 테스트가 `review_failed` 기대 → `review_conditional`로 수정
+
+### ✅ 해결됨 (세션 14 후반: UI 대폭 개선 + 알림 시스템 + 워크플로우 안정화)
+- **알림 시스템**: `notificationStore.ts` 중앙 알림 (OS + in-app 히스토리). 메인/드로워/RT 완료 + 에러 6개 경로. TitleBar에 NotificationBell (unread 뱃지 + 팝오버 + 클릭 이동). Web Audio 알림음 (completed 차임 / error 비프) + on/off 토글 (appStore 영속).
+- **RuntimeStatusBar 확장**: 시간당 비용 ($X.XX/h), 컨텍스트 % 4-tier 아이콘 (🧊/⚠️/❗), Git branch+dirty+파일 수 (10초 폴링). `get_git_status` 확장 (added/modified/untracked 카운트).
+- **채팅 UI 대폭 개선**: 메시지+입력창 `max-w-4xl mx-auto` 중앙 정렬. 아바타 인라인화 (Slack 패턴). 사용자 메시지 MarkdownBody 통일. Pretendard 폰트 (3-tier: Inter UI / Pretendard 본문 / JetBrains Mono 코드). 메시지 메타 시간 `Xm Y.Zs` + input/output 토큰 표시.
+- **드로워 고정 모드 (pin)**: 📌 버튼으로 오버레이↔고정 전환, 같은 대화 내 고정 유지, 다른 대화 이동 시 자동 해제. 리사이즈 라인 제거 (엣지 그랩). 고정 시 SearchBox → 아이콘 (Cmd+K 연동).
+- **impl-complete DB 상태 fallback**: 마커 없어도 all subtasks done + agent not running → implComplete 추론. `autoSyncImplCompletion()` on agent:completed — subtask 마커 스캔 + 완료 신호 감지 → DB 자동 동기화. 마커는 보조, DB가 SSOT.
+- **수동 phase 전환**: PlanCard 우클릭 메뉴에 Phase 옵션 추가. status "done" 시 phase도 자동 "done" 동기화.
+- **orphan 스트리밍 자동 복구**: RuntimeStatusBar 2초 폴링에서 DB job vs store runningThreadIds 비교 → 10초 grace period 후 orphan 정리 + 메시지 리로드.
+- **ReviewPanel 구조화**: VerdictCard (PASS/FAIL 뱃지 + findings 3줄 미리보기), DecisionCard (APPROVED + subtask 수). FAIL→CONDITIONAL→PASS 심각도 정렬. 클릭 시 구조화된 모달 (findings 번호 목록 + recommendations 불릿).
+- **CI 수정**: macOS runner, Node 22, actions v5, rawq sidecar placeholder, npm install.
 - Rust 188 tests, Frontend 175 tests. DB v28.
 
 ### 기타 알려진 이슈
@@ -424,7 +435,7 @@ tunaFlow/
 | 11 | 2026-04-04 | 전수조사→문서 정합성 복구, expect 패닉 제거, 스트리밍 중복 150줄 제거, useMemo, 경고 0, 테스트 백로그 문서화 |
 | 12 | 2026-04-05 | 테스트 180→352, CLI resolve 통합, 컴포넌트 분할 3개, **3-role 프롬프트 근본 수정** (Dev↔Review 루프 해결), 에스컬레이션 경로 완성, 스마트 scaffold, microcompact, 커스텀 타이틀바+우클릭 메뉴, DB v26 slug, UI 수정 20+건, 실사용 검증으로 발견한 워크플로우 버그 대량 수정 |
 | 13 | 2026-04-05~06 | Review 자동 감지, doom loop 안정화, 크로스 프로젝트 격리, 코드 품질 감사 7항목 (CSP/catch/non-null/parking_lot/CJK/AppError/coverage), Plan UX (컨텍스트 메뉴/All 탭), 하네스 품질 (에러 규칙/승격 프롬프트/testOutput 배선), 파서 멀티라인 details, artifact+failure learning 설계 |
-| 14 | 2026-04-06 | **Failure Learning 시스템** (DB v27, FTS5 검색, rework 자동 주입, resolution 자동 채움), **Artifacts Plan 그룹핑** (DB v28, auto-resolve plan_id, UI 그룹핑), **워크플로우 artifact 자동 생성** (architect-decision/test-report/review-findings), **Insight 탭 설계** (카테고리 기반 분석, fix_difficulty, SQALE+Quadrant, 학술 참고 11건) |
+| 14 | 2026-04-06~07 | **Failure Learning** (DB v27-28), **Artifacts Plan 그룹핑**, **Insight 탭 설계** (카테고리 기반, SQALE+Quadrant, 학술 11건), **알림 시스템** (NotificationBell + 사운드), **채팅 UI 대폭 개선** (Pretendard 3-tier 폰트, max-w-4xl 중앙 정렬, 아바타 인라인, 드로워 pin), **impl-complete DB fallback** + orphan 자동 복구, **ReviewPanel 구조화**, CI macOS 전환 |
 
 ---
 
@@ -501,11 +512,16 @@ tunaFlow/
 - Plan UX (컨텍스트 메뉴/All 탭), 하네스 품질 (에러 규칙/승격 프롬프트/testOutput 배선)
 - 파서 개선, artifact+failure learning 설계
 
-### ✅ 완료: Failure Learning + Artifacts Plan 그룹핑 + Insight 설계 (세션 14)
-- Failure Learning 시스템 (DB v27 + FTS5 + Rust commands + TS API + rework 자동 주입 + resolution 자동 채움)
-- Artifacts Plan 그룹핑 (DB v28 + auto-resolve plan_id + UI 그룹핑)
-- 워크플로우 artifact 자동 생성 (architect-decision/test-report/review-findings)
-- Insight 탭 설계 완료 (`docs/ideas/insightTabDesign.md`)
+### ✅ 완료: Failure Learning + Artifacts + Insight 설계 + UI 대폭 개선 + 알림 (세션 14)
+- Failure Learning 시스템 (DB v27-28 + FTS5 + rework 자동 주입 + resolution 자동 채움)
+- Artifacts Plan 그룹핑 + 워크플로우 artifact 자동 생성
+- Insight 탭 설계 (`docs/ideas/insightTabDesign.md`)
+- 알림 시스템 (NotificationBell + 사운드 + on/off)
+- 채팅 UI (Pretendard 3-tier 폰트, max-w-4xl 중앙 정렬, 아바타 인라인, 드로워 pin)
+- impl-complete DB fallback + orphan 자동 복구 + 수동 phase 전환
+- ReviewPanel 구조화 (VerdictCard/DecisionCard + 심각도 정렬 + 모달)
+- RuntimeStatusBar (시간당 비용, 컨텍스트 % 아이콘, Git branch+dirty)
+- CI macOS 전환 (Node 22, actions v5, rawq placeholder)
 - Rust 188 tests, Frontend 175 tests. DB v28.
 
 ### 다음 세션 첫 작업
