@@ -197,7 +197,7 @@ export function RuntimeStatusBar() {
 
   return (
     <>
-      <div className="flex items-center h-7 shrink-0 text-[var(--text-xs)] text-prose-muted select-none">
+      <div className="flex items-center h-7 shrink-0 text-tf-xs text-prose-muted select-none">
         <span className="flex-1" />
 
         {/* Trace area — clickable, opens modal */}
@@ -231,7 +231,7 @@ export function RuntimeStatusBar() {
                 {lastSkippedLayers > 0 && <span className="text-amber-500/40"> -{lastSkippedLayers}</span>}
               </span>
               {lastContextPct != null && (
-                <span className={cn("font-mono text-[var(--text-micro)]",
+                <span className={cn("font-mono text-tf-micro",
                   lastContextPct >= 90 ? "text-red-400" :
                   lastContextPct >= 80 ? "text-orange-400" :
                   lastContextPct >= 60 ? "text-yellow-400" :
@@ -258,7 +258,7 @@ export function RuntimeStatusBar() {
             <span className="flex items-center gap-1 px-2 text-muted-foreground/50">
               <span>{gitStatus.branch}{gitStatus.dirty ? "*" : ""}</span>
               {(gitStatus.added > 0 || gitStatus.modified > 0 || gitStatus.untracked > 0) && (
-                <span className="text-[var(--text-micro)] text-prose-disabled">
+                <span className="text-tf-micro text-prose-disabled">
                   {gitStatus.added > 0 && `+${gitStatus.added}`}{gitStatus.added > 0 && gitStatus.modified > 0 && " "}{gitStatus.modified > 0 && `~${gitStatus.modified}`}{(gitStatus.added > 0 || gitStatus.modified > 0) && gitStatus.untracked > 0 && " "}{gitStatus.untracked > 0 && `?${gitStatus.untracked}`}
                 </span>
               )}

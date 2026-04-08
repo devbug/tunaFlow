@@ -45,15 +45,6 @@
 
   /* ── Design System Tokens ─────────────────────────────── */
 
-  /* Typography scale (7 steps) */
-  --text-micro: 9px;
-  --text-xs: 10px;
-  --text-sm: 11px;
-  --text-caption: 13px;
-  --text-base: 14px;
-  --text-lg: 18px;
-  --text-xl: 24px;
-
   /* Text hierarchy (5 steps — explicit colors, not opacity) */
   --prose-strong: oklch(0.95 0.02 280);
   --prose-base: oklch(0.88 0.03 280);
@@ -115,6 +106,13 @@
   --color-prose-muted: var(--prose-muted);
   --color-prose-faint: var(--prose-faint);
   --color-prose-disabled: var(--prose-disabled);
+  --text-tf-micro: 9px;
+  --text-tf-xs: 10px;
+  --text-tf-sm: 11px;
+  --text-tf-caption: 13px;
+  --text-tf-base: 14px;
+  --text-tf-lg: 18px;
+  --text-tf-xl: 24px;
   --animate-slide-in-from-right-96: slide-in-from-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
