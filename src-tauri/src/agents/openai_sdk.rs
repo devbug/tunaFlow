@@ -60,7 +60,10 @@ where
         tools: Some(tools_json),
     };
 
-    on_progress("OpenAI SDK initializing...".into());
+    let init_step = serde_json::json!({
+        "type": "thinking", "name": "Initializing", "input": "OpenAI API", "status": "running"
+    });
+    on_progress(format!("__STEP__:{}", init_step));
 
     let client = Client::new();
     let response = client
@@ -124,7 +127,12 @@ where
                                                 project_path: input.project_path.clone(),
                                             };
                                             let result = crate::agents::tool_handler::execute_tool_call(name, &args, &ctx);
-                                            on_progress(format!("🔧 {} → {}", name, result.output));
+                                            let step = serde_json::json!({
+                                                "type": "tool_use", "name": name,
+                                                "input": result.output.chars().take(120).collect::<String>(),
+                                                "status": "done"
+                                            });
+                                            on_progress(format!("__STEP__:{}", step));
                                             full_text.push_str(&format!("\n\n[Tool: {}] {}", name, result.output));
                                             on_chunk(full_text.clone());
                                         }
