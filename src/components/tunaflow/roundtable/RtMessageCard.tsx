@@ -43,7 +43,7 @@ export function RtMessageCard({ message, isLast, onBranch, onBranchRT, onMemo, o
       >
         {/* Header: avatar inline + engine · model · role (matches MessageMeta pattern) */}
         <div className="flex items-baseline gap-1.5 mb-1 flex-wrap">
-          <AgentAvatar engine={engine} size="xs" />
+          <span className="self-center"><AgentAvatar engine={engine} size="xs" /></span>
           <span className={cn("text-tf-caption font-medium", knownEngine ? `text-agent-${knownEngine}` : "text-prose-base")}>
             {name}
           </span>

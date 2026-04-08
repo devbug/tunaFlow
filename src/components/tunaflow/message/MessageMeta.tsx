@@ -19,7 +19,7 @@ export function MessageMeta({ message, isCompact = false, threadBranches, onOpen
 
   return (
     <div className={cn("flex items-baseline gap-1.5 mb-1", isCompact && "mb-0.5")}>
-      <AgentAvatar engine={message.engine} isUser={isUser} size="xs" />
+      <span className="self-center"><AgentAvatar engine={message.engine} isUser={isUser} size="xs" /></span>
       {isUser ? (
         <span className={cn("font-medium text-prose-base", isCompact ? "text-tf-sm" : "text-tf-caption")}>You</span>
       ) : (
