@@ -72,88 +72,108 @@ function SummaryBar({ findings }: { findings: InsightFinding[] }) {
 
 // ── Finding card ─────────────────────────────────────────────
 
-function FindingCard({
+function FindingRow({
   finding,
-  selected,
+  checked,
+  active,
   onToggle,
+  onSelect,
 }: {
   finding: InsightFinding;
-  selected: boolean;
+  checked: boolean;
+  active: boolean;
   onToggle: (id: string) => void;
+  onSelect: (f: InsightFinding) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const catMeta = CATEGORY_META[finding.category];
   const sevMeta = SEVERITY_META[finding.severity];
 
   return (
-    <div className={cn(
-      "rounded-md border p-2 space-y-1 transition-colors",
-      finding.status === "resolved"
-        ? "border-status-approved/20 bg-status-approved/5 opacity-60"
-        : finding.status === "dismissed"
-          ? "border-border/10 opacity-40"
-          : "border-border/30 bg-card/60",
-    )}>
-      <div className="flex items-start gap-1.5">
-        {finding.status === "open" || finding.status === "selected" ? (
-          <button
-            onClick={() => onToggle(finding.id)}
-            className="mt-0.5 shrink-0"
-          >
-            {selected ? (
-              <CheckSquare className="w-3.5 h-3.5 text-accent" />
-            ) : (
-              <Square className="w-3.5 h-3.5 text-muted-foreground/40" />
-            )}
-          </button>
-        ) : (
-          <span className="mt-0.5 shrink-0">
-            {finding.status === "resolved" && <CheckCircle2 className="w-3.5 h-3.5 text-status-approved/60" />}
-            {finding.status === "in_progress" && <Clock className="w-3.5 h-3.5 text-yellow-500/60" />}
-          </span>
-        )}
+    <div
+      onClick={() => onSelect(finding)}
+      className={cn(
+        "rounded-md border px-2 py-1.5 cursor-pointer transition-colors flex items-center gap-1.5",
+        active ? "border-primary/40 bg-primary/5" :
+        finding.status === "resolved" ? "border-status-approved/20 bg-status-approved/5 opacity-60" :
+        finding.status === "dismissed" ? "border-border/10 opacity-40" :
+        "border-border/30 bg-card/60 hover:border-border/50",
+      )}
+    >
+      {(finding.status === "open" || finding.status === "selected") && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggle(finding.id); }}
+          className="shrink-0"
+        >
+          {checked ? <CheckSquare className="w-3 h-3 text-accent" /> : <Square className="w-3 h-3 text-muted-foreground/40" />}
+        </button>
+      )}
+      {finding.status === "resolved" && <CheckCircle2 className="w-3 h-3 text-status-approved/60 shrink-0" />}
+      {finding.status === "in_progress" && <Clock className="w-3 h-3 text-yellow-500/60 shrink-0" />}
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className={cn("shrink-0", catMeta?.color)}>{catMeta?.icon}</span>
-            <span className={cn("text-[9px] px-1 py-0.5 rounded inline-flex items-center gap-0.5", sevMeta?.cls)}>
-              {sevMeta?.icon} {finding.severity}
-            </span>
-            <span className="text-[9px] text-muted-foreground/50 px-1 py-0.5 rounded bg-muted/40">
-              {finding.fixDifficulty}
-            </span>
-          </div>
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-0.5 mt-0.5 text-left w-full"
-          >
-            {expanded ? <ChevronDown className="w-2.5 h-2.5 shrink-0" /> : <ChevronRight className="w-2.5 h-2.5 shrink-0" />}
-            <span className="text-[11px] font-medium text-foreground truncate">{finding.title}</span>
-          </button>
+      <span className={cn("shrink-0", catMeta?.color)}>{catMeta?.icon}</span>
+      <span className={cn("text-[9px] px-1 py-0.5 rounded shrink-0", sevMeta?.cls)}>{finding.severity}</span>
+      <span className="text-tf-sm font-medium text-foreground truncate flex-1">{finding.title}</span>
+      {finding.filePath && (
+        <span className="text-tf-micro text-prose-disabled font-mono truncate max-w-[120px] shrink-0">
+          {finding.filePath.split("/").pop()}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ── Detail panel ─────────────────────────────────────────────
+
+function FindingDetail({ finding }: { finding: InsightFinding }) {
+  const catMeta = CATEGORY_META[finding.category];
+  const sevMeta = SEVERITY_META[finding.severity];
+
+  return (
+    <div className="p-4 space-y-4 overflow-y-auto h-full">
+      {/* Header */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <span className={cn("shrink-0", catMeta?.color)}>{catMeta?.icon}</span>
+          <span className={cn("text-tf-xs px-1.5 py-0.5 rounded inline-flex items-center gap-0.5", sevMeta?.cls)}>
+            {sevMeta?.icon} {finding.severity}
+          </span>
+          <span className="text-tf-xs text-prose-faint px-1.5 py-0.5 rounded bg-muted/40">
+            {finding.fixDifficulty}
+          </span>
+          <span className="text-tf-xs text-prose-disabled">
+            {finding.status}
+          </span>
         </div>
+        <h3 className="text-tf-base font-semibold text-foreground">{finding.title}</h3>
       </div>
 
-      {expanded && (
-        <div className="pl-5 space-y-1">
-          <p className="text-[10px] text-foreground/70 leading-relaxed whitespace-pre-wrap">
-            {finding.description}
-          </p>
-          {finding.filePath && (
-            <p className="text-[9px] text-muted-foreground/50 font-mono">
-              {finding.filePath}{finding.lineNumber ? `:${finding.lineNumber}` : ""}
-            </p>
-          )}
-          {finding.snippet && (
-            <pre className="text-[9px] bg-muted/30 rounded p-1.5 overflow-x-auto font-mono">
-              {finding.snippet}
-            </pre>
-          )}
-          {finding.estimatedFiles && finding.estimatedFiles > 1 && (
-            <p className="text-[9px] text-muted-foreground/40">
-              예상 수정 파일: {finding.estimatedFiles}개
-            </p>
-          )}
+      {/* File path */}
+      {finding.filePath && (
+        <div className="text-tf-sm text-prose-muted font-mono bg-muted/20 rounded px-2 py-1">
+          {finding.filePath}{finding.lineNumber ? `:${finding.lineNumber}` : ""}
         </div>
+      )}
+
+      {/* Description */}
+      <div className="text-tf-sm text-prose-base leading-relaxed whitespace-pre-wrap">
+        {finding.description}
+      </div>
+
+      {/* Code snippet */}
+      {finding.snippet && (
+        <div>
+          <p className="text-tf-xs text-prose-faint mb-1">코드</p>
+          <pre className="text-tf-sm bg-[#1e1e1e] text-[#d4d4d4] rounded-md p-3 overflow-x-auto font-mono leading-relaxed">
+            {finding.snippet}
+          </pre>
+        </div>
+      )}
+
+      {/* Meta */}
+      {finding.estimatedFiles && finding.estimatedFiles > 1 && (
+        <p className="text-tf-xs text-prose-disabled">
+          예상 수정 파일: {finding.estimatedFiles}개
+        </p>
       )}
     </div>
   );
@@ -172,13 +192,17 @@ function QuadrantSection({
   quadrant,
   findings,
   selectedIds,
+  activeFindingId,
   onToggle,
+  onSelect,
   onAutoFix,
 }: {
   quadrant: QuadrantKey;
   findings: InsightFinding[];
   selectedIds: Set<string>;
+  activeFindingId: string | null;
   onToggle: (id: string) => void;
+  onSelect: (f: InsightFinding) => void;
   onAutoFix?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(quadrant === "deprioritize");
@@ -192,29 +216,31 @@ function QuadrantSection({
       <div className="flex items-center">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground/70 hover:text-foreground flex-1"
+          className="flex items-center gap-1 text-tf-xs font-medium text-prose-muted hover:text-foreground flex-1"
         >
           {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           {meta.label}
-          <span className="text-[9px] text-muted-foreground/40">— {meta.desc} ({open.length})</span>
+          <span className="text-tf-micro text-prose-disabled">— {meta.desc} ({open.length})</span>
         </button>
         {quadrant === "quick-wins" && open.length > 0 && onAutoFix && (
           <button
             onClick={onAutoFix}
-            className="text-[9px] px-1.5 py-0.5 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors"
+            className="text-tf-micro px-1.5 py-0.5 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors"
           >
             Run All
           </button>
         )}
       </div>
       {!collapsed && (
-        <div className="space-y-1 pl-1">
+        <div className="space-y-0.5">
           {findings.map((f) => (
-            <FindingCard
+            <FindingRow
               key={f.id}
               finding={f}
-              selected={selectedIds.has(f.id)}
+              checked={selectedIds.has(f.id)}
+              active={f.id === activeFindingId}
               onToggle={onToggle}
+              onSelect={onSelect}
             />
           ))}
         </div>
@@ -236,6 +262,7 @@ export function InsightPanel() {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<string>("");
   const [categoryFilter, setCategoryFilter] = useState<InsightCategory | "all">("all");
+  const [activeFinding, setActiveFinding] = useState<InsightFinding | null>(null);
 
   // Load sessions
   useEffect(() => {
@@ -394,59 +421,78 @@ export function InsightPanel() {
         </div>
       )}
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {findings.length > 0 ? (
-          <>
-            <SummaryBar findings={filtered} />
+      {/* Content — master-detail layout */}
+      <div className="flex-1 flex min-h-0">
+        {/* Left: findings list */}
+        <div className={cn(
+          "overflow-y-auto p-3 space-y-3 border-r border-border/20",
+          activeFinding ? "w-[40%] shrink-0" : "flex-1",
+        )}>
+          {findings.length > 0 ? (
+            <>
+              <SummaryBar findings={filtered} />
 
-            <QuadrantSection quadrant="quick-wins" findings={quadrants["quick-wins"]} selectedIds={selectedIds} onToggle={handleToggle} onAutoFix={handleAutoFix} />
-            <QuadrantSection quadrant="strategic" findings={quadrants["strategic"]} selectedIds={selectedIds} onToggle={handleToggle} />
-            <QuadrantSection quadrant="fill-ins" findings={quadrants["fill-ins"]} selectedIds={selectedIds} onToggle={handleToggle} />
-            <QuadrantSection quadrant="deprioritize" findings={quadrants["deprioritize"]} selectedIds={selectedIds} onToggle={handleToggle} />
+              <QuadrantSection quadrant="quick-wins" findings={quadrants["quick-wins"]} selectedIds={selectedIds} activeFindingId={activeFinding?.id ?? null} onToggle={handleToggle} onSelect={setActiveFinding} onAutoFix={handleAutoFix} />
+              <QuadrantSection quadrant="strategic" findings={quadrants["strategic"]} selectedIds={selectedIds} activeFindingId={activeFinding?.id ?? null} onToggle={handleToggle} onSelect={setActiveFinding} />
+              <QuadrantSection quadrant="fill-ins" findings={quadrants["fill-ins"]} selectedIds={selectedIds} activeFindingId={activeFinding?.id ?? null} onToggle={handleToggle} onSelect={setActiveFinding} />
+              <QuadrantSection quadrant="deprioritize" findings={quadrants["deprioritize"]} selectedIds={selectedIds} activeFindingId={activeFinding?.id ?? null} onToggle={handleToggle} onSelect={setActiveFinding} />
 
-            {selectedIds.size > 0 && (
-              <div className="flex items-center gap-2 pt-2 border-t border-border/20">
-                <span className="text-[10px] text-muted-foreground">{selectedIds.size}개 선택</span>
+              {selectedIds.size > 0 && (
+                <div className="flex items-center gap-2 pt-2 border-t border-border/20">
+                  <span className="text-tf-xs text-prose-muted">{selectedIds.size}개 선택</span>
+                  <button
+                    onClick={handleDismiss}
+                    className="text-tf-xs text-prose-faint hover:text-foreground px-2 py-0.5 rounded border border-border/30"
+                  >
+                    무시
+                  </button>
+                </div>
+              )}
+            </>
+          ) : activeSession ? (
+            <div className="text-center text-prose-faint text-tf-sm py-8">
+              {activeSession.status === "completed" ? "발견 사항 없음" : activeSession.summary || "세션 로드 중..."}
+            </div>
+          ) : (
+            <div className="text-center text-prose-faint text-tf-sm py-8">
+              <p>아직 분석을 실행하지 않았습니다.</p>
+              <p className="mt-1">"분석 실행" 버튼으로 프로젝트 품질을 분석하세요.</p>
+            </div>
+          )}
+
+          {/* Session history */}
+          {sessions.length > 1 && (
+            <div className="pt-3 border-t border-border/20">
+              <p className="text-tf-micro text-prose-disabled mb-1">이전 분석</p>
+              {sessions.slice(1, 5).map((s) => (
                 <button
-                  onClick={handleDismiss}
-                  className="text-[10px] text-muted-foreground/60 hover:text-foreground px-2 py-0.5 rounded border border-border/30"
+                  key={s.id}
+                  onClick={() => setActiveSession(s)}
+                  className={cn(
+                    "block w-full text-left text-tf-micro px-2 py-1 rounded hover:bg-muted/30 transition-colors",
+                    s.id === activeSession?.id ? "bg-muted/40" : "",
+                  )}
                 >
-                  무시
+                  <span className="text-prose-disabled">
+                    {new Date(s.createdAt * 1000).toLocaleString()}
+                  </span>
+                  {s.summary && <span className="ml-2 text-prose-faint">{s.summary}</span>}
                 </button>
-              </div>
-            )}
-          </>
-        ) : activeSession ? (
-          <div className="text-center text-muted-foreground/50 text-xs py-8">
-            {activeSession.status === "completed" ? "발견 사항 없음" : activeSession.summary || "세션 로드 중..."}
-          </div>
-        ) : (
-          <div className="text-center text-muted-foreground/50 text-xs py-8">
-            <p>아직 분석을 실행하지 않았습니다.</p>
-            <p className="mt-1">"분석 실행" 버튼으로 프로젝트 품질을 분석하세요.</p>
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
 
-        {/* Session history */}
-        {sessions.length > 1 && (
-          <div className="pt-3 border-t border-border/20">
-            <p className="text-[9px] text-muted-foreground/40 mb-1">이전 분석</p>
-            {sessions.slice(1, 5).map((s) => (
-              <button
-                key={s.id}
-                onClick={() => setActiveSession(s)}
-                className={cn(
-                  "block w-full text-left text-[9px] px-2 py-1 rounded hover:bg-muted/30 transition-colors",
-                  s.id === activeSession?.id ? "bg-muted/40" : "",
-                )}
-              >
-                <span className="text-muted-foreground/50">
-                  {new Date(s.createdAt * 1000).toLocaleString()}
-                </span>
-                {s.summary && <span className="ml-2 text-foreground/60">{s.summary}</span>}
-              </button>
-            ))}
+        {/* Right: detail panel */}
+        {activeFinding && (
+          <div className="flex-1 min-w-0 relative">
+            <button
+              onClick={() => setActiveFinding(null)}
+              className="absolute top-2 right-2 z-10 text-prose-disabled hover:text-foreground p-1 rounded hover:bg-muted/30"
+            >
+              <XCircle className="w-4 h-4" />
+            </button>
+            <FindingDetail finding={activeFinding} />
           </div>
         )}
       </div>
