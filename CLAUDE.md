@@ -1,6 +1,6 @@
 # tunaFlow — Claude Code Handoff Document
 
-> 최종 갱신: 2026-04-04 (세션 10 반영)
+> 최종 갱신: 2026-04-08 (세션 15 반영)
 > SSOT: `docs/reference/dataModelRevised.md` (도메인 모델), `docs/reference/implementationStatus.md` (구현 현황)
 
 ---
@@ -319,8 +319,27 @@ tunaFlow/
 - **CI 수정**: macOS runner, Node 22, actions v5, rawq sidecar placeholder, npm install.
 - Rust 188 tests, Frontend 175 tests. DB v28.
 
+### ✅ 해결됨 (세션 15: Insight 탭 + 디자인 시스템 + 버그 수정)
+- **Insight 탭 구현 (Phase A~G)**: DB v29 (insight_sessions/findings/reports), 사전 추출 파이프라인 (rawq/CRG/lessons/test/memory → 카테고리별 컨텍스트), 에이전트 분석 + findings 파서 (zod + evidence/confidence), InsightPanel master-detail UI (Quadrant 뷰), Auto Fix 파이프라인 (CodeCureAgent 패턴), 토큰 사용량 추적
+- **Insight 에이전트 설정**: Settings 프리셋 4개 (Balanced/Thorough/Security/Gemini), engine/model/systemPrompt 선택, run_insight_analysis 3-engine dispatch
+- **탭 구조**: 5탭→5탭 (Test→Insight), Review 유지. 프로젝트 전환 시 Chat 탭 자동 리셋
+- **디자인 시스템 Phase 1**: CSS 토큰 (--text-tf-micro~xl 7단계, --prose-strong~disabled 5단계, motion 3단계), MessageMeta/RtMessageCard/RuntimeStatusBar 마이그레이션, reduced motion
+- **RT 메시지 헤더**: 인라인 아바타 (메인 채팅과 동일 패턴), timeline 제거
+- **Codex tool steps**: CLI `"codex: "` prefix 제거 + OpenAI SDK `__STEP__` 형식 추가 → ToolStepsView 정상 표시
+- **tool steps pulse 제거**: animate-pulse → 단순 텍스트
+- **타이틀바 드래그**: `core:window:allow-start-dragging` capability 추가
+- **save_progress_content**: 파라미터명 `content` → `progressContent` 수정
+- **ollama AgentEngine**: 타입/색상/매핑 추가 (--agent-ollama)
+- **메시지 헤더 정렬**: items-baseline + avatar self-center, 모델/시간 크기 축소
+- **알림 뱃지**: 짤림 수정 + 사이즈 축소, 탭 아이콘 제거
+- **고아 프로세스 방지**: PLATFORM_TIER0 + scaffold CLAUDE.md에 Command Execution Rules
+- **문서**: README (설계 근거/프로젝트 계보/오케스트레이션 분석), 디자인 시스템 문서, 멀티에이전트 분석 문서
+- Rust 188 tests, Frontend 175 tests. DB v29.
+
 ### 기타 알려진 이슈
 - Claude CLI 동시 실행 충돌 (같은 프로젝트 브랜치+메인, P1 — 다른 엔진으로 우회)
+- RT 중간 스트리밍 미지원 — 완성 메시지만 받는 구조, 구조적 변경 필요
+- 메인 채팅 에이전트 이름 색상 — persona 표시 시 engine 색상 미적용 확인 필요
 - window-state: dev 모드 Ctrl+C 종료 시 상태 미저장 (X 버튼으로 닫아야 함)
 - 상세: `docs/reference/knownIssues_2026-04-05.md`
 
@@ -375,7 +394,7 @@ tunaFlow/
 
 ---
 
-## 8. DB 스키마 (v28)
+## 8. DB 스키마 (v29)
 
 | 테이블 | 핵심 필드 |
 |---|---|
@@ -396,6 +415,9 @@ tunaFlow/
 | `conversation_memory` | id, conversation_id(FK), summary, source_count, created_at, updated_at, topic, phase, message_range, provenance, model_used (v21) |
 | `session_links` | id, conversation_id(FK), linked_conv_id(FK), score, method, created_at (v21) |
 | `conversation_chunks` | id, project_key, conversation_id(FK), kind, root_message_id, text_preview, embedding(BLOB), created_at (v22) |
+| `insight_sessions` | id, project_key, status, categories, test_output, summary, created_at, completed_at (v29) |
+| `insight_findings` | id, session_id, project_key, category, severity, fix_difficulty, title, description, file_path, line_number, snippet, estimated_files, resolution, plan_id, status, created_at (v29) |
+| `insight_reports` | id, session_id, project_key, type, category, content, created_at (v29) |
 
 ---
 
@@ -436,6 +458,7 @@ tunaFlow/
 | 12 | 2026-04-05 | 테스트 180→352, CLI resolve 통합, 컴포넌트 분할 3개, **3-role 프롬프트 근본 수정** (Dev↔Review 루프 해결), 에스컬레이션 경로 완성, 스마트 scaffold, microcompact, 커스텀 타이틀바+우클릭 메뉴, DB v26 slug, UI 수정 20+건, 실사용 검증으로 발견한 워크플로우 버그 대량 수정 |
 | 13 | 2026-04-05~06 | Review 자동 감지, doom loop 안정화, 크로스 프로젝트 격리, 코드 품질 감사 7항목 (CSP/catch/non-null/parking_lot/CJK/AppError/coverage), Plan UX (컨텍스트 메뉴/All 탭), 하네스 품질 (에러 규칙/승격 프롬프트/testOutput 배선), 파서 멀티라인 details, artifact+failure learning 설계 |
 | 14 | 2026-04-06~07 | **Failure Learning** (DB v27-28), **Artifacts Plan 그룹핑**, **Insight 탭 설계** (카테고리 기반, SQALE+Quadrant, 학술 11건), **알림 시스템** (NotificationBell + 사운드), **채팅 UI 대폭 개선** (Pretendard 3-tier 폰트, max-w-4xl 중앙 정렬, 아바타 인라인, 드로워 pin), **impl-complete DB fallback** + orphan 자동 복구, **ReviewPanel 구조화**, CI macOS 전환 |
+| 15 | 2026-04-07~08 | **Insight 탭 구현** (Phase A~G, DB v29, 사전 추출 파이프라인, master-detail UI, Auto Fix, 토큰 추적), **디자인 시스템 Phase 1** (CSS 토큰 tf-*/prose-*, 3개 컴포넌트 마이그레이션), **Codex tool steps 수정** (CLI prefix + SDK __STEP__), 타이틀바 드래그, RT 헤더 통일, 고아 프로세스 방지, README 설계 근거/프로젝트 계보 |
 
 ---
 
@@ -525,9 +548,10 @@ tunaFlow/
 - Rust 188 tests, Frontend 175 tests. DB v28.
 
 ### 다음 세션 첫 작업
-1. **Insight 탭 구현** — `docs/ideas/insightTabDesign.md` Phase A부터
-2. **Review/Test 탭 삭제** → 4탭 전환 (Chat | Plan | Artifacts | Insight)
-3. **실사용 검증 이어가기** — seCall, tunapi 워크플로우 풀사이클
+1. **디자인 시스템 확대 적용** — 사이드바, 탭 바, 드로어 등 나머지 컴포넌트에 text-tf-*/prose-* 토큰 점진 교체. IDE급 UI 정돈감 목표.
+2. **메인 채팅 에이전트 이름 색상** — persona 표시 시 engine 색상 미적용 원인 확인 + 수정
+3. **RT 중간 스트리밍** — 현재 완성 메시지만 받는 구조 → progress/chunk 실시간 표시 구조 변경
+4. **실사용 검증 이어가기** — seCall, gemento 워크플로우 풀사이클
 
 ### P1: RT 재검증
 - RT INTENT 표시 오류 재현 확인 (새 RT에서)
@@ -537,8 +561,10 @@ tunaFlow/
 ### P1: 구조 개선
 - **ContextPack DB/assembly 완전 분리** (논리적 2-phase 분리 완료, 파일 분리는 후순위)
 - **KnowledgeLayer trait** — 6번째 소스 추가 시 도입
+- **Insight Phase H~J** — tool-request:insight 핸들러, Plan done 시 auto-resolve, 분석 이력 비교
 
 ### P2: 후순위
+- 디자인 시스템 Phase 2: 라이트 모드 (oklch 통일, 만들어두고 나중에 테스트)
 - Gemini SDK 직접 통합 (보조 경로, CLI 기본 유지)
 - smoke test 복구
 - Trace Phase 2: Git 상태 + OTel 중첩 스팬
