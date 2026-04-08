@@ -21,22 +21,22 @@ export function MessageMeta({ message, isCompact = false, threadBranches, onOpen
     <div className={cn("flex items-center gap-1.5 mb-1", isCompact && "mb-0.5")}>
       <AgentAvatar engine={message.engine} isUser={isUser} size="xs" />
       {isUser ? (
-        <span className={cn("font-medium text-foreground/80", isCompact ? "text-[11px]" : "text-[13px]")}>You</span>
+        <span className={cn("font-medium text-prose-base", isCompact ? "text-[var(--text-sm)]" : "text-[var(--text-caption)]")}>You</span>
       ) : (
         <>
-          <span className={cn("font-medium", nameColorClass, isCompact ? "text-[11px]" : "text-[13px]")}>
+          <span className={cn("font-medium", nameColorClass, isCompact ? "text-[var(--text-sm)]" : "text-[var(--text-caption)]")}>
             {displayName}
           </span>
           {message.model && (
-            <span className="text-sidebar-foreground/50 font-mono text-[11px]">{message.model}</span>
+            <span className="text-prose-faint font-mono text-[var(--text-sm)]">{message.model}</span>
           )}
         </>
       )}
-      <span className={cn("text-sidebar-foreground/50 font-mono", isCompact ? "text-[10px]" : "text-[11px]")}>
+      <span className={cn("text-prose-faint font-mono", isCompact ? "text-[var(--text-xs)]" : "text-[var(--text-sm)]")}>
         {formatTimestamp(message.timestamp)}
       </span>
       {!isUser && message.durationMs != null && message.durationMs > 0 && (
-        <span className="text-sidebar-foreground/35 font-mono text-[9px]">
+        <span className="text-prose-disabled font-mono text-[var(--text-micro)]">
           {message.durationMs >= 60000
             ? `${Math.floor(message.durationMs / 60000)}m ${(message.durationMs % 60000 / 1000).toFixed(1)}s`
             : `${(message.durationMs / 1000).toFixed(1)}s`}
@@ -51,7 +51,7 @@ export function MessageMeta({ message, isCompact = false, threadBranches, onOpen
         <button
           key={branch.id}
           onClick={(e) => { e.stopPropagation(); onOpenThread?.(branch.id); }}
-          className="inline-flex items-center gap-0.5 text-[9px] font-medium text-primary/80 bg-primary/10 hover:bg-primary/18 px-1.5 py-0.5 rounded transition-colors"
+          className="inline-flex items-center gap-0.5 text-[var(--text-micro)] font-medium text-primary/80 bg-primary/10 hover:bg-primary/18 px-1.5 py-0.5 rounded transition-colors"
         >
           <GitBranch className="w-2 h-2" />
           <span className="truncate max-w-[60px]">{branch.customLabel ?? branch.label}</span>
@@ -62,10 +62,10 @@ export function MessageMeta({ message, isCompact = false, threadBranches, onOpen
         </button>
       ))}
       {isStreaming && (
-        <span className="text-primary/50 font-mono text-[9px] animate-pulse">streaming</span>
+        <span className="text-primary/50 font-mono text-[var(--text-micro)] animate-pulse">streaming</span>
       )}
       {message.status === "error" && (
-        <span className="text-destructive/60 font-mono text-[9px]">error</span>
+        <span className="text-destructive/60 font-mono text-[var(--text-micro)]">error</span>
       )}
     </div>
   );

@@ -44,29 +44,29 @@ export function RtMessageCard({ message, isLast, onBranch, onBranchRT, onMemo, o
         {/* Header: avatar inline + engine · model · role (matches MessageMeta pattern) */}
         <div className="flex items-center gap-1.5 mb-1 flex-wrap">
           <AgentAvatar engine={engine} size="xs" />
-          <span className={cn("text-[13px] font-medium", knownEngine ? `text-agent-${knownEngine}` : "text-foreground/80")}>
+          <span className={cn("text-[var(--text-caption)] font-medium", knownEngine ? `text-agent-${knownEngine}` : "text-prose-base")}>
             {name}
           </span>
           {message.model && (
-            <span className="text-sidebar-foreground/50 font-mono text-[11px]">
+            <span className="text-prose-faint font-mono text-[var(--text-sm)]">
               {message.model}
             </span>
           )}
           {participantMeta?.role && (
-            <span className="text-[8px] text-primary/50 bg-primary/8 px-1 py-px rounded font-medium">
+            <span className="text-[var(--text-micro)] text-primary/50 bg-primary/8 px-1 py-px rounded font-medium">
               {participantMeta.role}
             </span>
           )}
           {participantMeta?.blind && (
-            <span className="text-[8px] text-amber-500/60 bg-amber-500/8 px-1 py-px rounded font-medium inline-flex items-center gap-0.5">
+            <span className="text-[var(--text-micro)] text-amber-500/60 bg-amber-500/8 px-1 py-px rounded font-medium inline-flex items-center gap-0.5">
               <ShieldCheck className="w-2.5 h-2.5" />blind
             </span>
           )}
-          <span className="text-sidebar-foreground/50 font-mono text-[11px]">
+          <span className="text-prose-faint font-mono text-[var(--text-sm)]">
             {formatTimestamp(message.timestamp)}
           </span>
           {message.durationMs != null && message.durationMs > 0 && (
-            <span className="text-sidebar-foreground/35 font-mono text-[9px]">
+            <span className="text-prose-disabled font-mono text-[var(--text-micro)]">
               {message.durationMs >= 60000
                 ? `${Math.floor(message.durationMs / 60000)}m ${(message.durationMs % 60000 / 1000).toFixed(1)}s`
                 : `${(message.durationMs / 1000).toFixed(1)}s`}

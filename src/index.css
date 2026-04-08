@@ -42,6 +42,30 @@
   --sidebar-accent-foreground: lch(90.647 3.784 282.863);
   --sidebar-border: lch(16.671 7.768 282.863);
   --sidebar-ring: oklch(0.55 0.12 270);
+
+  /* ── Design System Tokens ─────────────────────────────── */
+
+  /* Typography scale (7 steps) */
+  --text-micro: 9px;
+  --text-xs: 10px;
+  --text-sm: 11px;
+  --text-caption: 13px;
+  --text-base: 14px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+
+  /* Text hierarchy (5 steps — explicit colors, not opacity) */
+  --prose-strong: oklch(0.95 0.02 280);
+  --prose-base: oklch(0.88 0.03 280);
+  --prose-muted: oklch(0.68 0.04 280);
+  --prose-faint: oklch(0.55 0.03 280);
+  --prose-disabled: oklch(0.42 0.02 280);
+
+  /* Motion (3 steps) */
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 350ms;
+  --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @theme inline {
@@ -86,6 +110,11 @@
   --color-status-draft: var(--status-draft);
   --color-status-approved: var(--status-approved);
   --color-status-rejected: var(--status-rejected);
+  --color-prose-strong: var(--prose-strong);
+  --color-prose-base: var(--prose-base);
+  --color-prose-muted: var(--prose-muted);
+  --color-prose-faint: var(--prose-faint);
+  --color-prose-disabled: var(--prose-disabled);
   --animate-slide-in-from-right-96: slide-in-from-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -155,4 +184,12 @@
   animation: stream-cursor 0.8s infinite;
   margin-left: 1px;
   font-size: 0.85em;
+}
+
+/* Accessibility: disable animations for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
