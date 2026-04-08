@@ -263,7 +263,7 @@ pub async fn start_codex_run(
             let t0 = std::time::Instant::now();
             let rr = codex::stream_run(
                 claude::RunInput { prompt: enriched_prompt, model: mo.clone(), system_prompt: None, resume_token: None, project_path },
-                |event_type| { let _ = progress_app.emit("codex:progress", ChunkPayload { message_id: progress_mid.clone(), conversation_id: progress_cid.clone(), text: format!("codex: {}", event_type) }); },
+                |event_type| { let _ = progress_app.emit("codex:progress", ChunkPayload { message_id: progress_mid.clone(), conversation_id: progress_cid.clone(), text: event_type.to_string() }); },
                 |accumulated| { let _ = chunk_app.emit("codex:chunk", ChunkPayload { message_id: chunk_mid.clone(), conversation_id: chunk_cid.clone(), text: accumulated.to_string() }); },
             );
             let dur = t0.elapsed().as_millis();

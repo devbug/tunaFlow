@@ -87,7 +87,7 @@ function StepLine({ step }: { step: ToolStep }) {
     <div
       className={cn(
         "flex items-center gap-1.5 text-[10px] leading-[20px] whitespace-nowrap overflow-hidden text-ellipsis",
-        step.status === "running" && "text-primary/70 animate-pulse",
+        step.status === "running" && "text-primary/70",
         step.status === "done" && "text-muted-foreground/50",
         step.status === "error" && "text-status-rejected/70",
       )}
