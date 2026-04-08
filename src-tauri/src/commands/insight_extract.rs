@@ -441,5 +441,15 @@ pub async fn run_insight_analysis(
         }
     };
 
-    Ok(result.content)
+    eprintln!("[insight] analysis done: engine={}, input_tokens={}, output_tokens={}, cost=${:.4}",
+        engine_name, result.input_tokens, result.output_tokens, result.cost_usd);
+
+    // Return content + usage as JSON
+    let response = serde_json::json!({
+        "content": result.content,
+        "inputTokens": result.input_tokens,
+        "outputTokens": result.output_tokens,
+        "costUsd": result.cost_usd,
+    });
+    Ok(response.to_string())
 }

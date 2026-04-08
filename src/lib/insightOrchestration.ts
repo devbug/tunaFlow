@@ -175,6 +175,7 @@ export async function runInsightAnalysis(
   const { projectKey, projectPath, categories, onProgress } = opts;
 
   // 1. Create session
+  resetInsightTokenUsage();
   onProgress?.("세션 생성 중...");
   const session = await insightApi.createInsightSession(projectKey, categories);
 
@@ -301,7 +302,8 @@ export async function runInsightAnalysis(
         await insightApi.createInsightReport(session.id, projectKey, "category", parsed.summary, cat);
       }
 
-      onProgress?.(`${catLabel}: ${stored.length}개 발견 (${filtered}개 필터링됨)`);
+      const u = getInsightTokenUsage();
+      onProgress?.(`${catLabel}: ${stored.length}개 발견 — 누적 $${u.cost.toFixed(3)} (${u.input}in/${u.output}out)`);
     }
 
     // 5. Generate meta summary
@@ -313,9 +315,11 @@ export async function runInsightAnalysis(
     for (const [cat, count] of Object.entries(catCounts)) {
       summaryParts.push(`${CATEGORY_LABELS[cat as InsightCategory] || cat}: ${count}건`);
     }
+    const usage = getInsightTokenUsage();
+    const costStr = usage.cost > 0 ? ` ($${usage.cost.toFixed(3)}, ${usage.input}in/${usage.output}out)` : "";
     const summary = allFindings.length > 0
-      ? `총 ${allFindings.length}건 발견 — ${summaryParts.join(", ")}`
-      : "분석 완료 — 발견 사항 없음";
+      ? `총 ${allFindings.length}건 발견 — ${summaryParts.join(", ")}${costStr}`
+      : `분석 완료 — 발견 사항 없음${costStr}`;
 
     // 6. Complete session
     const completed = await insightApi.updateInsightSessionStatus(
@@ -356,6 +360,18 @@ async function loadInsightConfig(): Promise<InsightAgentConfig> {
   return getSetting("insightAgentConfig", DEFAULT_INSIGHT_CONFIG);
 }
 
+interface AnalysisResponse {
+  content: string;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+let _totalInsightTokens = { input: 0, output: 0, cost: 0 };
+
+export function getInsightTokenUsage() { return { ..._totalInsightTokens }; }
+export function resetInsightTokenUsage() { _totalInsightTokens = { input: 0, output: 0, cost: 0 }; }
+
 async function sendAnalysisToAgent(
   projectKey: string,
   prompt: string,
@@ -364,7 +380,7 @@ async function sendAnalysisToAgent(
   console.log("[insight] sendAnalysisToAgent: engine=%s, model=%s, prompt_len=%d",
     config.engine, config.model || "(default)", prompt.length);
 
-  const response = await invoke<string>("run_insight_analysis", {
+  const raw = await invoke<string>("run_insight_analysis", {
     projectKey,
     prompt,
     engine: config.engine,
@@ -372,11 +388,25 @@ async function sendAnalysisToAgent(
     systemPrompt: config.systemPrompt || null,
   });
 
-  console.log("[insight] agent response: %d chars", response?.length ?? 0);
-  if (!response) {
+  if (!raw) {
     throw new Error("에이전트가 빈 응답을 반환했습니다");
   }
-  return response;
+
+  // Parse JSON response with token info
+  try {
+    const parsed: AnalysisResponse = JSON.parse(raw);
+    _totalInsightTokens.input += parsed.inputTokens || 0;
+    _totalInsightTokens.output += parsed.outputTokens || 0;
+    _totalInsightTokens.cost += parsed.costUsd || 0;
+    console.log("[insight] tokens: %din/%dout, cost=$%s, total=$%s",
+      parsed.inputTokens, parsed.outputTokens,
+      parsed.costUsd.toFixed(4), _totalInsightTokens.cost.toFixed(4));
+    return parsed.content;
+  } catch {
+    // Fallback: raw string response (non-JSON)
+    console.log("[insight] agent response: %d chars (non-JSON)", raw.length);
+    return raw;
+  }
 }
 
 // ── Auto Fix pipeline ────────────────────────────────────────
