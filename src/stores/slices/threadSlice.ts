@@ -349,7 +349,13 @@ async function runThreadRoundtable(
     if (msg.role === "user") return;
     if (!isActiveThread()) return;
     set((state) => {
-      if (state.threadMessages.some((m) => m.id === msg.id)) return state;
+      const idx = state.threadMessages.findIndex((m) => m.id === msg.id);
+      if (idx >= 0) {
+        // Update existing message (streaming → done)
+        const msgs = [...state.threadMessages];
+        msgs[idx] = msg;
+        return { threadMessages: msgs };
+      }
       if (!placeholderCleared) {
         placeholderCleared = true;
         return { threadMessages: [...state.threadMessages.filter((m) => !m.id.startsWith("temp-thinking-")), msg] };
@@ -357,7 +363,36 @@ async function runThreadRoundtable(
       return { threadMessages: [...state.threadMessages, msg] };
     });
   });
-  const cleanup = () => { ulPS(); ulRT(); ulD(); ulE(); };
+
+  // Throttled roundtable:chunk listener for real-time streaming
+  let pendingRtChunk: Map<string, string> = new Map();
+  let rtChunkTimer: ReturnType<typeof setTimeout> | null = null;
+  const flushRtChunk = () => {
+    rtChunkTimer = null;
+    if (!isActiveThread() || pendingRtChunk.size === 0) { pendingRtChunk.clear(); return; }
+    const batch = new Map(pendingRtChunk);
+    pendingRtChunk.clear();
+    set((state) => ({
+      threadMessages: state.threadMessages.map((m) => {
+        const text = batch.get(m.id);
+        return text !== undefined ? { ...m, content: text } : m;
+      }),
+    }));
+  };
+  const ulChunk = await listen<{ messageId: string; conversationId: string; text: string }>(
+    "roundtable:chunk", (e) => {
+      if (e.payload.conversationId !== threadBranchConvId) return;
+      if (!isActiveThread()) return;
+      pendingRtChunk.set(e.payload.messageId, e.payload.text);
+      if (!rtChunkTimer) rtChunkTimer = setTimeout(flushRtChunk, 200);
+    },
+  );
+
+  const cleanup = () => {
+    if (rtChunkTimer) { clearTimeout(rtChunkTimer); rtChunkTimer = null; }
+    pendingRtChunk.clear();
+    ulPS(); ulRT(); ulChunk(); ulD(); ulE();
+  };
   const ulD = await listen<{ conversationId: string }>("agent:completed", async (e) => {
     if (e.payload.conversationId !== threadBranchConvId) return;
     cleanup();

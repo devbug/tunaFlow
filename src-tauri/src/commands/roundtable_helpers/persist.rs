@@ -36,8 +36,97 @@ pub fn persist_header(
     })
 }
 
+/// Persist a streaming-start placeholder — empty message with status='streaming'.
+/// Returns the Message (with generated id) so callers can emit it and pass the id to chunk events.
+pub fn persist_streaming_start(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+    name: &str,
+    engine_label: &str,
+    model: Option<&str>,
+    sources_json: &str,
+) -> Result<Message, AppError> {
+    let msg_id = Uuid::new_v4().to_string();
+    let now = now_epoch_ms();
+    let progress = if sources_json.is_empty() { None } else { Some(sources_json) };
+
+    conn.execute(
+        "INSERT INTO messages
+         (id, conversation_id, role, content, timestamp, status, progress_content, engine, model, persona)
+         VALUES (?1, ?2, 'assistant', '', ?3, 'streaming', ?4, ?5, ?6, ?7)",
+        params![msg_id, conversation_id, now, progress, engine_label, model, name],
+    )?;
+
+    Ok(Message {
+        id: msg_id,
+        conversation_id: conversation_id.to_string(),
+        role: "assistant".into(),
+        content: String::new(),
+        timestamp: now,
+        status: "streaming".into(),
+        progress_content: if sources_json.is_empty() { None } else { Some(sources_json.to_string()) },
+        engine: Some(engine_label.to_string()),
+        model: model.map(|s| s.to_string()),
+        persona: Some(name.to_string()),
+        duration_ms: None, input_tokens: None, output_tokens: None, cost_usd: None,
+    })
+}
+
+/// Finalize a streaming message — UPDATE content, status, and write usage + trace log.
+pub fn persist_streaming_done(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+    msg_id: &str,
+    r: &ParticipantResult,
+    trace_id: &str,
+    root_span_id: &str,
+) -> Result<Message, AppError> {
+    let now = now_epoch_ms();
+
+    conn.execute(
+        "UPDATE messages SET content = ?1, status = ?2, timestamp = ?3 WHERE id = ?4",
+        params![r.content, r.status, now, msg_id],
+    )?;
+
+    conn.execute(
+        "UPDATE conversations SET
+             total_input_tokens  = total_input_tokens  + ?1,
+             total_output_tokens = total_output_tokens + ?2,
+             total_cost_usd      = total_cost_usd      + ?3,
+             updated_at          = ?4
+         WHERE id = ?5",
+        params![r.in_tokens, r.out_tokens, r.cost_usd, now / 1000, conversation_id],
+    )?;
+
+    insert_trace_log(conn, conversation_id, r.in_tokens, r.out_tokens, r.cost_usd, now, &SpanInfo {
+        trace_id,
+        span_id: new_span_id(),
+        parent_span_id: Some(root_span_id),
+        operation: "roundtable.participant",
+        engine: &r.engine,
+        duration_ms: 0,
+        status: if r.status == "done" { "ok" } else { "error" },
+    });
+
+    Ok(Message {
+        id: msg_id.to_string(),
+        conversation_id: conversation_id.to_string(),
+        role: "assistant".into(),
+        content: r.content.clone(),
+        timestamp: now,
+        status: r.status.clone(),
+        progress_content: if r.prompt_sources.is_empty() { None } else { Some(r.prompt_sources.clone()) },
+        engine: Some(r.engine.clone()),
+        model: r.model.clone(),
+        persona: Some(r.name.clone()),
+        duration_ms: None, input_tokens: None, output_tokens: None, cost_usd: None,
+    })
+}
+
 /// Persist a single participant result, update conversation usage, and write trace log.
 /// `trace_id` / `root_span_id` are passed from the roundtable command for parent linkage.
+/// Retained for non-streaming fallback paths.
+#[allow(dead_code)]
 pub fn persist_single(
     conn: &rusqlite::Connection,
     conversation_id: &str,

@@ -8,7 +8,7 @@ use crate::CancelRegistry;
 use crate::commands::agents_helpers::send_common::build_normalized_prompt_with_budget;
 
 use super::prompt::{build_round_prompt_with_identity, PromptSources};
-use super::persist::persist_single;
+use super::persist::{persist_streaming_start, persist_streaming_done};
 
 /// Budget settings for local models (ollama, opencode) — smaller context window.
 const LOCAL_MODE: &str = "lite";
@@ -152,6 +152,15 @@ fn output_cap_directive(max_tokens: Option<u32>) -> String {
     }
 }
 
+/// Payload for real-time streaming chunks during RT participant execution.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RtChunkPayload {
+    pub message_id: String,
+    pub conversation_id: String,
+    pub text: String,
+}
+
 pub struct ParticipantResult {
     pub name: String,
     pub engine: String,
@@ -240,6 +249,124 @@ pub async fn run_participant(
     }
 }
 
+/// Run a single participant with real-time streaming. Emits `roundtable:chunk` events
+/// as text arrives. Falls back to `run()` for engines without `stream_run()` (opencode).
+pub async fn stream_participant(
+    p: &RoundtableParticipant,
+    prompt: String,
+    sources_json: String,
+    project_path: Option<String>,
+    msg_id: String,
+    conversation_id: String,
+    app: tauri::AppHandle,
+    cancel_arc: std::sync::Arc<parking_lot::Mutex<std::collections::HashSet<String>>>,
+) -> ParticipantResult {
+    let engine_key = p.engine.as_deref().unwrap_or("claude");
+    let max_tok = effective_max_tokens(p);
+    eprintln!("[rt-stream] running participant={} engine={} role={:?}", p.name, engine_key, p.role);
+
+    let prompt = format!("{}{}", output_cap_directive(max_tok), prompt);
+    let run_input = claude::RunInput {
+        prompt,
+        model: p.model.clone(),
+        system_prompt: None,
+        resume_token: None,
+        project_path,
+    };
+
+    let name = p.name.clone();
+    let model = p.model.clone();
+    let blind = p.blind;
+    let engine_key_owned = engine_key.to_string();
+
+    let result: (Result<claude::RunOutput, AppError>, &'static str) = match engine_key {
+        "claude" | "gemini" => {
+            // Sync CLI engines with cancel support
+            let a = app.clone(); let mi = msg_id.clone(); let ci = conversation_id.clone();
+            let ca = std::sync::Arc::clone(&cancel_arc);
+            let ci2 = conversation_id.clone();
+            let is_claude = engine_key == "claude";
+            tokio::task::spawn_blocking(move || {
+                let on_chunk = {
+                    let a = a.clone(); let mi = mi.clone(); let ci = ci.clone();
+                    move |text: String| {
+                        let _ = a.emit("roundtable:chunk", RtChunkPayload {
+                            message_id: mi.clone(), conversation_id: ci.clone(), text,
+                        });
+                    }
+                };
+                let on_progress = |_: String| {};
+                let is_cancelled = move || ca.lock().contains(&ci2);
+                if is_claude {
+                    (claude::stream_run(run_input, on_progress, on_chunk, is_cancelled), "claude-code")
+                } else {
+                    (gemini::stream_run(run_input, on_progress, on_chunk, is_cancelled), "gemini")
+                }
+            })
+            .await
+            .unwrap_or_else(|_| (Err(AppError::Agent("participant task panicked".into())), "unknown"))
+        }
+        "codex" => {
+            // Sync CLI engine without cancel
+            let a = app.clone(); let mi = msg_id.clone(); let ci = conversation_id.clone();
+            tokio::task::spawn_blocking(move || {
+                let on_chunk = {
+                    let a = a.clone(); let mi = mi.clone(); let ci = ci.clone();
+                    move |text: &str| {
+                        let _ = a.emit("roundtable:chunk", RtChunkPayload {
+                            message_id: mi.clone(), conversation_id: ci.clone(), text: text.to_string(),
+                        });
+                    }
+                };
+                let on_progress = |_: &str| {};
+                (codex::stream_run(run_input, on_progress, on_chunk), "codex")
+            })
+            .await
+            .unwrap_or_else(|_| (Err(AppError::Agent("participant task panicked".into())), "unknown"))
+        }
+        "ollama" => {
+            // Async HTTP engine
+            let a = app.clone(); let mi = msg_id.clone(); let ci = conversation_id.clone();
+            let on_chunk = {
+                let a = a.clone(); let mi = mi.clone(); let ci = ci.clone();
+                move |text: String| {
+                    let _ = a.emit("roundtable:chunk", RtChunkPayload {
+                        message_id: mi.clone(), conversation_id: ci.clone(), text,
+                    });
+                }
+            };
+            let on_progress = |_: String| {};
+            (openai_compat::stream_run(run_input, on_progress, on_chunk).await, "ollama")
+        }
+        "opencode" => {
+            // No stream_run — fallback to sync run (no chunk events)
+            tokio::task::spawn_blocking(move || {
+                (opencode::run(run_input), "opencode")
+            })
+            .await
+            .unwrap_or_else(|_| (Err(AppError::Agent("participant task panicked".into())), "unknown"))
+        }
+        _ => {
+            (Err(AppError::Agent(format!("unsupported engine: {}", engine_key_owned))), "unknown")
+        }
+    };
+
+    let (run_result, engine_label) = result;
+    match run_result {
+        Ok(out) => ParticipantResult {
+            name, engine: engine_label.to_string(), model, content: out.content,
+            status: "done".into(), cost_usd: out.cost_usd,
+            in_tokens: out.input_tokens, out_tokens: out.output_tokens,
+            prompt_sources: sources_json, blind,
+        },
+        Err(e) => ParticipantResult {
+            name, engine: engine_label.to_string(), model, content: format!("Error: {}", e),
+            status: "error".into(), cost_usd: 0.0, in_tokens: 0, out_tokens: 0,
+            prompt_sources: sources_json, blind,
+        },
+    }
+}
+
 /// Run all participants in a single round, persisting and emitting each result.
 ///
 /// - **Sequential**: serial execution. Each participant runs after the previous finishes.
@@ -309,13 +436,27 @@ async fn execute_sequential(
         let sources_json = serde_json::to_string(&sources).unwrap_or_default();
 
         let engine_key = p.engine.as_deref().unwrap_or("claude");
+        let engine_label = match engine_key {
+            "claude" => "claude-code",
+            "ollama" => "ollama",
+            other => other,
+        };
+
+        // Phase 1: persist streaming placeholder + emit to frontend
+        let streaming_msg = {
+            let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+            persist_streaming_start(&conn, conversation_id, &p.name, engine_label, p.model.as_deref(), &sources_json)?
+        };
+        let msg_id = streaming_msg.id.clone();
+        let _ = app.emit("roundtable:progress", &streaming_msg);
+
         let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
             conversation_id: conversation_id.to_string(),
             name: p.name.clone(), engine: engine_key.to_string(), model: p.model.clone(),
             round: round_num, status: "running".into(), blind: p.blind,
         });
 
-        // Build prompt with participant identity + cached ContextPack
+        // Phase 2: stream participant (emits roundtable:chunk events during execution)
         let identity = participant_identity(p);
         let mut prompt = if p.blind {
             eprintln!("[rt] blind verifier: {} — no transcript", p.name);
@@ -326,20 +467,24 @@ async fn execute_sequential(
         if let Some(ctx) = ctx_cache.get(engine_key) {
             prompt = format!("{}\n\n---\n\n{}", ctx, prompt);
         }
-        let r = run_participant(p, prompt, sources_json, project_path.map(|s| s.to_string())).await;
+        let r = stream_participant(
+            p, prompt, sources_json, project_path.map(|s| s.to_string()),
+            msg_id.clone(), conversation_id.to_string(), app.clone(), std::sync::Arc::clone(&cancel.0),
+        ).await;
 
+        // Phase 3: finalize in DB + emit final message
         let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
             conversation_id: conversation_id.to_string(),
             name: r.name.clone(), engine: r.engine.clone(), model: r.model.clone(),
             round: round_num, status: r.status.clone(), blind: r.blind,
         });
 
-        let msg = {
+        let final_msg = {
             let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-            persist_single(&conn, conversation_id, &r, trace_id, root_span_id)?
+            persist_streaming_done(&conn, conversation_id, &msg_id, &r, trace_id, root_span_id)?
         };
-        let _ = app.emit("roundtable:progress", &msg);
-        messages.push(msg);
+        let _ = app.emit("roundtable:progress", &final_msg);
+        messages.push(final_msg);
 
         if r.status == "done" {
             round_responses.push((r.name.clone(), r.content.clone()));
@@ -388,14 +533,33 @@ async fn execute_parallel(
     let has_local = participants.iter().any(|p| matches!(p.engine.as_deref(), Some("ollama" | "opencode")));
     let ctx_cache = RtContextCache::build(state, conversation_id, topic, project_path, has_local);
 
+    // Pre-create streaming placeholders for all participants (single DB lock)
+    let mut msg_ids: Vec<String> = Vec::with_capacity(participants.len());
+    {
+        let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+        for p in participants {
+            let engine_key = p.engine.as_deref().unwrap_or("claude");
+            let engine_label = match engine_key {
+                "claude" => "claude-code",
+                "ollama" => "ollama",
+                other => other,
+            };
+            let streaming_msg = persist_streaming_start(
+                &conn, conversation_id, &p.name, engine_label, p.model.as_deref(), &sources_json,
+            )?;
+            msg_ids.push(streaming_msg.id.clone());
+            let _ = app.emit("roundtable:progress", &streaming_msg);
+        }
+    }
+
     // Spawn all participants as tokio tasks, collect results in completion-order via channel.
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<ParticipantResult>(participants.len());
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, ParticipantResult)>(participants.len());
     let participant_count = participants.len();
 
     let transcript_owned: Vec<(String, String)> = transcript.to_vec();
     let topic_owned = topic.to_string();
 
-    for p in participants {
+    for (i, p) in participants.iter().enumerate() {
         let p_clone = p.clone();
         let identity = participant_identity(p);
         let engine_key = p.engine.as_deref().unwrap_or("claude");
@@ -413,9 +577,13 @@ async fn execute_parallel(
         let sj = sources_json.clone();
         let pp = project_path.map(|s| s.to_string());
         let tx = tx.clone();
+        let mid = msg_ids[i].clone();
+        let cid = conversation_id.to_string();
+        let a = app.clone();
+        let ca = std::sync::Arc::clone(&cancel.0);
         tokio::spawn(async move {
-            let result = run_participant(&p_clone, pr, sj, pp).await;
-            let _ = tx.send(result).await;
+            let result = stream_participant(&p_clone, pr, sj, pp, mid.clone(), cid, a, ca).await;
+            let _ = tx.send((mid, result)).await;
         });
     }
     drop(tx); // Close sender so rx terminates after all tasks finish
@@ -425,7 +593,7 @@ async fn execute_parallel(
     let mut round_responses: Vec<(String, String)> = Vec::new();
     let mut received = 0;
 
-    while let Some(r) = rx.recv().await {
+    while let Some((mid, r)) = rx.recv().await {
         received += 1;
         eprintln!("[rt] deliberative result {}/{}: {} ({})", received, participant_count, r.name, r.status);
 
@@ -435,12 +603,12 @@ async fn execute_parallel(
             round: round_num, status: r.status.clone(), blind: r.blind,
         });
 
-        let msg = {
+        let final_msg = {
             let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-            persist_single(&conn, conversation_id, &r, trace_id, root_span_id)?
+            persist_streaming_done(&conn, conversation_id, &mid, &r, trace_id, root_span_id)?
         };
-        let _ = app.emit("roundtable:progress", &msg);
-        messages.push(msg);
+        let _ = app.emit("roundtable:progress", &final_msg);
+        messages.push(final_msg);
 
         if r.status == "done" {
             round_responses.push((r.name.clone(), r.content.clone()));

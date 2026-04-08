@@ -364,7 +364,13 @@ async function runRoundtable(
     if (!isStillActive()) return;
     if (msg.role === "user") return;
     set((state) => {
-      if (state.messages.some((m) => m.id === msg.id)) return state;
+      const idx = state.messages.findIndex((m) => m.id === msg.id);
+      if (idx >= 0) {
+        // Update existing message (streaming → done, or content update)
+        const msgs = [...state.messages];
+        msgs[idx] = msg;
+        return { messages: msgs };
+      }
       if (!placeholderCleared) {
         placeholderCleared = true;
         return { messages: [...state.messages.filter((m) => !m.id.startsWith("temp-thinking-")), msg] };
@@ -373,7 +379,34 @@ async function runRoundtable(
     });
   });
 
-  const cleanup = () => { ulRT(); ulD(); ulE(); };
+  // Throttled roundtable:chunk listener for real-time streaming (200ms batching)
+  let pendingRtChunk: Map<string, string> = new Map();
+  let rtChunkTimer: ReturnType<typeof setTimeout> | null = null;
+  const flushRtChunk = () => {
+    rtChunkTimer = null;
+    if (!isStillActive() || pendingRtChunk.size === 0) { pendingRtChunk.clear(); return; }
+    const batch = new Map(pendingRtChunk);
+    pendingRtChunk.clear();
+    set((state) => ({
+      messages: state.messages.map((m) => {
+        const text = batch.get(m.id);
+        return text !== undefined ? { ...m, content: text } : m;
+      }),
+    }));
+  };
+  const ulChunk = await listen<{ messageId: string; conversationId: string; text: string }>(
+    "roundtable:chunk", (e) => {
+      if (e.payload.conversationId !== selectedConversationId) return;
+      pendingRtChunk.set(e.payload.messageId, e.payload.text);
+      if (!rtChunkTimer) rtChunkTimer = setTimeout(flushRtChunk, 200);
+    },
+  );
+
+  const cleanup = () => {
+    if (rtChunkTimer) { clearTimeout(rtChunkTimer); rtChunkTimer = null; }
+    pendingRtChunk.clear();
+    ulRT(); ulChunk(); ulD(); ulE();
+  };
   const ulD = await listen<{ conversationId: string }>("agent:completed", async (e) => {
     if (e.payload.conversationId !== selectedConversationId) return;
     cleanup();
