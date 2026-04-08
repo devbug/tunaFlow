@@ -34,6 +34,7 @@ export function CenterPanel() {
   const [activeTab, setActiveTab] = useState<CenterTab>("chat");
   const [activeStage, setActiveStage] = useState<WorkflowStageId>("plan");
   const [planRefreshKey, setPlanRefreshKey] = useState(0);
+  const selectedProjectKey = useChatStore((s) => s.selectedProjectKey);
   const artifacts = useChatStore((s) => s.artifacts);
   const selectedConversationId = useChatStore((s) => s.selectedConversationId);
   const conversations = useChatStore((s) => s.conversations);
@@ -57,6 +58,9 @@ export function CenterPanel() {
 
   // Scratchpad: force Chat tab, no other tabs needed
   const effectiveTab = isScratchpad ? "chat" : activeTab;
+
+  // Reset to Chat tab on project switch
+  useEffect(() => { setActiveTab("chat"); }, [selectedProjectKey]);
 
   // Listen for tab/stage switch events from CommandPalette and openThread
   useEffect(() => {
