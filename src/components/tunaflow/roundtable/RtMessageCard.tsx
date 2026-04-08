@@ -48,7 +48,7 @@ export function RtMessageCard({ message, isLast, onBranch, onBranchRT, onMemo, o
             {name}
           </span>
           {message.model && (
-            <span className="text-prose-faint font-mono text-[var(--text-sm)]">
+            <span className="text-prose-disabled font-mono text-[var(--text-micro)]">
               {message.model}
             </span>
           )}
@@ -62,7 +62,7 @@ export function RtMessageCard({ message, isLast, onBranch, onBranchRT, onMemo, o
               <ShieldCheck className="w-2.5 h-2.5" />blind
             </span>
           )}
-          <span className="text-prose-faint font-mono text-[var(--text-sm)]">
+          <span className="text-prose-disabled font-mono text-[var(--text-xs)]">
             {formatTimestamp(message.timestamp)}
           </span>
           {message.durationMs != null && message.durationMs > 0 && (

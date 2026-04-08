@@ -28,11 +28,11 @@ export function MessageMeta({ message, isCompact = false, threadBranches, onOpen
             {displayName}
           </span>
           {message.model && (
-            <span className="text-prose-faint font-mono text-[var(--text-sm)]">{message.model}</span>
+            <span className="text-prose-disabled font-mono text-[var(--text-micro)]">{message.model}</span>
           )}
         </>
       )}
-      <span className={cn("text-prose-faint font-mono", isCompact ? "text-[var(--text-xs)]" : "text-[var(--text-sm)]")}>
+      <span className={cn("text-prose-disabled font-mono", isCompact ? "text-[var(--text-micro)]" : "text-[var(--text-xs)]")}>
         {formatTimestamp(message.timestamp)}
       </span>
       {!isUser && message.durationMs != null && message.durationMs > 0 && (

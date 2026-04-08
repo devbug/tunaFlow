@@ -96,9 +96,9 @@ export function NotificationBell() {
         className="flex items-center justify-center w-7 h-7 rounded hover:bg-accent/40 transition-colors relative"
         title="Notifications"
       >
-        <Bell className="w-3 h-3 text-muted-foreground/40" />
+        <Bell className="w-3.5 h-3.5 text-prose-muted" />
         {unreadCount > 0 && (
-          <span className="absolute top-0 -right-0.5 min-w-[14px] h-3.5 flex items-center justify-center rounded-full bg-status-rejected text-[var(--text-micro)] font-bold text-white px-0.5">
+          <span className="absolute top-0.5 -right-1 min-w-[10px] h-2.5 flex items-center justify-center rounded-full bg-status-rejected text-[7px] font-bold text-white px-0.5 leading-none">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
