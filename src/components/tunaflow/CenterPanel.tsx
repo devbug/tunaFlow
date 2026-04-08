@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { MessageSquare, ClipboardList, FileSearch, FileText, GitBranch, Users, Loader2, Search, StickyNote, Lightbulb } from "lucide-react";
+import { GitBranch, Users, Loader2, Search, StickyNote } from "lucide-react";
 
 import { ChatPanel } from "./ChatPanel";
 import { PlansPanel } from "./context-panel/PlansPanel";
@@ -14,12 +14,12 @@ import { InlineRename } from "./InlineRename";
 
 type CenterTab = "chat" | "plan" | "artifacts" | "review" | "insight";
 
-const TABS: { id: CenterTab; label: string; icon: React.ReactNode }[] = [
-  { id: "chat", label: "Chat", icon: <MessageSquare className="w-3.5 h-3.5" /> },
-  { id: "plan", label: "Plan", icon: <ClipboardList className="w-3.5 h-3.5" /> },
-  { id: "artifacts", label: "Artifacts", icon: <FileText className="w-3.5 h-3.5" /> },
-  { id: "review", label: "Review", icon: <FileSearch className="w-3.5 h-3.5" /> },
-  { id: "insight", label: "Insight", icon: <Lightbulb className="w-3.5 h-3.5" /> },
+const TABS: { id: CenterTab; label: string }[] = [
+  { id: "chat", label: "Chat" },
+  { id: "plan", label: "Plan" },
+  { id: "artifacts", label: "Artifacts" },
+  { id: "review", label: "Review" },
+  { id: "insight", label: "Insight" },
 ];
 
 /** Map PlanPhase → WorkflowStageId for auto-switching */
@@ -115,7 +115,6 @@ export function CenterPanel() {
                   : "text-muted-foreground/50 hover:text-foreground/80 hover:bg-background/50"
               )}
             >
-              {tab.icon}
               {tab.label}
               {tab.id === "artifacts" && artifacts.length > 0 && (
                 <span className="text-[8px] bg-primary/10 text-primary/70 px-1 rounded">
