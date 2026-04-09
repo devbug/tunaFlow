@@ -523,6 +523,64 @@ let query = format!("messages_fts MATCH '{}'", user_input); // 위험
 
 ---
 
+## 제안 G: Insight → Architect Plan 승격 UX
+
+### 현재 문제
+
+Insight 탭에서 finding이 발견되지만, Architect로 넘기는 경로가 없음. Auto Fix(CodeCureAgent)는 단순 수정만 가능하고, 설계 판단이 필요한 문제는 수동으로 Architect에게 전달해야 함.
+
+### 흐름
+
+```
+InsightPanel finding 카드:
+  [Auto Fix]    → CodeCureAgent (단순 수정, 기존)
+  [Plan 승격]   → Architect에게 전달 (설계 판단 필요 시, 신규)
+  [무시]        → status: dismissed
+
+Plan 승격 시:
+  1. 선택된 finding(s) → 프롬프트 자동 생성
+  2. Chat 탭 전환 + Architect에게 자동 전송
+  3. Architect: <!-- tunaflow:plan-proposal --> 마커로 응답
+  4. 이후 기존 워크플로우: Approval → Implementation → Review
+  5. Plan 완료 시: 연결된 findings 자동 done 처리
+```
+
+### 복수 선택
+
+여러 findings를 묶어서 하나의 plan으로 승격 가능. 관련된 문제를 한 번에 해결하는 plan이 효율적.
+
+### 프롬프트 자동 생성
+
+```markdown
+## Insight 분석 결과 — Plan 요청
+
+다음 findings를 해결하는 plan을 제안해주세요.
+
+### SEC-001: SQL injection in search query
+- **심각도**: high
+- **위치**: context_queries.rs:351
+- **설명**: FTS5 쿼리에 사용자 입력 직접 삽입
+
+각 finding의 원본 파일을 확인하고 구체적인 subtask로 분해해주세요.
+```
+
+### 구현 범위
+
+| 항목 | 인프라 | 작업 |
+|------|--------|------|
+| Finding 표시 | ✅ InsightPanel | 선택 체크박스 + Plan 승격 버튼 추가 |
+| 프롬프트 생성 | - | 🆕 `buildInsightPlanPrompt(findings[])` 함수 |
+| Architect 전달 | ✅ `sendWithEngine` | Chat 탭 전환 + 자동 전송 |
+| Plan 제안~리뷰 | ✅ 전체 워크플로우 | 변경 없음 |
+| Plan 완료 → finding done | - | 🆕 `plan.status=done` 시 연결 findings 업데이트 |
+| done finding 표시 | - | 🆕 읽기 전용 접힘 표시 + 해결 과정/결과 열람 |
+
+### Finding ↔ Plan 연결
+
+`insight_findings.plan_id` 필드가 **이미 존재** (DB v29). plan 승격 시 이 필드에 plan ID 설정 → plan 완료 시 역참조로 findings 일괄 done 처리.
+
+---
+
 ## 구현 우선순위
 
 | 순서 | 항목 | 효과 | 난이도 |
