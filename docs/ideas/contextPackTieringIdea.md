@@ -431,6 +431,98 @@ messages:
 
 ---
 
+## 제안 F: Insight 리포트 파일 저장 + 에이전트 자율 접근
+
+### 현재 문제
+
+Insight 탭(세션 15 구현)은 DB에 분석 결과가 있지만 에이전트에게 전달하는 경로가 없음. 아키텍트에게 "Insight 탭 볼 수 있어?"라고 물으면 "볼 수 없다"고 답함. ContextPack에 주입하면 토큰 비용 증가.
+
+### 해결: 파일 저장 + 에이전트 자율 읽기
+
+ContextPack에 데이터를 넣는 대신, **프로젝트 내 파일로 저장하여 에이전트가 직접 읽게** 한다. CLI 에이전트의 파일시스템 접근 능력을 활용.
+
+```
+Insight 분석 완료 시:
+  → docs/insight/latest-report.md        (전체 리포트)
+  → docs/insight/findings/SEC-001.md     (개별 finding)
+  → docs/insight/findings/ARCH-003.md
+
+ContextPack Tier 0에 한 줄만 추가:
+  "프로젝트 분석 리포트: docs/insight/ 참조"
+
+아키텍트가 필요하면:
+  → 파일 직접 읽기 (CLI 에이전트의 자연스러운 능력)
+  → ContextPack 토큰 비용 = 0
+```
+
+### Finding 생명주기
+
+```
+open → in_progress → done (읽기 전용)
+
+open:
+  - Insight 분석이 발견한 문제
+  - docs/insight/findings/SEC-001.md 에 저장
+  - 내용: 문제 설명, 심각도, 파일 경로, 코드 스니펫
+
+in_progress:
+  - 아키텍트/개발자가 해결 작업 중
+  - finding 파일에 해결 과정 append
+
+done:
+  - 해결 완료
+  - finding 파일에 결과 append:
+    - 해결 방법
+    - 변경된 파일 목록
+    - 검증 결과
+  - UI에서 읽기 전용 표시 (접힘/펼침, 편집 불가)
+  - 아키텍트에게 "이미 해결됨"으로 인식
+```
+
+### Finding 파일 구조 예시
+
+```markdown
+# SEC-001: SQL injection in search query
+
+- **Category**: security
+- **Severity**: high
+- **Fix Difficulty**: auto
+- **Status**: done
+- **File**: src-tauri/src/commands/context_queries.rs:351
+
+## Description
+FTS5 쿼리에 사용자 입력이 직접 삽입됨. 특수 문자 이스케이프 불완전.
+
+## Snippet
+```rust
+let query = format!("messages_fts MATCH '{}'", user_input); // 위험
+```
+
+## Resolution
+- **Method**: 파라미터 바인딩으로 전환
+- **Files Changed**: context_queries.rs
+- **Verified**: cargo test --lib 통과
+- **Resolved At**: 2026-04-09
+```
+
+### 장점
+
+1. **ContextPack 토큰 0** — 파일 경로 한 줄이면 충분
+2. **에이전트 자율 접근** — CLI의 파일 읽기 능력 그대로 활용 (RT 토론에서 Gemini가 짚은 장점)
+3. **Git 추적 가능** — insight 결과가 프로젝트 히스토리에 남음
+4. **다른 도구와 호환** — IDE, 리뷰어, CI에서도 읽을 수 있음
+5. **이력 관리** — 과정/결과가 파일에 누적, done 후 읽기 전용
+
+### 구현 범위
+
+- `run_insight_analysis` 완료 시 → findings/report를 파일로 export
+- `insight_findings` 테이블의 status 필드 활용 (open/in_progress/done)
+- done 전환 시 resolution 필드 필수 입력 → 파일에 append
+- InsightPanel UI에서 done findings를 접힘/읽기 전용으로 표시
+- ContextPack identity block에 `docs/insight/` 경로 안내 한 줄 추가
+
+---
+
 ## 구현 우선순위
 
 | 순서 | 항목 | 효과 | 난이도 |
