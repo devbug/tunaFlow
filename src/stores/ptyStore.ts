@@ -23,15 +23,17 @@ function stripAnsi(text: string): string {
     .replace(/\r/g, "");
 }
 
-/** Detect Claude Code completion pattern */
+/** Detect response completion */
 function detectCompletion(text: string): boolean {
-  // Check last ~200 chars for completion signals
-  const tail = text.slice(-200);
-  // "Worked for Xs" — primary signal
+  // Primary: tunaflow marker (most reliable — injected via PLATFORM_TIER0)
+  if (text.includes("<!-- tunaflow:response-complete -->")) return true;
+  // Fallback: check last ~300 chars for CLI-specific signals
+  const tail = text.slice(-300);
+  // "Worked for Xs" — Claude Code completion
   if (/Worked for \d+/i.test(tail)) return true;
   // Prompt ready: ❯ or > at end of output
   if (/[❯>]\s*$/.test(tail)) return true;
-  // Cost line: "$X.XX" at end (Claude shows cost after completion)
+  // Cost line: "$X.XX" at end
   if (/\$\d+\.\d{2}\s*$/.test(tail)) return true;
   return false;
 }

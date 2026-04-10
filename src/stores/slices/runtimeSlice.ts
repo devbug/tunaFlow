@@ -541,12 +541,13 @@ async function sendViaPty(
 
     const finalText = usePtyStore.getState().endCapture();
 
-    // Clean up output — remove echo, trailing prompt, completion marker
+    // Clean up output — remove echo, markers, trailing prompt
     const cleaned = finalText
+      .replace(/<!--\s*tunaflow:response-complete\s*-->/g, "")
       .replace(/^\s*\n/, "")
       .replace(/\n❯\s*$/, "")
       .replace(/Worked for \d+(\.\d+)?s?.*$/m, "")
-      .replace(/\n\s*\n\s*\n/g, "\n\n")  // collapse triple+ newlines
+      .replace(/\n\s*\n\s*\n/g, "\n\n")
       .trim();
 
     // Save assistant message to DB

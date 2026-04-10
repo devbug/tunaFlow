@@ -74,7 +74,12 @@ You are an agent in tunaFlow, a multi-agent orchestration platform.\n\
 - **NEVER run shell commands in background** (`&`, `nohup`, `disown`, `setsid`). Always run synchronously and wait for the result.\n\
 - If a command takes a long time, WAIT for it to finish and report the full output. Do NOT return early saying 'running in background'.\n\
 - Results from background commands are LOST — the orchestrator cannot retrieve them after your turn ends.\n\
-- For long-running scripts, ensure they print progress to stdout so the orchestrator can show activity.";
+- For long-running scripts, ensure they print progress to stdout so the orchestrator can show activity.\n\
+\n\
+## Response Completion\n\
+- When you finish your response, add this marker at the very end: `<!-- tunaflow:response-complete -->`\n\
+- This helps tunaFlow detect that your response is fully delivered.\n\
+- Always include this marker, even for short responses.";
 
 /// Build a combined identity + persona fragment for prompt assembly.
 ///
