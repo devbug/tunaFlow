@@ -16,6 +16,7 @@ export interface ProjectSlice {
 // Cleanup function for previous rawq listeners
 let rawqListenerCleanup: (() => void) | null = null;
 let ptyListenerCleanup: (() => void) | null = null;
+let ptySpawning = false; // Guard against concurrent spawn
 // Cleanup function for fs watcher
 let fsWatcherCleanup: (() => void) | null = null;
 
@@ -190,6 +191,8 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
     // PTY: spawn interactive sessions for all CLI engines (project-level lifecycle)
     invoke<Project>("get_project", { key }).then(async (project) => {
       if (!project.path) return;
+      if (ptySpawning) return; // Prevent concurrent spawn from double selectProject
+      ptySpawning = true;
       const { usePtyStore, PTY_ENGINES, getPtyBinary } = await import("@/stores/ptyStore");
       const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
       const { listen: tauriListen } = await import("@tauri-apps/api/event");
@@ -241,6 +244,7 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
           console.warn(`[pty] ${engine} unavailable:`, err);
         }
       }
-    }).catch((e) => console.debug("[pty-init]", e));
+      ptySpawning = false;
+    }).catch((e) => { ptySpawning = false; console.debug("[pty-init]", e); });
   },
 });

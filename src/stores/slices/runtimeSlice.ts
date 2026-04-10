@@ -517,7 +517,6 @@ async function sendViaPty(
   };
 
   // Listen for PTY output and accumulate ANSI-stripped text
-  let completionTimer: ReturnType<typeof setTimeout> | null = null;
   let finalized = false;
   // Listen for ANSI-stripped text from Rust (pty:text), not raw output (pty:output)
   const ulOutput = await listenEvent<{ sessionId: number; data: string }>("pty:text", (e) => {
@@ -538,19 +537,11 @@ async function sendViaPty(
       return;
     }
 
-    // Fallback: idle detection — if no output for 15s after substantial content
-    if (completionTimer) clearTimeout(completionTimer);
-    completionTimer = setTimeout(() => {
-      if (!finalized && usePtyStore.getState().outputBuffer.length > 100) {
-        console.log("[pty] idle timeout — finalizing");
-        finalized = true;
-        finalize();
-      }
-    }, 15000);
+    // No idle timeout — rely on completion markers only
+    // ("Worked for Xs", "❯" prompt, or "<!-- tunaflow:response-complete -->")
   });
 
   const finalize = async () => {
-    if (completionTimer) { clearTimeout(completionTimer); completionTimer = null; }
     if (contentTimer) { clearTimeout(contentTimer); contentTimer = null; }
     ulOutput();
 
