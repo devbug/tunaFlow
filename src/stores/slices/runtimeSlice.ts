@@ -498,6 +498,9 @@ async function sendViaPty(
   }));
 
   const isStillActive = () => get().selectedConversationId === conversationId;
+
+  // Clear any stale capture state from previous run
+  usePtyStore.getState().endCapture();
   // Capture starts after prompt is sent (below) — not here, to skip echo
 
   // PTY mode: show status during streaming, extract response after completion.

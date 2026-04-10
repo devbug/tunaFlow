@@ -139,6 +139,7 @@ export const usePtyStore = create<PtyStoreState>((set, get) => ({
 
     // Only detect completion AFTER response has started (ignore prompt echo)
     if (nowStarted && detectCompletion(text)) {
+      console.log("[pty-capture] completion detected! responseStarted:", nowStarted, "has⏺:", hasResponseStart);
       set({ outputBuffer: text, completionSeen: true, responseStarted: true });
     } else if (!get().completionSeen) {
       set({ outputBuffer: text, responseStarted: nowStarted });
