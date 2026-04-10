@@ -232,8 +232,10 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
         try {
           // Claude: bypass permissions (auto-accept edits/commands, same as -p mode)
           const args = engine === "claude" ? ["--permission-mode", "bypassPermissions"] : [];
+          // TERM=dumb: disable TUI rendering → plain text output (RT consensus)
+          const env = { TERM: "dumb", NO_COLOR: "1" };
           const sessionId = await tauriInvoke<number>("pty_spawn", {
-            file: binary, args, cwd: project.path, cols: 80, rows: 500,
+            file: binary, args, cwd: project.path, cols: 80, rows: 500, env,
           });
           usePtyStore.getState().setSession(engine, sessionId, project.path!);
           console.log(`[pty] ${engine} session ${sessionId} started for project ${key}`);

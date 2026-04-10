@@ -53,6 +53,7 @@ pub fn pty_spawn(
     cwd: Option<String>,
     cols: Option<u16>,
     rows: Option<u16>,
+    env: Option<std::collections::HashMap<String, String>>,
     app: AppHandle,
     state: State<'_, PtyState>,
 ) -> Result<u32, AppError> {
@@ -73,6 +74,12 @@ pub fn pty_spawn(
     }
     if let Some(ref dir) = cwd {
         cmd.cwd(dir);
+    }
+    // Set environment variables (e.g., TERM=dumb, NO_COLOR=1)
+    if let Some(ref env_map) = env {
+        for (k, v) in env_map {
+            cmd.env(k, v);
+        }
     }
 
     let child = pair
