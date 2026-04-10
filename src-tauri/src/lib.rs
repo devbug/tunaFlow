@@ -42,7 +42,6 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::new().build())
-        .plugin(tauri_plugin_pty::init())
         .setup(|app| {
             use tauri::Manager;
             let data_dir = app
@@ -72,6 +71,7 @@ pub fn run() {
             });
 
             app.manage(CancelRegistry(std::sync::Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new()))));
+            app.manage(commands::pty::PtyState::new());
             app.manage(commands::projects::RawqIndexing(std::sync::Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new()))));
 
             // Center window on primary monitor if no saved window state
@@ -267,6 +267,11 @@ pub fn run() {
             commands::insight::export_insight_to_files,
             commands::insight_extract::run_insight_extraction,
             commands::insight_extract::run_insight_analysis,
+            // PTY
+            commands::pty::pty_spawn,
+            commands::pty::pty_write,
+            commands::pty::pty_resize,
+            commands::pty::pty_kill,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

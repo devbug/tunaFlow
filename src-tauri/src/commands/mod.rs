@@ -26,3 +26,4 @@ pub mod skills;
 pub mod test_runner;
 pub mod tracing;
 pub mod vector_search;
+pub mod pty;
