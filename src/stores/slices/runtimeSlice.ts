@@ -585,7 +585,8 @@ async function sendViaPty(
   };
 
   // Send prompt to PTY stdin (append completion marker instruction)
-  const ptyPrompt = prompt + "\n\n(응답 완료 시 마지막 줄에 <!-- tunaflow:response-complete --> 를 포함해주세요)\n";
+  // PTY Enter = \r (carriage return), not \n
+  const ptyPrompt = prompt + "\r";
   try {
     await invoke("pty_write", { sessionId, data: ptyPrompt });
   } catch (err) {

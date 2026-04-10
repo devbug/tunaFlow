@@ -273,7 +273,7 @@ export function CenterPanel() {
         {/* ChatPanel stays mounted (CSS hidden) to preserve Virtuoso scroll position */}
         <div className="flex-1 min-h-0 flex flex-col" style={{ display: effectiveTab === "chat" ? "flex" : "none" }}>
           <div className="min-h-0 overflow-hidden relative" style={{ flex: "2 1 0%" }}>
-            <div className="absolute inset-0">
+            <div className="absolute inset-0 flex flex-col">
               <ChatPanel />
             </div>
           </div>
