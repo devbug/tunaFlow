@@ -212,8 +212,6 @@ pub fn pty_write(
     state: State<'_, PtyState>,
 ) -> Result<(), AppError> {
     let sessions = state.sessions.lock();
-    let active_ids: Vec<u32> = sessions.keys().copied().collect();
-    eprintln!("[pty] write to session {}, active sessions: {:?}", session_id, active_ids);
     let session = sessions
         .get(&session_id)
         .ok_or_else(|| AppError::NotFound(format!("PTY session {} not found (active: {:?})", session_id, active_ids)))?;
@@ -237,7 +235,8 @@ pub fn pty_resize(
 ) -> Result<(), AppError> {
     // portable-pty resize requires the master, but we only stored writer/reader.
     // For now, log and skip — resize support requires storing the master handle.
-    eprintln!("[pty] resize session {} to {}x{} (not yet implemented)", session_id, cols, rows);
+    // Resize not yet implemented — requires storing master handle
+    let _ = (session_id, cols, rows);
     Ok(())
 }
 
