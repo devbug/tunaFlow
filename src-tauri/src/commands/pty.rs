@@ -114,57 +114,72 @@ pub fn pty_spawn(
         );
     }
 
-    // Spawn reader thread — emits pty:output events
+    // Spawn reader thread — emits pty:output (raw) + pty:text (screen snapshot) events
     let sid = session_id;
+    let pty_cols = cols.unwrap_or(80) as usize;
+    let pty_rows = rows.unwrap_or(24) as usize;
     std::thread::spawn(move || {
+        use alacritty_terminal::term::{Config as TermConfig, Term, test::TermSize};
+        use alacritty_terminal::event::VoidListener;
+        use alacritty_terminal::vte::ansi;
+        use alacritty_terminal::index::{Line, Column};
+
+        // Noop timeout for Processor
+        #[derive(Default)]
+        struct NoTimeout;
+        impl ansi::Timeout for NoTimeout {
+            fn set_timeout(&mut self, _: std::time::Duration) {}
+            fn clear_timeout(&mut self) {}
+            fn pending_timeout(&self) -> bool { false }
+        }
+
+        // Create virtual terminal buffer
+        let size = TermSize::new(pty_cols, pty_rows);
+        let mut term = Term::new(TermConfig::default(), &size, VoidListener);
+        let mut parser = ansi::Processor::<NoTimeout>::new();
+        let mut prev_screen_text = String::new();
+
         let mut buf = [0u8; 4096];
         loop {
             match reader.read(&mut buf) {
-                Ok(0) => break, // EOF
+                Ok(0) => break,
                 Ok(n) => {
                     let raw = &buf[..n];
                     let text = String::from_utf8_lossy(raw).to_string();
 
-                    // Raw output → xterm.js (Terminal tab debug view)
-                    let _ = app.emit(
-                        "pty:output",
-                        PtyOutputPayload {
-                            session_id: sid,
-                            data: text,
-                        },
-                    );
+                    // Raw output → xterm.js (debug terminal panel)
+                    let _ = app.emit("pty:output", PtyOutputPayload {
+                        session_id: sid, data: text,
+                    });
 
-                    // ANSI-stripped + TUI-chrome-filtered text → Chat message streaming
-                    let stripped_bytes = strip_ansi_escapes::strip(raw);
-                    let stripped = String::from_utf8_lossy(&stripped_bytes)
-                        .replace('\r', "");
-                    // Filter out TUI chrome: box-drawing, UI hints, progress spinners
-                    let filtered: String = stripped.lines()
-                        .filter(|line| {
-                            let t = line.trim();
-                            if t.is_empty() { return true; }
-                            // Preserve completion markers — never filter these
-                            if t.contains("Worked for") || t.contains("tunaflow:response-complete") { return true; }
-                            // Box-drawing borders
-                            if t.chars().all(|c| "━╭╮╰╯│─┌┐└┘├┤┬┴┼╶╴╷╵─ ".contains(c)) { return false; }
-                            // UI hint lines (ctrl+X to Y)
-                            if t.contains("ctrl+") && t.contains("to") { return false; }
-                            // Progress spinners / cursor movement artifacts
-                            if t.len() <= 2 && !t.chars().next().unwrap_or(' ').is_alphanumeric() { return false; }
-                            true
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    if !filtered.trim().is_empty() {
-                        let preview: String = filtered.chars().take(80).collect();
-                        eprintln!("[pty:text] session {} — {} chars: {:?}", sid, filtered.len(), preview);
-                        let _ = app.emit(
-                            "pty:text",
-                            PtyOutputPayload {
-                                session_id: sid,
-                                data: filtered,
-                            },
-                        );
+                    // Feed bytes into virtual terminal buffer
+                    parser.advance(&mut term, raw);
+
+                    // Read screen content from virtual terminal grid
+                    let grid = term.grid();
+                    let mut screen_lines: Vec<String> = Vec::new();
+                    for row_idx in 0..pty_rows {
+                        let row = &grid[Line(row_idx as i32)];
+                        let line: String = (0..pty_cols)
+                            .map(|col| row[Column(col)].c)
+                            .collect::<String>()
+                            .trim_end()
+                            .to_string();
+                        screen_lines.push(line);
+                    }
+
+                    // Trim trailing empty lines
+                    while screen_lines.last().map_or(false, |l| l.is_empty()) {
+                        screen_lines.pop();
+                    }
+                    let screen_text = screen_lines.join("\n");
+
+                    // Only emit if screen changed
+                    if screen_text != prev_screen_text && !screen_text.trim().is_empty() {
+                        prev_screen_text = screen_text.clone();
+                        let _ = app.emit("pty:text", PtyOutputPayload {
+                            session_id: sid, data: screen_text,
+                        });
                     }
                 }
                 Err(e) => {

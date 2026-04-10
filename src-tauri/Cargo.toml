@@ -37,6 +37,7 @@ tokio = { version = "1.50.0", features = ["rt-multi-thread", "sync", "time", "pr
 parking_lot = "0.12"
 portable-pty = "0.8"
 strip-ansi-escapes = "0.2.1"
+alacritty_terminal = "0.26.0"
 
 [profile.release]
 panic = "abort"
