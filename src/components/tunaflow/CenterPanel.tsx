@@ -272,11 +272,11 @@ export function CenterPanel() {
       <div className="flex-1 min-h-0 rounded-xl border-[0.5px] border-border bg-background overflow-hidden flex flex-col mx-2 mb-2">
         {/* ChatPanel stays mounted (CSS hidden) to preserve Virtuoso scroll position */}
         <div className="flex-1 min-h-0 flex flex-col" style={{ display: effectiveTab === "chat" ? "flex" : "none" }}>
-          <div className="flex-[2] min-h-0">
+          <div className="min-h-0 overflow-hidden" style={{ flex: "2 1 0%" }}>
             <ChatPanel />
           </div>
           {/* PTY debug terminal — bottom 1/3 of chat view */}
-          <div className="flex-[1] min-h-0 border-t border-border/30">
+          <div className="min-h-0 overflow-hidden border-t border-border/30" style={{ flex: "1 1 0%" }}>
             <Suspense fallback={<div className="flex items-center justify-center h-full text-prose-faint text-tf-micro">PTY loading...</div>}>
               <TerminalPanel />
             </Suspense>
