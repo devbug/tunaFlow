@@ -198,14 +198,9 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
       const { listen: tauriListen } = await import("@tauri-apps/api/event");
       const pty = usePtyStore.getState();
 
-      // Kill previous sessions from different project
-      for (const engine of PTY_ENGINES) {
-        const prevSid = pty.getSession(engine);
-        if (prevSid !== null) {
-          tauriInvoke("pty_kill", { sessionId: prevSid }).catch(() => {});
-          pty.clearSession(engine);
-        }
-      }
+      // Kill ALL previous sessions (handles stale sessions from HMR/restart)
+      await tauriInvoke("pty_kill_all").catch(() => {});
+      pty.clearAllSessions();
 
       // Setup shared PTY output listener (lives as long as project is selected)
       if (ptyListenerCleanup) { ptyListenerCleanup(); ptyListenerCleanup = null; }

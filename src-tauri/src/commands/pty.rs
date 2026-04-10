@@ -226,6 +226,20 @@ pub fn pty_resize(
     Ok(())
 }
 
+/// Kill all PTY sessions.
+#[tauri::command]
+pub fn pty_kill_all(
+    state: State<'_, PtyState>,
+) -> Result<usize, AppError> {
+    let mut sessions = state.sessions.lock();
+    let count = sessions.len();
+    for (id, mut session) in sessions.drain() {
+        let _ = session._child.kill();
+        eprintln!("[pty] killed session {} (kill_all)", id);
+    }
+    Ok(count)
+}
+
 /// Kill a PTY session.
 #[tauri::command]
 pub fn pty_kill(

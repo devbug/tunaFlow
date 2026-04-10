@@ -500,71 +500,68 @@ async function sendViaPty(
   const isStillActive = () => get().selectedConversationId === conversationId;
   // Capture starts after prompt is sent (below) — not here, to skip echo
 
-  // Throttled content update (200ms)
-  let pendingContent: string | null = null;
-  let contentTimer: ReturnType<typeof setTimeout> | null = null;
-  const flushContent = () => {
-    contentTimer = null;
-    if (pendingContent !== null && isStillActive()) {
-      const text = pendingContent;
-      pendingContent = null;
+  // PTY mode: show status during streaming, extract response after completion.
+  // TUI output is too noisy for real-time chat display.
+  let finalized = false;
+
+  // Status update — show "thinking" / "responding" in chat
+  const setStatus = (status: string) => {
+    if (isStillActive()) {
       set((state) => ({
-        messages: state.messages.map((m) => m.id === asstMsgId ? { ...m, content: text } : m),
+        messages: state.messages.map((m) =>
+          m.id === asstMsgId ? { ...m, progressContent: status } : m
+        ),
       }));
     }
   };
 
-  // Listen for PTY output and accumulate ANSI-stripped text
-  let finalized = false;
-  // Listen for ANSI-stripped text from Rust (pty:text), not raw output (pty:output)
+  // Listen for stripped text — accumulate silently, detect completion
   const ulOutput = await listenEvent<{ sessionId: number; data: string }>("pty:text", (e) => {
     if (e.payload.sessionId !== sessionId || finalized) return;
     const store = usePtyStore.getState();
     if (!store.isCapturing) return;
 
-    // Data is already ANSI-stripped by Rust — just append
-    set((s) => ({ ...s })); // trigger reactivity
     store.appendOutput(e.payload.data);
-    pendingContent = store.outputBuffer;
-    if (!contentTimer) contentTimer = setTimeout(flushContent, 200);
 
-    // Check completion on every output (marker can arrive anytime)
-    if (usePtyStore.getState().checkCompletion()) {
+    // Update status indicator based on content
+    const buf = store.outputBuffer;
+    if (/TUNAFLOW_DONE/.test(buf) || /Worked for/.test(buf)) {
       finalized = true;
       finalize();
       return;
     }
-
-    // No idle timeout — rely on completion markers only
-    // ("Worked for Xs", "❯" prompt, or "<!-- tunaflow:response-complete -->")
+    if (/⏺/.test(e.payload.data)) {
+      setStatus("responding...");
+    } else if (/[✻✢✳✶✽]/.test(e.payload.data)) {
+      setStatus("thinking...");
+    }
   });
 
   const finalize = async () => {
-    if (contentTimer) { clearTimeout(contentTimer); contentTimer = null; }
     ulOutput();
-
     const finalText = usePtyStore.getState().endCapture();
 
-    // Clean up output — remove echo, TUI chrome, markers, trailing prompt
-    const promptEscaped = prompt.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const cleaned = finalText
-      // Remove completion markers
+    // Extract actual response: text between ⏺ and TUNAFLOW_DONE
+    // The ⏺ marker indicates Claude's response start in TUI
+    let cleaned = "";
+    const responseMatch = finalText.match(/⏺\s*([\s\S]*?)(?:TUNAFLOW_DONE|Worked for|$)/);
+    if (responseMatch) {
+      cleaned = responseMatch[1];
+    } else {
+      // Fallback: take everything after the last prompt echo
+      cleaned = finalText;
+    }
+
+    // Final cleanup
+    cleaned = cleaned
       .replace(/TUNAFLOW_DONE/g, "")
       .replace(/<!--\s*tunaflow:response-complete\s*-->/g, "")
-      // Remove prompt echo lines
-      .replace(new RegExp(`Pasting text[^\\n]*`, "g"), "")
-      .replace(new RegExp(`❯\\s*${promptEscaped}[^\\n]*`, "g"), "")
-      .replace(new RegExp(promptEscaped, "g"), "")
-      // Remove TUI status icons and labels
-      .replace(/[✻✢✳✶⏺]\s*(Thinking|Befuddling|Cogit|Perus|Claud|Musing)[^\n]*/g, "")
-      // Remove trailing prompt
-      .replace(/\n❯\s*$/g, "")
-      .replace(/❯\s*$/g, "")
-      // Remove completion line
-      .replace(/Worked for \d+(\.\d+)?s?[^\n]*/g, "")
-      // Remove separator lines
-      .replace(/^[─━]+$/gm, "")
-      // Collapse whitespace
+      .replace(/[✻✢✳✶✽⏺]/g, "")
+      .replace(/❯[^\n]*/g, "")
+      .replace(/esctointerrupt/g, "")
+      .replace(/\?forshortcuts/g, "")
+      .replace(/^[─━ ]+$/gm, "")
+      .replace(/Pasting text[^\n]*/g, "")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
 
