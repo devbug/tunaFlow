@@ -518,8 +518,9 @@ async function sendViaPty(
 
   // Listen for PTY output and accumulate ANSI-stripped text
   let completionTimer: ReturnType<typeof setTimeout> | null = null;
+  let finalized = false;
   const ulOutput = await listenEvent<{ sessionId: number; data: string }>("pty:output", (e) => {
-    if (e.payload.sessionId !== sessionId) return;
+    if (e.payload.sessionId !== sessionId || finalized) return;
     const store = usePtyStore.getState();
     if (!store.isCapturing) return;
 
@@ -527,13 +528,21 @@ async function sendViaPty(
     pendingContent = store.outputBuffer;
     if (!contentTimer) contentTimer = setTimeout(flushContent, 200);
 
-    // Debounced completion detection — check 1.5s after last output
+    // Check completion on every output (marker can arrive anytime)
+    if (usePtyStore.getState().checkCompletion()) {
+      finalized = true;
+      finalize();
+      return;
+    }
+
+    // Fallback: idle detection — if no output for 2s after content, check again
     if (completionTimer) clearTimeout(completionTimer);
     completionTimer = setTimeout(() => {
-      if (usePtyStore.getState().checkCompletion()) {
+      if (!finalized && usePtyStore.getState().outputBuffer.length > 50) {
+        finalized = true;
         finalize();
       }
-    }, 1500);
+    }, 3000);
   });
 
   const finalize = async () => {

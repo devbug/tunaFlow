@@ -222,15 +222,20 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
       });
       ptyListenerCleanup = () => { ulOutput(); ulExit(); };
 
-      // Spawn all engines
+      // Spawn all engines (skip if already running for this project)
       for (const engine of PTY_ENGINES) {
+        const existing = usePtyStore.getState().getSession(engine);
+        if (existing !== null) {
+          console.log(`[pty] ${engine} session ${existing} already active, skipping`);
+          continue;
+        }
         const binary = getPtyBinary(engine);
         if (!binary) continue;
         try {
           const sessionId = await tauriInvoke<number>("pty_spawn", {
             file: binary, args: [], cwd: project.path, cols: 120, rows: 40,
           });
-          pty.setSession(engine, sessionId, project.path!);
+          usePtyStore.getState().setSession(engine, sessionId, project.path!);
           console.log(`[pty] ${engine} session ${sessionId} started for project ${key}`);
         } catch (err) {
           console.warn(`[pty] ${engine} unavailable:`, err);
