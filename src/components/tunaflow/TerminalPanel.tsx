@@ -63,7 +63,6 @@ export function TerminalPanel() {
       sessionIdRef.current = sessionId;
       setStatus("running");
       usePtyStore.getState().setSession(sessionId, projectPath);
-      console.log(`[pty] session registered in store: ${sessionId}`);
 
       // Store cleanup
       const prevCleanup = cleanupRef.current;
