@@ -96,6 +96,7 @@ export function TerminalPanel() {
       if (disposed || !containerRef.current) return;
 
       const term = new Terminal({
+        allowProposedApi: true,
         theme: {
           background: "#0d0f17",
           foreground: "#e0e0e0",
