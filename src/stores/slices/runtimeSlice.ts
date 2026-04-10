@@ -548,48 +548,35 @@ async function sendViaPty(
     }
   });
 
+  // Outbox file path — generated before pty_write, read in finalize
+  const runId = `${Date.now()}`;
+  const outboxPath = `.tunaflow/outbox/${runId}.md`;
+
   const finalize = async () => {
     ulText();
     ulScreen();
-    const finalText = usePtyStore.getState().endCapture();
+    usePtyStore.getState().endCapture();
 
-    // VTE screen snapshot — extract response from screen lines.
-    // Screen layout: header lines → prompt → response → status/prompt
-    // Extract: lines between ⏺ (response start) and TUNAFLOW_DONE or last ❯ (next prompt)
-    console.log("[pty-finalize] finalText length:", finalText.length);
-    console.log("[pty-finalize] finalText:", JSON.stringify(finalText.slice(0, 500)));
-    const lines = finalText.split("\n");
-    let responseLines: string[] = [];
-    let capturing = false;
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      // Start capturing at ⏺ (Claude response marker)
-      if (trimmed.startsWith("⏺")) {
-        capturing = true;
-        // Include this line (remove the ⏺ prefix)
-        responseLines.push(trimmed.replace(/^[⏺⎿]\s*/, ""));
-        continue;
+    // Read response from outbox file (sideband — bypasses TUI parsing entirely)
+    let cleaned = "";
+    try {
+      // Wait for file to be fully written
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        try {
+          const { readTextFile } = await import("@tauri-apps/plugin-fs");
+          const projectPath = usePtyStore.getState().sessions.values().next().value?.projectPath || "";
+          const content = await readTextFile(`${projectPath}/${outboxPath}`);
+          if (content && content.trim().length > 0) {
+            cleaned = content.trim();
+            console.log("[pty-outbox] read", outboxPath, "—", cleaned.length, "chars");
+            break;
+          }
+        } catch { /* file not yet written */ }
       }
-      // Stop at next prompt (❯ at start of line = Claude waiting for input)
-      if (capturing && /^❯\s*$/.test(trimmed)) {
-        capturing = false;
-        continue;
-      }
-      if (capturing) {
-        responseLines.push(line);
-      }
+    } catch (err) {
+      console.warn("[pty-outbox] failed to read outbox:", err);
     }
-
-    // Clean up extracted response
-    let cleaned = responseLines.join("\n")
-      // Remove TUI chrome that may remain
-      .replace(/^[─━╌╶╴ ]+$/gm, "")
-      .replace(/[✻✢✳✶✽]/g, "")
-      .replace(/Worked for \d+[^\n]*/g, "")
-      .replace(/\?\s*for\s*shortcuts/gi, "")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
 
     // Save assistant message to DB
     try {
@@ -623,8 +610,9 @@ async function sendViaPty(
   // Send prompt via bracket paste, then Enter separately after a short delay.
   // Claude Code TUI needs paste to complete before receiving Enter.
   try {
-    // 1. Paste the prompt text
-    await invoke("pty_write", { sessionId, data: `\x1b[200~${prompt}\x1b[201~` });
+    // 1. Paste the prompt with outbox instruction
+    const fullPrompt = `${prompt}\n\n[IMPORTANT: Write your complete response to the file "${outboxPath}". Create the directory if needed. This is how tunaFlow reads your response.]`;
+    await invoke("pty_write", { sessionId, data: `\x1b[200~${fullPrompt}\x1b[201~` });
     // 2. Wait for TUI to process paste
     await new Promise((r) => setTimeout(r, 150));
     // 3. Submit with Enter
