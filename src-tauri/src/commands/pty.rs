@@ -148,7 +148,8 @@ pub fn pty_spawn(
         );
     });
 
-    eprintln!("[pty] spawned session {} — {} {:?} (cwd: {:?})", session_id, file, args, cwd);
+    let active_count = state.sessions.lock().len();
+    eprintln!("[pty] spawned session {} — {} {:?} (cwd: {:?}), active sessions: {}", session_id, file, args, cwd, active_count);
     Ok(session_id)
 }
 
@@ -160,9 +161,11 @@ pub fn pty_write(
     state: State<'_, PtyState>,
 ) -> Result<(), AppError> {
     let sessions = state.sessions.lock();
+    let active_ids: Vec<u32> = sessions.keys().copied().collect();
+    eprintln!("[pty] write to session {}, active sessions: {:?}", session_id, active_ids);
     let session = sessions
         .get(&session_id)
-        .ok_or_else(|| AppError::NotFound(format!("PTY session {} not found", session_id)))?;
+        .ok_or_else(|| AppError::NotFound(format!("PTY session {} not found (active: {:?})", session_id, active_ids)))?;
     let mut writer = session.writer.lock();
     writer
         .write_all(data.as_bytes())
@@ -196,7 +199,10 @@ pub fn pty_kill(
     let mut sessions = state.sessions.lock();
     if let Some(mut session) = sessions.remove(&session_id) {
         let _ = session._child.kill();
-        eprintln!("[pty] killed session {}", session_id);
+        let remaining: Vec<u32> = sessions.keys().copied().collect();
+        eprintln!("[pty] killed session {}, remaining: {:?}", session_id, remaining);
+    } else {
+        eprintln!("[pty] kill: session {} not found", session_id);
     }
     Ok(())
 }
