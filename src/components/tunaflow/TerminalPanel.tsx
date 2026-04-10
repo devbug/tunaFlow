@@ -48,10 +48,20 @@ export function TerminalPanel() {
       ptyRef.current = pty;
 
       // PTY → Terminal (process output)
+      let dataCount = 0;
       pty.onData((data: Uint8Array) => {
+        dataCount++;
         const str = new TextDecoder().decode(data);
+        console.log(`[pty] onData #${dataCount}: ${data.length} bytes, preview: ${JSON.stringify(str.slice(0, 100))}`);
         term.write(str);
       });
+      // Debug: check if onData fires at all after 2s
+      setTimeout(() => {
+        if (dataCount === 0) {
+          term.write(`\r\n\x1b[33m[Warning: No data received from PTY after 2s]\x1b[0m\r\n`);
+          console.warn("[pty] No onData events fired after 2s");
+        }
+      }, 2000);
 
       // PTY exit
       pty.onExit((event: { exitCode: number }) => {
