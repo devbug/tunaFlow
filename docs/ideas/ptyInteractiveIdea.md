@@ -162,6 +162,93 @@ Settings에서 SDK 선택 시 비용 경고 표시 필요.
 
 ---
 
+## 사이드이펙트 분석: `-p` 의존 코드 전수 목록
+
+PTY 도입은 `-p`를 **교체**하는 게 아니라 **추가 경로**. 3개 경로(-p, PTY, SDK)를 동시 유지해야 하므로 복잡도가 2-3배로 증가.
+
+### Backend (Rust) — `-p` 모드 전제로 설계된 코드
+
+| 파일 | 영향 영역 | PTY 시 변경 필요 |
+|------|----------|----------------|
+| `agents/claude.rs` | `run()` + `stream_run()` 전체 | PTY adapter 별도 추가 |
+| `agents/codex.rs` | `run()` + `stream_run()` 전체 | 동일 |
+| `agents/gemini.rs` | `run()` + `stream_run()` 전체 | 동일 |
+| `agents/opencode.rs` | `run()` | 동일 |
+| `agents/openai_compat.rs` | `run()` + `stream_run()` (async) | 동일 |
+| `commands/agents.rs` | `start_*_stream` command 5개 | PTY command 별도 추가 |
+| `commands/roundtable_helpers/executor.rs` | `run_participant` + `stream_participant` | RT는 -p 유지, 분기 필요 |
+| `commands/agents_helpers/send_common/` | `prepare_engine_run` / `finalize_engine_run` | PTY 경로의 prepare/finalize 설계 |
+| `commands/agents_helpers/send_common/prompt_assembly.rs` | 프롬프트에 ContextPack 합치는 구조 | PTY는 파일 갱신 방식 → 조립 로직 분기 |
+| `guardrail.rs` | 프롬프트 크기 제한 | PTY에서는 파일 크기 제한으로 전환 |
+
+### Frontend (React) — 이벤트 모델 의존
+
+| 파일 | 영향 영역 | PTY 시 변경 필요 |
+|------|----------|----------------|
+| `stores/slices/runtimeSlice.ts` | `sendWithEngine`, `{engine}:chunk/progress` 리스너 | PTY 전용 이벤트 모델 추가 |
+| `stores/slices/threadSlice.ts` | `sendThreadMessage`, 동일 리스너 | 동일 |
+| `stores/toolStepsStore.ts` | `__STEP__` 프로토콜 파싱 | PTY는 xterm.js에서 직접 표시, 파싱 불필요 |
+| `components/message/ToolStepsView.tsx` | 스텝 표시 UI | PTY 모드에서는 터미널 패널이 대체 |
+| `components/message/ProgressSurface.tsx` | streaming 상태 표시 | PTY 모드 분기 필요 |
+| `components/message/MessageMeta.tsx` | streaming/done 상태 배지 | 완료 감지 방식 변경 |
+
+### 이벤트 모델 변경
+
+```
+현재 (-p):
+  claude:progress → __STEP__ 파싱 → ToolStepsView
+  claude:chunk    → content 누적 → 메시지 렌더링
+  agent:completed → DB 리로드 → 최종 상태
+
+PTY:
+  pty:output      → xterm.js 터미널에 그대로 표시
+  pty:idle         → "Worked for Xs" 또는 프롬프트 감지 → 완료
+  → 기존 chunk/progress 이벤트와 완전히 다른 모델
+```
+
+### DB/추적
+
+| 테이블 | 영향 |
+|--------|------|
+| `agent_jobs` | PTY 프로세스 생명주기 추적 방식 변경 (start/exit이 아니라 상주) |
+| `trace_log` | 토큰/비용 기록 — PTY에서는 CLI가 usage를 보고하지 않음, 추적 방법 미정 |
+| `messages` | status streaming→done 전환 시점이 "Worked for" 감지 기반 |
+
+### 영향 범위 요약
+
+```
+파일 30+개, 함수 50+개가 -p 모드 전제로 설계됨
+
+PTY 도입 시:
+  - 기존 -p 경로: 유지 (RT, 단순 질의, fallback)
+  - PTY 경로: 추가 (메인 채팅, 풀 기능)
+  - SDK 경로: 유지 (fallback, 비권장)
+
+  → 3개 경로 동시 유지
+  → 이벤트 모델, 상태 관리, ContextPack 주입이 경로마다 다름
+```
+
+### 선행 조건: Engine trait 통합
+
+PTY를 깔끔하게 추가하려면, 현재 `RunInput/RunOutput` + `run()`/`stream_run()` 패턴을 **Rust trait으로 정형화**하는 작업이 선행되어야 함:
+
+```rust
+// 현재: 각 엔진이 같은 시그니처의 함수를 개별 구현
+claude::run(input) / claude::stream_run(input, on_progress, on_chunk, is_cancelled)
+codex::run(input) / codex::stream_run(input, on_progress, on_chunk)
+
+// 목표: trait으로 통합
+trait AgentEngine {
+    fn run(&self, input: RunInput) -> Result<RunOutput, AppError>;
+    fn stream_run(&self, input: RunInput, callbacks: StreamCallbacks) -> Result<RunOutput, AppError>;
+    fn pty_run(&self, input: RunInput, pty: PtyHandle) -> Result<PtySession, AppError>;  // 새 경로
+}
+```
+
+이 trait이 있어야 `commands/agents.rs`의 `start_*_stream` 5개를 하나로 통합하고, PTY 경로를 같은 인터페이스로 추가할 수 있음. (RT 토론에서 Codex가 제안한 "CLI adapter와 API adapter를 같은 추상 인터페이스 아래 두기"와 동일)
+
+---
+
 ## 우선순위
 
 PTY 통합은 **Tiering 이후**. 현재 `-p` + `stream_run`이 동작하고 있고, Tiering으로 토큰 효율을 먼저 잡는 게 순서. PTY는 "기능 확장"이지 "기존 문제 해결"이 아님.
@@ -170,5 +257,6 @@ PTY 통합은 **Tiering 이후**. 현재 `-p` + `stream_run`이 동작하고 있
 순서:
 1. ContextPack Tiering (토큰 효율 — $20 사용자 접근성)
 2. Chunk 품질 + sqlite-vec (검색 품질)
-3. PTY 인터랙티브 (기능 확장 — 해자)
+3. Engine trait 통합 (PTY 선행 조건)
+4. PTY 인터랙티브 (기능 확장 — 해자)
 ```
