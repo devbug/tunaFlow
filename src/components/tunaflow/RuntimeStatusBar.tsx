@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
+import { usePtyStore } from "@/stores/ptyStore";
 import { Activity, Loader2, Zap } from "lucide-react";
 import { TraceModal } from "./TraceModal";
 import type { Message } from "@/types";
@@ -95,10 +96,20 @@ export function RuntimeStatusBar() {
         const GRACE_MS = 10_000;
         const dbRunning = new Set(fetchedJobs.filter((j) => j.status === "running").map((j) => j.conversationId));
         const storeRunning = useChatStore.getState().runningThreadIds;
+        // PTY sessions don't create agent_jobs — exclude them from orphan detection
+        const ptyCapturing = usePtyStore.getState().isCapturing;
+        const ptyActiveIds = new Set<string>();
+        if (ptyCapturing) {
+          for (const id of storeRunning) {
+            if (!dbRunning.has(id)) ptyActiveIds.add(id);
+          }
+        }
+
         const orphans = storeRunning.filter((id) => {
           if (dbRunning.has(id)) return false;
+          if (ptyActiveIds.has(id)) return false; // PTY active — not orphan
           const startTime = runStartTimes.get(id) ?? 0;
-          return (now - startTime) > GRACE_MS; // only orphan after grace period
+          return (now - startTime) > GRACE_MS;
         });
         if (orphans.length > 0) {
           console.warn("[orphan-recovery] Clearing stale runningThreadIds:", orphans);
