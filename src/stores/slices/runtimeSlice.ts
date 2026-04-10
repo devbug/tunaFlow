@@ -541,38 +541,45 @@ async function sendViaPty(
     ulOutput();
     const finalText = usePtyStore.getState().endCapture();
 
-    // Extract actual response: text between ⏺ and TUNAFLOW_DONE
-    // The ⏺ marker indicates Claude's response start in TUI
-    let cleaned = "";
-    const responseMatch = finalText.match(/⏺\s*([\s\S]*?)(?:TUNAFLOW_DONE|Worked for|$)/);
-    if (responseMatch) {
-      cleaned = responseMatch[1];
-    } else {
-      // Fallback: take everything after the last prompt echo
-      cleaned = finalText;
+    // VTE screen snapshot — extract response from screen lines.
+    // Screen layout: header lines → prompt → response → status/prompt
+    // Extract: lines between ⏺ (response start) and TUNAFLOW_DONE or last ❯ (next prompt)
+    const lines = finalText.split("\n");
+    let responseLines: string[] = [];
+    let capturing = false;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // Start capturing at ⏺ (Claude response marker)
+      if (trimmed.startsWith("⏺") || trimmed.startsWith("⎿")) {
+        capturing = true;
+        // Include this line (remove the ⏺ prefix)
+        responseLines.push(trimmed.replace(/^[⏺⎿]\s*/, ""));
+        continue;
+      }
+      // Stop at TUNAFLOW_DONE
+      if (trimmed.includes("TUNAFLOW_DONE")) {
+        capturing = false;
+        continue;
+      }
+      // Stop at next prompt (❯ at start of line = Claude waiting for input)
+      if (capturing && /^❯\s*$/.test(trimmed)) {
+        capturing = false;
+        continue;
+      }
+      if (capturing) {
+        responseLines.push(line);
+      }
     }
 
-    // Final cleanup
-    cleaned = cleaned
-      .replace(/TUNAFLOW_DONE/g, "")
-      .replace(/<!--\s*tunaflow:response-complete\s*-->/g, "")
-      .replace(/[✻✢✳✶✽⏺]/g, "")
-      .replace(/❯[^\n]*/g, "")
-      .replace(/esctointerrupt/gi, "")
-      .replace(/\?forshortcuts/gi, "")
-      // Claude Code TUI status bar that bleeds into response lines
-      .replace(/⏵+\s*bypass\s*permissions?\s*on[^\n]*/gi, "")
-      .replace(/\(shift\+tab\s*to\s*cycle\)/gi, "")
-      .replace(/⏵+[^\n]*/g, "")
-      .replace(/Pasting text[^\n]*/g, "")
-      // Restore line breaks: TUI chrome lines (box-drawing, separators)
-      .replace(/^[─━╌╌ ]+$/gm, "\n")
-      // Remove Claude Code banner lines
-      .replace(/▐▛[^]*?▘▘▝▝[^\n]*/g, "")
-      .replace(/ClaudeCodev[\d.]+/g, "")
-      // Collapse excessive whitespace but preserve paragraph breaks
+    // Clean up extracted response
+    let cleaned = responseLines.join("\n")
+      // Remove TUI chrome that may remain
+      .replace(/^[─━╌╶╴ ]+$/gm, "")
+      .replace(/[✻✢✳✶✽]/g, "")
+      .replace(/Worked for \d+[^\n]*/g, "")
+      .replace(/\?\s*for\s*shortcuts/gi, "")
       .replace(/\n{3,}/g, "\n\n")
-      .replace(/[ \t]{2,}/g, " ")
       .trim();
 
     // Save assistant message to DB

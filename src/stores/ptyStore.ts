@@ -125,8 +125,8 @@ export const usePtyStore = create<PtyStoreState>((set, get) => ({
   }),
 
   appendOutput: (text) => {
-    // text is already ANSI-stripped by Rust (pty:text event)
-    set((s) => ({ outputBuffer: s.outputBuffer + text }));
+    // VTE screen snapshot — REPLACE, don't append (each emit is full screen state)
+    set({ outputBuffer: text });
     return text;
   },
 
