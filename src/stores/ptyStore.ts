@@ -79,6 +79,7 @@ interface PtyStoreState {
   outputBuffer: string;
   isCapturing: boolean;
   completionSeen: boolean;
+  responseStarted: boolean; // true after ⏺ is seen (response began)
 
   /** Get session ID for an engine */
   getSession: (engine: string) => number | null;
@@ -99,6 +100,7 @@ export const usePtyStore = create<PtyStoreState>((set, get) => ({
   outputBuffer: "",
   isCapturing: false,
   completionSeen: false,
+  responseStarted: false,
 
   getSession: (engine) => {
     const session = get().sessions.get(engine as PtyEngine);
@@ -125,26 +127,30 @@ export const usePtyStore = create<PtyStoreState>((set, get) => ({
     outputBuffer: "",
     isCapturing: true,
     completionSeen: false,
+    responseStarted: false,
   }),
 
   appendOutput: (text) => {
-    // VTE screen snapshot — REPLACE, don't append (each emit is full screen state)
-    // But preserve the snapshot that contains DONE marker
-    if (detectCompletion(text)) {
-      set({ outputBuffer: text, completionSeen: true });
+    // VTE screen snapshot — REPLACE, don't append
+    // Track response start (⏺ marker = Claude began responding)
+    const hasResponseStart = /⏺/.test(text) || /⎿/.test(text);
+    const wasStarted = get().responseStarted;
+    const nowStarted = wasStarted || hasResponseStart;
+
+    // Only detect completion AFTER response has started (ignore prompt echo)
+    if (nowStarted && detectCompletion(text)) {
+      set({ outputBuffer: text, completionSeen: true, responseStarted: true });
     } else if (!get().completionSeen) {
-      // Only update buffer if we haven't seen completion yet
-      // (after completion, keep the last "done" snapshot for extraction)
-      set({ outputBuffer: text });
+      set({ outputBuffer: text, responseStarted: nowStarted });
     }
     return text;
   },
 
-  checkCompletion: () => get().completionSeen || detectCompletion(get().outputBuffer),
+  checkCompletion: () => get().completionSeen,
 
   endCapture: () => {
     const { outputBuffer } = get();
-    set({ activeMessageId: null, activeEngine: null, outputBuffer: "", isCapturing: false, completionSeen: false });
+    set({ activeMessageId: null, activeEngine: null, outputBuffer: "", isCapturing: false, completionSeen: false, responseStarted: false });
     return outputBuffer;
   },
 }));
