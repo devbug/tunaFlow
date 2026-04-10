@@ -230,6 +230,7 @@ fn sanitize_fts_query(raw: &str) -> String {
 }
 
 /// Extract file path from a finding string (best-effort regex-like match).
+#[allow(dead_code)]
 pub fn extract_file_path(finding: &str) -> Option<String> {
     // Match patterns like "src/foo/bar.rs", "lib/utils.ts", etc.
     for word in finding.split_whitespace() {
@@ -246,6 +247,7 @@ pub fn extract_file_path(finding: &str) -> Option<String> {
 }
 
 /// Extract a short pattern summary from a finding (first ~80 chars, cleaned).
+#[allow(dead_code)]
 pub fn extract_pattern(finding: &str) -> String {
     let trimmed = finding.trim();
     if trimmed.len() <= 80 {

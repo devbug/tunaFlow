@@ -5,7 +5,6 @@
 //! context instead of scanning the entire project.
 
 use serde::Serialize;
-use std::collections::HashMap;
 use tauri::State;
 
 use crate::agents::{crg, rawq};

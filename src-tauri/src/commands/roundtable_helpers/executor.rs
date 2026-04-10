@@ -10,7 +10,9 @@ use super::prompt::{build_round_prompt_with_identity, PromptSources};
 use super::persist::{persist_streaming_start, persist_streaming_done};
 
 /// Budget settings for local models (ollama, opencode) — smaller context window.
+#[allow(dead_code)]
 const LOCAL_MODE: &str = "lite";
+#[allow(dead_code)]
 const LOCAL_BUDGET_CAP: usize = 15_000;
 
 /// Lightweight RT context — Tier 0+1 only.
@@ -249,7 +251,8 @@ pub enum RoundStrategy {
 }
 
 /// Run a single participant against a prompt. No DB lock held.
-/// Uses `spawn_blocking` to run the synchronous subprocess without blocking the tokio runtime.
+/// Retained for non-streaming fallback (opencode).
+#[allow(dead_code)]
 pub async fn run_participant(
     p: &RoundtableParticipant,
     prompt: String,

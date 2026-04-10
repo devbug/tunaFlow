@@ -233,7 +233,7 @@ pub fn pty_resize(
     session_id: u32,
     cols: u16,
     rows: u16,
-    state: State<'_, PtyState>,
+    _state: State<'_, PtyState>,
 ) -> Result<(), AppError> {
     // portable-pty resize requires the master, but we only stored writer/reader.
     // For now, log and skip — resize support requires storing the master handle.

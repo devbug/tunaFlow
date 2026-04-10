@@ -396,8 +396,8 @@ pub fn export_insight_to_files(
     }
 
     // Write latest-report.md (summary + all findings)
-    let ts = chrono::NaiveDateTime::from_timestamp_opt(session.created_at, 0)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+    let ts = chrono::DateTime::from_timestamp(session.created_at, 0)
+        .map(|dt| dt.naive_utc().format("%Y-%m-%d %H:%M").to_string())
         .unwrap_or_else(|| session.created_at.to_string());
 
     let mut report = format!("# Insight Report — {}\n\n", ts);

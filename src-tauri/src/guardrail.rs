@@ -134,7 +134,7 @@ pub fn fallback_error(engine: &str, err: &crate::errors::AppError) -> String {
 // ─── Token estimation ───────────────────────────────────────────────────────
 
 /// Returns true if the character falls in CJK/Hangul/Kana Unicode ranges.
-/// These scripts use significantly more tokens per character than ASCII (~1.5 chars ≈ 1 token).
+#[allow(dead_code)]
 fn is_cjk(c: char) -> bool {
     matches!(c,
         '\u{AC00}'..='\u{D7AF}'   // Hangul Syllables
@@ -152,6 +152,7 @@ fn is_cjk(c: char) -> bool {
 /// - CJK/Hangul/Kana: ~1.5 chars = 1 token (these map to more tokens per character)
 ///
 /// Formula: `(ascii_chars / 4) + (cjk_chars * 2 / 3)`
+#[allow(dead_code)]
 pub fn estimate_tokens(text: &str) -> usize {
     let mut ascii_chars: usize = 0;
     let mut cjk_chars: usize = 0;
