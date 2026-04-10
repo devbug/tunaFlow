@@ -143,6 +143,8 @@ pub fn pty_spawn(
                         .filter(|line| {
                             let t = line.trim();
                             if t.is_empty() { return true; }
+                            // Preserve completion markers — never filter these
+                            if t.contains("Worked for") || t.contains("tunaflow:response-complete") { return true; }
                             // Box-drawing borders
                             if t.chars().all(|c| "━╭╮╰╯│─┌┐└┘├┤┬┴┼╶╴╷╵─ ".contains(c)) { return false; }
                             // UI hint lines (ctrl+X to Y)
@@ -154,6 +156,7 @@ pub fn pty_spawn(
                         .collect::<Vec<_>>()
                         .join("\n");
                     if !filtered.trim().is_empty() {
+                        eprintln!("[pty:text] session {} — {} chars: {:?}", sid, filtered.len(), &filtered[..filtered.len().min(80)]);
                         let _ = app.emit(
                             "pty:text",
                             PtyOutputPayload {
