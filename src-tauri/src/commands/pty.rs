@@ -214,7 +214,7 @@ pub fn pty_write(
     let sessions = state.sessions.lock();
     let session = sessions
         .get(&session_id)
-        .ok_or_else(|| AppError::NotFound(format!("PTY session {} not found (active: {:?})", session_id, active_ids)))?;
+        .ok_or_else(|| AppError::NotFound(format!("PTY session {} not found", session_id)))?;
     let mut writer = session.writer.lock();
     writer
         .write_all(data.as_bytes())
