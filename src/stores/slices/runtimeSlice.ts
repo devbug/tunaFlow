@@ -578,17 +578,33 @@ async function sendViaPty(
     // 4. Poll for outbox file (agent writes response here)
     setStatus("waiting for response...");
     const { readTextFile } = await import("@tauri-apps/plugin-fs");
+    let lastSize = 0;
+    let stableCount = 0;
     for (let attempt = 0; attempt < 120; attempt++) { // Max 2 minutes
       await new Promise((r) => setTimeout(r, 1000));
       if (finalized) break;
       try {
         const content = await readTextFile(fullOutboxPath);
         if (content && content.trim().length > 0) {
-          finalized = true;
-          await finalize(content.trim());
-          return;
+          // Wait for file to stabilize (same size for 2 consecutive reads)
+          if (content.length === lastSize) {
+            stableCount++;
+            if (stableCount >= 2) {
+              console.log("[pty-outbox] file stable, reading:", fullOutboxPath, content.length, "chars");
+              finalized = true;
+              await finalize(content.trim());
+              return;
+            }
+          } else {
+            lastSize = content.length;
+            stableCount = 0;
+            setStatus("reading response...");
+          }
         }
-      } catch { /* file not yet created */ }
+      } catch (e) {
+        // file not yet created — keep polling
+        if (attempt % 10 === 0) console.log("[pty-outbox] polling attempt", attempt, String(e).slice(0, 50));
+      }
     }
 
     // Timeout — no file after 2 minutes
