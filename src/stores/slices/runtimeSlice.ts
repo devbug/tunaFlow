@@ -115,6 +115,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
 
     // PTY shortcut: if a Claude PTY session is active, route through it
     const ptySession = usePtyStore.getState().sessionId;
+    console.log(`[sendWithEngine] engine=${engine}, ptySession=${ptySession}`);
     if (engine === "claude" && ptySession !== null) {
       await sendViaPty(set, get, prompt, ptySession, selectedConversationId);
       return;
