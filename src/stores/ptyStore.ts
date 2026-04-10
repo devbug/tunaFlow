@@ -78,6 +78,7 @@ interface PtyStoreState {
   activeEngine: PtyEngine | null;
   outputBuffer: string;
   isCapturing: boolean;
+  completionSeen: boolean;
 
   /** Get session ID for an engine */
   getSession: (engine: string) => number | null;
@@ -97,6 +98,7 @@ export const usePtyStore = create<PtyStoreState>((set, get) => ({
   activeEngine: null,
   outputBuffer: "",
   isCapturing: false,
+  completionSeen: false,
 
   getSession: (engine) => {
     const session = get().sessions.get(engine as PtyEngine);
@@ -122,19 +124,27 @@ export const usePtyStore = create<PtyStoreState>((set, get) => ({
     activeEngine: engine,
     outputBuffer: "",
     isCapturing: true,
+    completionSeen: false,
   }),
 
   appendOutput: (text) => {
     // VTE screen snapshot — REPLACE, don't append (each emit is full screen state)
-    set({ outputBuffer: text });
+    // But preserve the snapshot that contains DONE marker
+    if (detectCompletion(text)) {
+      set({ outputBuffer: text, completionSeen: true });
+    } else if (!get().completionSeen) {
+      // Only update buffer if we haven't seen completion yet
+      // (after completion, keep the last "done" snapshot for extraction)
+      set({ outputBuffer: text });
+    }
     return text;
   },
 
-  checkCompletion: () => detectCompletion(get().outputBuffer),
+  checkCompletion: () => get().completionSeen || detectCompletion(get().outputBuffer),
 
   endCapture: () => {
     const { outputBuffer } = get();
-    set({ activeMessageId: null, activeEngine: null, outputBuffer: "", isCapturing: false });
+    set({ activeMessageId: null, activeEngine: null, outputBuffer: "", isCapturing: false, completionSeen: false });
     return outputBuffer;
   },
 }));
