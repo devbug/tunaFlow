@@ -499,8 +499,9 @@ async function sendViaPty(
 
   const isStillActive = () => get().selectedConversationId === conversationId;
 
-  // Clear any stale capture state from previous run
-  usePtyStore.getState().endCapture();
+  // Mark PTY as capturing (prevents orphan recovery from clearing runningThreadIds)
+  usePtyStore.getState().endCapture(); // clear stale
+  usePtyStore.getState().startCapture(asstMsgId, engine as import("@/stores/ptyStore").PtyEngine);
   // Capture starts after prompt is sent (below) — not here, to skip echo
 
   // PTY mode: show status during streaming, extract response after completion.
@@ -556,6 +557,7 @@ async function sendViaPty(
         if (result && result.text.length > 0) {
           finalized = true;
           ulScreen();
+          usePtyStore.getState().endCapture();
 
           // Show tool uses in status
           if (result.toolUses.length > 0) {
@@ -598,6 +600,7 @@ async function sendViaPty(
     if (!finalized) {
       finalized = true;
       ulScreen();
+      usePtyStore.getState().endCapture();
       set((state) => ({
         messages: state.messages.map((m) =>
           m.id === asstMsgId ? { ...m, content: "(응답 대기 시간 초과 — 3분)", status: "error" as const } : m
@@ -607,6 +610,7 @@ async function sendViaPty(
     }
   } catch (err) {
     ulScreen();
+    usePtyStore.getState().endCapture();
     set((state) => ({
       error: errorMessage(err),
       messages: state.messages.map((m) =>
