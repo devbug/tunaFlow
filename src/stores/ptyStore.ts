@@ -22,16 +22,33 @@ export function isPtyEngine(engine: string): engine is PtyEngine {
 /** Strip ANSI escape sequences and terminal control codes from output */
 function stripAnsi(text: string): string {
   return text
+    // CSI sequences: \x1b[...X (colors, cursor, erase, scroll, etc.)
     // eslint-disable-next-line no-control-regex
-    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
-    .replace(/\x1b\[\?[0-9;]*[hl]/g, "")
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")
+    // Bracket paste, kitty keyboard protocol: \x1b[<...u, \x1b[>...m, etc.
+    .replace(/\x1b\[[<>][0-9;]*[A-Za-z]/g, "")
+    // OSC sequences: \x1b]...BEL or \x1b]...\x1b\\
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+    // Character set designation: \x1b(X, \x1b)X
     .replace(/\x1b[()][A-Z0-9]/g, "")
+    // Application mode, keypad: \x1b=, \x1b>
     .replace(/\x1b[=>]/g, "")
+    // DEC save/restore cursor: \x1b7, \x1b8
     .replace(/\x1b[78]/g, "")
+    // Any remaining ESC + single char
+    .replace(/\x1b[^\[]/g, "")
+    // C0 control characters (except \n and \t)
     // eslint-disable-next-line no-control-regex
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "")
-    .replace(/\r/g, "");
+    // Carriage return
+    .replace(/\r/g, "")
+    // Box-drawing borders and TUI chrome (━╭╮╰╯│─┌┐└┘├┤┬┴┼)
+    .replace(/[━╭╮╰╯│─┌┐└┘├┤┬┴┼╶╴╷╵]+/g, "")
+    // UI hint text from Claude Code TUI
+    .replace(/ctrl\+[a-z]\s*to\s*\w+.*$/gm, "")
+    // Collapse excessive whitespace
+    .replace(/[ \t]{3,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n");
 }
 
 /** Detect response completion */

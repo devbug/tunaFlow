@@ -137,7 +137,7 @@ export function TerminalPanel() {
       usePtyStore.getState().clearSession("claude");
       try {
         const newSid = await invoke<number>("pty_spawn", {
-          file: "claude", args: [], cwd: projectPath, cols: 120, rows: 40,
+          file: "claude", args: [], cwd: projectPath, cols: 80, rows: 24,
         });
         usePtyStore.getState().setSession("claude", newSid, projectPath);
       } catch (err) {

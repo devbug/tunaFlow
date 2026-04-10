@@ -233,7 +233,7 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
         if (!binary) continue;
         try {
           const sessionId = await tauriInvoke<number>("pty_spawn", {
-            file: binary, args: [], cwd: project.path, cols: 120, rows: 40,
+            file: binary, args: [], cwd: project.path, cols: 80, rows: 24,
           });
           usePtyStore.getState().setSession(engine, sessionId, project.path!);
           console.log(`[pty] ${engine} session ${sessionId} started for project ${key}`);
