@@ -114,13 +114,8 @@ export function TerminalPanel() {
 
       // User input → PTY stdin via Tauri invoke
       term.onData((data: string) => {
-        console.log(`[pty-input] sessionId=${sessionIdRef.current}, data=${JSON.stringify(data)}`);
         if (sessionIdRef.current !== null) {
-          invoke("pty_write", { sessionId: sessionIdRef.current, data })
-            .then(() => console.log("[pty-input] write ok"))
-            .catch((e) => console.error("[pty-input] write failed:", e));
-        } else {
-          console.warn("[pty-input] no session, input dropped");
+          invoke("pty_write", { sessionId: sessionIdRef.current, data }).catch(console.error);
         }
       });
 
