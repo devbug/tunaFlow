@@ -519,11 +519,14 @@ async function sendViaPty(
   // Listen for PTY output and accumulate ANSI-stripped text
   let completionTimer: ReturnType<typeof setTimeout> | null = null;
   let finalized = false;
-  const ulOutput = await listenEvent<{ sessionId: number; data: string }>("pty:output", (e) => {
+  // Listen for ANSI-stripped text from Rust (pty:text), not raw output (pty:output)
+  const ulOutput = await listenEvent<{ sessionId: number; data: string }>("pty:text", (e) => {
     if (e.payload.sessionId !== sessionId || finalized) return;
     const store = usePtyStore.getState();
     if (!store.isCapturing) return;
 
+    // Data is already ANSI-stripped by Rust — just append
+    set((s) => ({ ...s })); // trigger reactivity
     store.appendOutput(e.payload.data);
     pendingContent = store.outputBuffer;
     if (!contentTimer) contentTimer = setTimeout(flushContent, 200);

@@ -122,10 +122,10 @@ export const usePtyStore = create<PtyStoreState>((set, get) => ({
     isCapturing: true,
   }),
 
-  appendOutput: (rawText) => {
-    const stripped = stripAnsi(rawText);
-    set((s) => ({ outputBuffer: s.outputBuffer + stripped }));
-    return stripped;
+  appendOutput: (text) => {
+    // text is already ANSI-stripped by Rust (pty:text event)
+    set((s) => ({ outputBuffer: s.outputBuffer + text }));
+    return text;
   },
 
   checkCompletion: () => detectCompletion(get().outputBuffer),

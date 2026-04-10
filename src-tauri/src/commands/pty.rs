@@ -122,7 +122,10 @@ pub fn pty_spawn(
             match reader.read(&mut buf) {
                 Ok(0) => break, // EOF
                 Ok(n) => {
-                    let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let raw = &buf[..n];
+                    let text = String::from_utf8_lossy(raw).to_string();
+
+                    // Raw output → xterm.js (Terminal tab debug view)
                     let _ = app.emit(
                         "pty:output",
                         PtyOutputPayload {
@@ -130,6 +133,21 @@ pub fn pty_spawn(
                             data: text,
                         },
                     );
+
+                    // ANSI-stripped text → Chat message streaming
+                    let stripped_bytes = strip_ansi_escapes::strip(raw);
+                    let stripped = String::from_utf8_lossy(&stripped_bytes)
+                        .replace('\r', "")
+                        .to_string();
+                    if !stripped.trim().is_empty() {
+                        let _ = app.emit(
+                            "pty:text",
+                            PtyOutputPayload {
+                                session_id: sid,
+                                data: stripped,
+                            },
+                        );
+                    }
                 }
                 Err(e) => {
                     eprintln!("[pty] read error for session {}: {}", sid, e);
