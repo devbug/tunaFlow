@@ -156,7 +156,8 @@ pub fn pty_spawn(
                         .collect::<Vec<_>>()
                         .join("\n");
                     if !filtered.trim().is_empty() {
-                        eprintln!("[pty:text] session {} — {} chars: {:?}", sid, filtered.len(), &filtered[..filtered.len().min(80)]);
+                        let preview: String = filtered.chars().take(80).collect();
+                        eprintln!("[pty:text] session {} — {} chars: {:?}", sid, filtered.len(), preview);
                         let _ = app.emit(
                             "pty:text",
                             PtyOutputPayload {

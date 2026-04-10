@@ -584,9 +584,10 @@ async function sendViaPty(
     get()._endRun(conversationId);
   };
 
-  // Send prompt to PTY stdin
+  // Send prompt to PTY stdin (append completion marker instruction)
+  const ptyPrompt = prompt + "\n\n(응답 완료 시 마지막 줄에 <!-- tunaflow:response-complete --> 를 포함해주세요)\n";
   try {
-    await invoke("pty_write", { sessionId, data: prompt + "\n" });
+    await invoke("pty_write", { sessionId, data: ptyPrompt });
   } catch (err) {
     ulOutput();
     usePtyStore.getState().endCapture();
