@@ -526,13 +526,14 @@ async function sendViaPty(
 
     store.appendOutput(e.payload.data);
 
-    // Update status indicator based on content
-    const buf = store.outputBuffer;
-    if (/TUNAFLOW_DONE/.test(buf) || /Worked for/.test(buf)) {
+    // Check completion (VTE screen: has ⏺ response + bare ❯ prompt)
+    if (usePtyStore.getState().checkCompletion()) {
       finalized = true;
       finalize();
       return;
     }
+
+    // Update status indicator
     if (/⏺/.test(e.payload.data)) {
       setStatus("responding...");
     } else if (/[✻✢✳✶✽]/.test(e.payload.data)) {
@@ -556,15 +557,10 @@ async function sendViaPty(
     for (const line of lines) {
       const trimmed = line.trim();
       // Start capturing at ⏺ (Claude response marker)
-      if (trimmed.startsWith("⏺") || trimmed.startsWith("⎿")) {
+      if (trimmed.startsWith("⏺")) {
         capturing = true;
         // Include this line (remove the ⏺ prefix)
         responseLines.push(trimmed.replace(/^[⏺⎿]\s*/, ""));
-        continue;
-      }
-      // Stop at TUNAFLOW_DONE
-      if (trimmed.includes("TUNAFLOW_DONE")) {
-        capturing = false;
         continue;
       }
       // Stop at next prompt (❯ at start of line = Claude waiting for input)
@@ -619,9 +615,8 @@ async function sendViaPty(
   // Send prompt via bracket paste, then Enter separately after a short delay.
   // Claude Code TUI needs paste to complete before receiving Enter.
   try {
-    // 1. Paste the prompt text (append completion marker instruction)
-    const fullPrompt = `${prompt}\n\n[응답 마지막에 반드시 "TUNAFLOW_DONE" 이라고 써줘]`;
-    await invoke("pty_write", { sessionId, data: `\x1b[200~${fullPrompt}\x1b[201~` });
+    // 1. Paste the prompt text
+    await invoke("pty_write", { sessionId, data: `\x1b[200~${prompt}\x1b[201~` });
     // 2. Wait for TUI to process paste
     await new Promise((r) => setTimeout(r, 150));
     // 3. Submit with Enter

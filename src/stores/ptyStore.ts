@@ -51,15 +51,25 @@ function stripAnsi(text: string): string {
     .replace(/\n{3,}/g, "\n\n");
 }
 
-/** Detect response completion */
+/** Detect response completion from VTE screen snapshot.
+ * Complete when: screen has ⏺ (response) AND ends with bare ❯ (new prompt = idle).
+ */
 function detectCompletion(text: string): boolean {
-  // Primary: explicit done marker (injected in PTY prompt suffix)
-  if (text.includes("TUNAFLOW_DONE")) return true;
-  // Secondary: tunaflow HTML marker
-  if (text.includes("<!-- tunaflow:response-complete -->")) return true;
-  // Fallback: Claude Code specific
-  const tail = text.slice(-300);
-  if (/Worked for \d+/i.test(tail)) return true;
+  const hasResponse = /⏺/.test(text);
+  if (!hasResponse) return false;
+
+  // Check if screen ends with bare prompt (❯ with nothing after it)
+  const lines = text.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+  const lastMeaningful = lines[lines.length - 1] || "";
+  // Bare prompt: just ❯ or "? for shortcuts"
+  if (/^❯\s*$/.test(lastMeaningful)) return true;
+  if (/^\?\s*for\s*shortcuts/.test(lastMeaningful)) return true;
+  // "Worked for Xs" line
+  if (/Worked for \d+/i.test(lastMeaningful)) return true;
+  // Check second-to-last (prompt might be on the line above status bar)
+  const secondLast = lines[lines.length - 2] || "";
+  if (/^❯\s*$/.test(secondLast)) return true;
+
   return false;
 }
 
@@ -133,7 +143,7 @@ export const usePtyStore = create<PtyStoreState>((set, get) => ({
   appendOutput: (text) => {
     // VTE screen snapshot — REPLACE, don't append
     // Track response start (⏺ marker = Claude began responding)
-    const hasResponseStart = /⏺/.test(text) || /⎿/.test(text);
+    const hasResponseStart = /⏺/.test(text);
     const wasStarted = get().responseStarted;
     const nowStarted = wasStarted || hasResponseStart;
 
