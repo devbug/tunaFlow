@@ -271,11 +271,113 @@ pub fn pty_kill_all(
     Ok(count)
 }
 
-/// Read a file as text (no scope restriction).
+/// Find the latest JSONL file for a project and return the last assistant message.
+/// Claude Code writes conversation logs to ~/.claude/projects/{encoded-cwd}/{sessionId}.jsonl
 #[tauri::command]
-pub fn pty_read_outbox(path: String) -> Result<String, AppError> {
-    std::fs::read_to_string(&path)
-        .map_err(|e| AppError::NotFound(format!("{}: {}", path, e)))
+pub fn pty_poll_jsonl(
+    project_path: String,
+    after_line: Option<usize>,
+) -> Result<Option<PtyJsonlResult>, AppError> {
+    use std::io::BufRead;
+
+    // Encode project path: /Users/foo/bar → -Users-foo-bar
+    let encoded = project_path.replace('/', "-");
+    let claude_dir = dirs::home_dir()
+        .ok_or_else(|| AppError::Agent("no home dir".into()))?
+        .join(".claude/projects")
+        .join(&encoded);
+
+    if !claude_dir.exists() {
+        return Ok(None);
+    }
+
+    // Find the most recently modified .jsonl file (= current session)
+    let mut latest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    for entry in std::fs::read_dir(&claude_dir).map_err(|e| AppError::Agent(e.to_string()))? {
+        let entry = entry.map_err(|e| AppError::Agent(e.to_string()))?;
+        let path = entry.path();
+        if path.extension().map_or(false, |e| e == "jsonl") && !path.to_string_lossy().contains("subagents") {
+            if let Ok(meta) = path.metadata() {
+                if let Ok(modified) = meta.modified() {
+                    if latest.as_ref().map_or(true, |(t, _)| modified > *t) {
+                        latest = Some((modified, path));
+                    }
+                }
+            }
+        }
+    }
+
+    let jsonl_path = match latest {
+        Some((_, p)) => p,
+        None => return Ok(None),
+    };
+
+    // Read lines after `after_line` index, find last assistant message
+    let file = std::fs::File::open(&jsonl_path).map_err(|e| AppError::Agent(e.to_string()))?;
+    let reader = std::io::BufReader::new(file);
+    let skip = after_line.unwrap_or(0);
+    let mut total_lines = 0usize;
+    let mut last_assistant: Option<serde_json::Value> = None;
+
+    for (idx, line) in reader.lines().enumerate() {
+        total_lines = idx + 1;
+        if idx < skip { continue; }
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if value.get("type").and_then(|t| t.as_str()) == Some("assistant") {
+                last_assistant = Some(value);
+            }
+        }
+    }
+
+    match last_assistant {
+        Some(value) => {
+            let message = &value["message"];
+            let model = message["model"].as_str().map(|s| s.to_string());
+
+            // Extract content items
+            let mut text_parts = Vec::new();
+            let mut tool_uses = Vec::new();
+            if let Some(content) = message["content"].as_array() {
+                for item in content {
+                    match item["type"].as_str() {
+                        Some("text") => {
+                            if let Some(t) = item["text"].as_str() {
+                                text_parts.push(t.to_string());
+                            }
+                        }
+                        Some("tool_use") => {
+                            let name = item["name"].as_str().unwrap_or("unknown").to_string();
+                            tool_uses.push(name);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            Ok(Some(PtyJsonlResult {
+                text: text_parts.join("\n\n"),
+                tool_uses,
+                model,
+                total_lines,
+            }))
+        }
+        None => Ok(None),
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyJsonlResult {
+    pub text: String,
+    pub tool_uses: Vec<String>,
+    pub model: Option<String>,
+    pub total_lines: usize,
 }
 
 /// Kill a PTY session.

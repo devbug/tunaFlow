@@ -518,11 +518,7 @@ async function sendViaPty(
     }
   };
 
-  // Outbox file path — agent writes response here, tunaFlow polls for it
-  const runId = `${Date.now()}`;
-  const outboxPath = `.tunaflow/outbox/${runId}.md`;
   const projectPath = usePtyStore.getState().sessions.values().next().value?.projectPath || "";
-  const fullOutboxPath = `${projectPath}/${outboxPath}`;
 
   // Status indicator via pty:screen (visual only, not for completion)
   const ulScreen = await listenEvent<{ sessionId: number; data: string }>("pty:screen", (e) => {
@@ -531,90 +527,82 @@ async function sendViaPty(
     else if (/[✻✢✳✶✽]/.test(e.payload.data)) setStatus("thinking...");
   });
 
-  const finalize = async (cleaned: string) => {
-    ulScreen();
-    usePtyStore.getState().endCapture();
-
-    // Save assistant message to DB
-    try {
-      const savedMsg = await invoke<Message>("append_assistant_message", {
-        input: { conversationId, content: cleaned, engine: (ENGINE_CONFIGS[engine] ?? ENGINE_CONFIGS.claude).engineKey, model: null, status: "done" },
-      });
-      // Replace temp ID with real DB ID
-      if (isStillActive()) {
-        set((state) => ({
-          messages: state.messages.map((m) =>
-            m.id === asstMsgId ? { ...savedMsg, content: cleaned } : m
-          ),
-        }));
-      }
-    } catch (err) {
-      console.error("[pty] failed to save message:", err);
-      // Still show in UI even if DB save fails
-      if (isStillActive()) {
-        set((state) => ({
-          messages: state.messages.map((m) =>
-            m.id === asstMsgId ? { ...m, content: cleaned, status: "done" as const } : m
-          ),
-        }));
-      }
-    }
-
-    get()._endRun(conversationId);
-  };
-
-  // Send prompt to PTY stdin (append completion marker instruction)
-  // Send prompt via bracket paste, then Enter separately after a short delay.
-  // Claude Code TUI needs paste to complete before receiving Enter.
+  // Get current JSONL line count (baseline — poll for lines after this)
+  let baselineLines = 0;
   try {
-    // 1. Paste the prompt with outbox instruction
-    const fullPrompt = `${prompt}\n\n[IMPORTANT: Write your complete response to the file "${outboxPath}". Create the directory if needed. This is how tunaFlow reads your response.]`;
-    await invoke("pty_write", { sessionId, data: `\x1b[200~${fullPrompt}\x1b[201~` });
-    // 2. Wait for TUI to process paste
+    const baseline = await invoke<{ text: string; toolUses: string[]; model: string | null; totalLines: number } | null>(
+      "pty_poll_jsonl", { projectPath, afterLine: 0 }
+    );
+    if (baseline) baselineLines = baseline.totalLines;
+  } catch { /* ok */ }
+
+  // Send prompt via bracket paste + Enter
+  try {
+    await invoke("pty_write", { sessionId, data: `\x1b[200~${prompt}\x1b[201~` });
     await new Promise((r) => setTimeout(r, 150));
-    // 3. Submit with Enter
     await invoke("pty_write", { sessionId, data: "\r" });
 
-    // 4. Poll for outbox file (agent writes response here)
-    setStatus("waiting for response...");
-    let lastSize = 0;
-    let stableCount = 0;
-    for (let attempt = 0; attempt < 120; attempt++) { // Max 2 minutes
+    // Poll JSONL for new assistant message (1 second interval)
+    setStatus("thinking...");
+    for (let attempt = 0; attempt < 180; attempt++) { // Max 3 minutes
       await new Promise((r) => setTimeout(r, 1000));
       if (finalized) break;
+
       try {
-        const content = await invoke<string>("pty_read_outbox", { path: fullOutboxPath });
-        if (content && content.trim().length > 0) {
-          // Wait for file to stabilize (same size for 2 consecutive reads)
-          if (content.length === lastSize) {
-            stableCount++;
-            if (stableCount >= 2) {
-              console.log("[pty-outbox] file stable, reading:", fullOutboxPath, content.length, "chars");
-              finalized = true;
-              await finalize(content.trim());
-              return;
-            }
-          } else {
-            lastSize = content.length;
-            stableCount = 0;
-            setStatus("reading response...");
+        const result = await invoke<{ text: string; toolUses: string[]; model: string | null; totalLines: number } | null>(
+          "pty_poll_jsonl", { projectPath, afterLine: baselineLines }
+        );
+
+        if (result && result.text.length > 0) {
+          finalized = true;
+          ulScreen();
+
+          // Show tool uses in status
+          if (result.toolUses.length > 0) {
+            console.log("[pty-jsonl] tools used:", result.toolUses);
           }
+
+          // Save to DB + update UI
+          const engineKey = (ENGINE_CONFIGS[engine] ?? ENGINE_CONFIGS.claude).engineKey;
+          try {
+            const savedMsg = await invoke<Message>("append_assistant_message", {
+              input: { conversationId, content: result.text, engine: engineKey, model: result.model, status: "done" },
+            });
+            if (isStillActive()) {
+              set((state) => ({
+                messages: state.messages.map((m) =>
+                  m.id === asstMsgId ? { ...savedMsg, content: result.text } : m
+                ),
+              }));
+            }
+          } catch (err) {
+            console.error("[pty-jsonl] DB save failed:", err);
+            if (isStillActive()) {
+              set((state) => ({
+                messages: state.messages.map((m) =>
+                  m.id === asstMsgId ? { ...m, content: result.text, model: result.model ?? undefined, status: "done" as const } : m
+                ),
+              }));
+            }
+          }
+
+          get()._endRun(conversationId);
+          return;
         }
       } catch (e) {
-        // file not yet created — keep polling
-        if (attempt % 10 === 0) console.log("[pty-outbox] polling attempt", attempt, String(e).slice(0, 50));
+        if (attempt % 15 === 0) console.log("[pty-jsonl] polling...", attempt, String(e).slice(0, 60));
       }
     }
 
-    // Timeout — no file after 2 minutes
+    // Timeout
     if (!finalized) {
       finalized = true;
+      ulScreen();
       set((state) => ({
         messages: state.messages.map((m) =>
-          m.id === asstMsgId ? { ...m, content: "(응답 파일 생성 대기 시간 초과)", status: "error" as const } : m
+          m.id === asstMsgId ? { ...m, content: "(응답 대기 시간 초과 — 3분)", status: "error" as const } : m
         ),
       }));
-      ulScreen();
       get()._endRun(conversationId);
     }
   } catch (err) {
