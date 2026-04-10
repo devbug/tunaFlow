@@ -560,6 +560,10 @@ async function sendViaPty(
       .replace(/❯[^\n]*/g, "")
       .replace(/esctointerrupt/gi, "")
       .replace(/\?forshortcuts/gi, "")
+      // Claude Code TUI status bar that bleeds into response lines
+      .replace(/⏵+\s*bypass\s*permissions?\s*on[^\n]*/gi, "")
+      .replace(/\(shift\+tab\s*to\s*cycle\)/gi, "")
+      .replace(/⏵+[^\n]*/g, "")
       .replace(/Pasting text[^\n]*/g, "")
       // Restore line breaks: TUI chrome lines (box-drawing, separators)
       .replace(/^[─━╌╌ ]+$/gm, "\n")
