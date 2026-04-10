@@ -29,14 +29,22 @@ export function TerminalPanel() {
 
     if (!projectPath) return;
 
+    term.write(`\x1b[90m[Starting shell in ${projectPath}...]\x1b[0m\r\n`);
+
     try {
       const { spawn } = await import("tauri-pty");
-      const pty = await spawn("claude", [], {
+
+      // Start interactive shell first (debug: confirm PTY works)
+      const shell = navigator.userAgent.includes("Windows") ? "powershell.exe" : "/bin/zsh";
+      term.write(`\x1b[90m[Spawning ${shell}...]\x1b[0m\r\n`);
+
+      const pty = await spawn(shell, [], {
         cols: term.cols,
         rows: term.rows,
         cwd: projectPath,
       });
 
+      term.write(`\x1b[90m[PTY spawned successfully]\x1b[0m\r\n`);
       ptyRef.current = pty;
 
       // PTY → Terminal (process output)
@@ -51,7 +59,8 @@ export function TerminalPanel() {
         ptyRef.current = null;
       });
     } catch (err) {
-      term.write(`\r\n\x1b[31m[Failed to start claude: ${err}]\x1b[0m\r\n`);
+      console.error("[pty] spawn failed:", err);
+      term.write(`\r\n\x1b[31m[Failed to start PTY: ${String(err)}]\x1b[0m\r\n`);
     }
   }, [projectPath]);
 
