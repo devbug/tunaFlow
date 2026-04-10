@@ -558,11 +558,17 @@ async function sendViaPty(
       .replace(/<!--\s*tunaflow:response-complete\s*-->/g, "")
       .replace(/[✻✢✳✶✽⏺]/g, "")
       .replace(/❯[^\n]*/g, "")
-      .replace(/esctointerrupt/g, "")
-      .replace(/\?forshortcuts/g, "")
-      .replace(/^[─━ ]+$/gm, "")
+      .replace(/esctointerrupt/gi, "")
+      .replace(/\?forshortcuts/gi, "")
       .replace(/Pasting text[^\n]*/g, "")
+      // Restore line breaks: TUI chrome lines (box-drawing, separators)
+      .replace(/^[─━╌╌ ]+$/gm, "\n")
+      // Remove Claude Code banner lines
+      .replace(/▐▛[^]*?▘▘▝▝[^\n]*/g, "")
+      .replace(/ClaudeCodev[\d.]+/g, "")
+      // Collapse excessive whitespace but preserve paragraph breaks
       .replace(/\n{3,}/g, "\n\n")
+      .replace(/[ \t]{2,}/g, " ")
       .trim();
 
     // Save assistant message to DB
