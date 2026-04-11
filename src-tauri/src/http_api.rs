@@ -7,7 +7,6 @@
 //! - WS event bridge: Tauri events → broadcast → WebSocket clients
 //! - Binds to localhost only (127.0.0.1:19840)
 
-use std::sync::Arc;
 use axum::{
     Router,
     routing::{get, post},
@@ -16,7 +15,7 @@ use axum::{
     response::{IntoResponse, Json},
     middleware,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use crate::db::DbState;
@@ -47,7 +46,7 @@ pub fn start_server(db: DbState, app_handle: tauri::AppHandle) -> String {
     let tx = event_tx.clone();
     bridge_tauri_events(app_handle, tx);
 
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let app = build_router(state);
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], DEFAULT_PORT));
         eprintln!("[http-api] starting on http://{}", addr);
