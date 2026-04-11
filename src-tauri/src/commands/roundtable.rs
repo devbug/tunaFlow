@@ -11,7 +11,7 @@ use super::agents::{StartRunResult, AgentDonePayload, AgentErrorPayload};
 use super::jobs;
 
 use super::roundtable_helpers::executor::{
-    execute_round, RoundStrategy, RoundtableParticipant,
+    execute_round, RoundStrategy, RoundtableParticipant, SessionMap,
 };
 use super::roundtable_helpers::persist::{archive_transcript, persist_header, save_shared_brief};
 use super::agents_helpers::trace_log::{insert_trace_log, new_trace_id, new_span_id, SpanInfo};
@@ -108,6 +108,7 @@ pub async fn roundtable_run(
     let trace_id = new_trace_id();
     let root_span_id = new_span_id();
     let t0 = std::time::Instant::now();
+    let mut session_map = SessionMap::new();
 
     let (msgs, round_responses) = execute_round(
         &input.participants,
@@ -124,6 +125,7 @@ pub async fn roundtable_run(
         &trace_id,
         &root_span_id,
         project_path.as_deref(),
+        &mut session_map,
     ).await?;
     all_messages.extend(msgs);
 
@@ -211,6 +213,7 @@ pub async fn roundtable_followup(
     let trace_id = new_trace_id();
     let root_span_id = new_span_id();
     let t0 = std::time::Instant::now();
+    let mut session_map = SessionMap::new();
 
     let (msgs, followup_responses) = execute_round(
         &input.participants,
@@ -227,6 +230,7 @@ pub async fn roundtable_followup(
         &trace_id,
         &root_span_id,
         project_path.as_deref(),
+        &mut session_map,
     ).await?;
     all_messages.extend(msgs);
 
@@ -318,10 +322,12 @@ pub async fn start_roundtable_run(
         let trace_id = new_trace_id();
         let root_span_id = new_span_id();
         let t0 = std::time::Instant::now();
+        let mut session_map = SessionMap::new();
 
         let result = execute_round(
             &input.participants, &[], 1, 1, &enriched_prompt, strategy, &rt_mode,
             &cid, &bg_state, &app, &bg_cancel, &trace_id, &root_span_id, project_path.as_deref(),
+            &mut session_map,
         ).await;
 
         if let Ok(conn) = write_arc.lock() {
@@ -398,10 +404,12 @@ pub async fn start_roundtable_followup(
         let trace_id = new_trace_id();
         let root_span_id = new_span_id();
         let t0 = std::time::Instant::now();
+        let mut session_map = SessionMap::new();
 
         let result = execute_round(
             &input.participants, &prior_transcript, round_num, round_num, &prompt, strategy, &rt_mode,
             &cid, &bg_state, &app, &bg_cancel, &trace_id, &root_span_id, project_path.as_deref(),
+            &mut session_map,
         ).await;
 
         if let Ok(conn) = write_arc.lock() {

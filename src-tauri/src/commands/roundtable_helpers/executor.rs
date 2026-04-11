@@ -296,6 +296,8 @@ pub struct ParticipantResult {
     pub out_tokens: i64,
     pub prompt_sources: String,
     pub blind: bool,
+    /// Session ID from the engine — used for resume_token in next round.
+    pub session_id: Option<String>,
 }
 
 /// Controls how participants see context within and across rounds.
@@ -358,6 +360,7 @@ pub async fn run_participant(
             out_tokens: out.output_tokens,
             prompt_sources: sources_json,
             blind: p.blind,
+            session_id: out.session_id,
         },
         Err(e) => ParticipantResult {
             name: p.name.clone(),
@@ -370,6 +373,7 @@ pub async fn run_participant(
             out_tokens: 0,
             prompt_sources: sources_json,
             blind: p.blind,
+            session_id: None,
         },
     }
 }
@@ -385,17 +389,20 @@ pub async fn stream_participant(
     conversation_id: String,
     app: tauri::AppHandle,
     cancel_arc: std::sync::Arc<parking_lot::Mutex<std::collections::HashSet<String>>>,
+    resume_token: Option<String>,
 ) -> ParticipantResult {
     let engine_key = p.engine.as_deref().unwrap_or("claude");
     let max_tok = effective_max_tokens(p);
-    eprintln!("[rt-stream] running participant={} engine={} role={:?}", p.name, engine_key, p.role);
+    if resume_token.is_some() {
+        eprintln!("[rt-stream] participant={} engine={} resume_token=yes", p.name, engine_key);
+    }
 
     let prompt = format!("{}{}", output_cap_directive(max_tok), prompt);
     let run_input = claude::RunInput {
         prompt,
         model: p.model.clone(),
         system_prompt: None,
-        resume_token: None,
+        resume_token,
         project_path,
     };
 
@@ -405,6 +412,8 @@ pub async fn stream_participant(
     let engine_key_owned = engine_key.to_string();
 
     let result: (Result<claude::RunOutput, AppError>, &'static str) = match engine_key {
+        // All engines use the same RunInput/RunOutput — resume_token is passed through.
+        // Engines that don't support resume will ignore it and return session_id: None.
         "claude" | "gemini" => {
             // Sync CLI engines with cancel support
             let a = app.clone(); let mi = msg_id.clone(); let ci = conversation_id.clone();
@@ -482,12 +491,12 @@ pub async fn stream_participant(
             name, engine: engine_label.to_string(), model, content: out.content,
             status: "done".into(), cost_usd: out.cost_usd,
             in_tokens: out.input_tokens, out_tokens: out.output_tokens,
-            prompt_sources: sources_json, blind,
+            prompt_sources: sources_json, blind, session_id: out.session_id,
         },
         Err(e) => ParticipantResult {
             name, engine: engine_label.to_string(), model, content: format!("Error: {}", e),
             status: "error".into(), cost_usd: 0.0, in_tokens: 0, out_tokens: 0,
-            prompt_sources: sources_json, blind,
+            prompt_sources: sources_json, blind, session_id: None,
         },
     }
 }
@@ -499,6 +508,10 @@ pub async fn stream_participant(
 ///
 /// Prompt is passed through as-is — no forced context injection.
 /// Users control what context to include in their prompt per round.
+/// Session map: participant_name → session_id from previous rounds.
+/// Passed between rounds to enable `--resume` for engines that support it.
+pub type SessionMap = std::collections::HashMap<String, String>;
+
 pub async fn execute_round(
     participants: &[RoundtableParticipant],
     transcript: &[(String, String)],
@@ -514,17 +527,18 @@ pub async fn execute_round(
     trace_id: &str,
     root_span_id: &str,
     project_path: Option<&str>,
+    session_map: &mut SessionMap,
 ) -> Result<(Vec<Message>, Vec<(String, String)>), AppError> {
     let prior_refs: Vec<String> = transcript.iter().map(|(n, _)| n.clone()).collect();
 
     match strategy {
         RoundStrategy::Sequential => execute_sequential(
             participants, transcript, &prior_refs, round_num, total_rounds, topic, rt_mode,
-            conversation_id, state, app, cancel, trace_id, root_span_id, project_path,
+            conversation_id, state, app, cancel, trace_id, root_span_id, project_path, session_map,
         ).await,
         RoundStrategy::Deliberative => execute_parallel(
             participants, transcript, &prior_refs, round_num, total_rounds, topic, rt_mode,
-            conversation_id, state, app, cancel, trace_id, root_span_id, project_path,
+            conversation_id, state, app, cancel, trace_id, root_span_id, project_path, session_map,
         ).await,
     }
 }
@@ -539,6 +553,7 @@ async fn execute_sequential(
     conversation_id: &str, state: &DbState, app: &tauri::AppHandle,
     cancel: &CancelRegistry, trace_id: &str, root_span_id: &str,
     project_path: Option<&str>,
+    session_map: &mut SessionMap,
 ) -> Result<(Vec<Message>, Vec<(String, String)>), AppError> {
     let mut messages = Vec::new();
     let mut round_responses: Vec<(String, String)> = Vec::new();
@@ -608,9 +623,11 @@ async fn execute_sequential(
         if let Some(ctx) = ctx_cache.get(engine_key) {
             prompt = format!("{}\n\n---\n\n{}", ctx, prompt);
         }
+        let resume = session_map.get(&p.name).cloned();
         let r = stream_participant(
             p, prompt, sources_json, project_path.map(|s| s.to_string()),
             msg_id.clone(), conversation_id.to_string(), app.clone(), std::sync::Arc::clone(&cancel.0),
+            resume,
         ).await;
 
         // Phase 3: finalize in DB + emit final message
@@ -619,6 +636,11 @@ async fn execute_sequential(
             name: r.name.clone(), engine: r.engine.clone(), model: r.model.clone(),
             round: round_num, status: r.status.clone(), blind: r.blind,
         });
+
+        // Save session_id for resume in next round
+        if let Some(ref sid) = r.session_id {
+            session_map.insert(p.name.clone(), sid.clone());
+        }
 
         let final_msg = {
             let conn = state.write.lock().map_err(|_| AppError::Lock)?;
@@ -650,6 +672,7 @@ async fn execute_parallel(
     conversation_id: &str, state: &DbState, app: &tauri::AppHandle,
     cancel: &CancelRegistry, trace_id: &str, root_span_id: &str,
     project_path: Option<&str>,
+    session_map: &mut SessionMap,
 ) -> Result<(Vec<Message>, Vec<(String, String)>), AppError> {
     if cancel.check_and_consume(conversation_id) {
         return Err(AppError::Agent("cancelled by user".into()));
@@ -748,8 +771,9 @@ async fn execute_parallel(
         let cid = conversation_id.to_string();
         let a = app.clone();
         let ca = std::sync::Arc::clone(&cancel.0);
+        let resume = session_map.get(&p.name).cloned();
         tokio::spawn(async move {
-            let result = stream_participant(&p_clone, pr, sj, pp, mid.clone(), cid, a, ca).await;
+            let result = stream_participant(&p_clone, pr, sj, pp, mid.clone(), cid, a, ca, resume).await;
             let _ = tx.send((mid, result)).await;
         });
     }
@@ -778,6 +802,9 @@ async fn execute_parallel(
         messages.push(final_msg);
 
         if r.status == "done" {
+            if let Some(ref sid) = r.session_id {
+                session_map.insert(r.name.clone(), sid.clone());
+            }
             round_responses.push((r.name.clone(), r.content.clone()));
         }
     }
