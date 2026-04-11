@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { Activity, Clock, Cpu, RefreshCw, ChevronDown, ChevronRight, Zap, Package, Brain, Gauge } from "lucide-react";
+import { useTraceData } from "./useTraceData";
 
 import {
   TraceSpanCard,
@@ -97,22 +98,11 @@ function SpeedSparkline({ spans }: { spans: TraceSpan[] }) {
 export function TracePanel() {
   const selectedConversationId = useChatStore((s) => s.selectedConversationId);
   const activeBranchId = useChatStore((s) => s.activeBranchId);
-  const runningThreadIds = useChatStore((s) => s.runningThreadIds);
   const messageQueue = useChatStore((s) => s.messageQueue);
   const rawqStatus = useChatStore((s) => s.rawqStatus);
   const activeSkills = useChatStore((s) => s.activeSkills);
 
-  const [spans, setSpans] = useState<TraceSpan[]>([]);
-  const [jobs, setJobs] = useState<AgentJob[]>([]);
-  const [loading, setLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [tick, setTick] = useState(0);
-  const [memoryStatus, setMemoryStatus] = useState<{
-    state: string; sourceCount: number | null; messageCount: number;
-    createdAt: number | null; updatedAt: number | null;
-    newMessagesSince: number; summaryLength: number | null;
-    topicCount: number; provenance: string | null; modelUsed: string | null;
-  } | null>(null);
 
   const messages = useChatStore((s) => s.messages);
   const threadMessages = useChatStore((s) => s.threadMessages);
@@ -121,50 +111,14 @@ export function TracePanel() {
     ? `branch:${activeBranchId}`
     : selectedConversationId;
 
+  const { spans, jobs, loading, tick, memoryStatus, threadRunning, refresh, refreshMemory } = useTraceData(convId);
+
   const getModelForSpan = (sp: TraceSpan): string | null => {
     if (!sp.messageId) return null;
     const allMsgs = [...messages, ...threadMessages];
     const msg = allMsgs.find((m) => m.id === sp.messageId);
     return msg?.model ?? null;
   };
-
-  const loadTraces = async () => {
-    if (!convId) return;
-    setLoading(true);
-    try {
-      const data = await invoke<TraceSpan[]>("list_traces", { conversationId: convId, traceId: null });
-      setSpans(data);
-    } catch { setSpans([]); }
-    finally { setLoading(false); }
-  };
-
-  const loadJobs = async () => {
-    try {
-      const data = await invoke<AgentJob[]>("list_active_jobs");
-      setJobs(data);
-    } catch { setJobs([]); }
-  };
-
-  const loadMemoryStatus = async () => {
-    if (!convId) return;
-    try {
-      const s = await invoke<typeof memoryStatus>("get_conversation_memory_status", { conversationId: convId });
-      setMemoryStatus(s);
-    } catch { setMemoryStatus(null); }
-  };
-
-  useEffect(() => {
-    loadTraces();
-    loadJobs();
-    loadMemoryStatus();
-  }, [convId]);
-
-  const threadRunning = convId ? runningThreadIds.includes(convId) : false;
-  useEffect(() => {
-    if (!threadRunning) return;
-    const interval = setInterval(() => { loadJobs(); setTick((t) => t + 1); }, 1000);
-    return () => clearInterval(interval);
-  }, [threadRunning]);
 
   const queuedCount = convId
     ? messageQueue.filter((q) => q.threadId === convId).length
@@ -286,7 +240,7 @@ export function TracePanel() {
                   if (!convId) return;
                   try {
                     await invoke("force_recompress_memory", { conversationId: convId });
-                    loadMemoryStatus();
+                    refreshMemory();
                   } catch (e) { console.error("[TracePanel] recompress failed", e); }
                 }}
               >
@@ -364,7 +318,7 @@ export function TracePanel() {
       {/* ═══ TRACE HISTORY ═══ */}
       <div className="border-t border-border/20 pt-2">
         <button
-          onClick={() => { setHistoryOpen(!historyOpen); if (!historyOpen) loadTraces(); }}
+          onClick={() => { setHistoryOpen(!historyOpen); if (!historyOpen) refresh(); }}
           className="flex items-center gap-1.5 w-full text-left hover:bg-accent/30 rounded px-1 py-0.5 transition-colors"
         >
           {historyOpen
@@ -376,7 +330,7 @@ export function TracePanel() {
           </span>
           <span className="text-[9px] text-muted-foreground/30">{spans.length}</span>
           <button
-            onClick={(e) => { e.stopPropagation(); loadTraces(); loadJobs(); }}
+            onClick={(e) => { e.stopPropagation(); refresh(); }}
             disabled={loading}
             className="p-0.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
             title="Refresh"

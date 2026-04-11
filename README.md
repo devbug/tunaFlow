@@ -9,8 +9,8 @@
 [![Rust](https://img.shields.io/badge/Rust-stable-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)](https://sqlite.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-363_passing-22c55e)](.)
-[![DB Schema](https://img.shields.io/badge/DB_Schema-v29-8b5cf6)](.)
+[![Tests](https://img.shields.io/badge/Tests-372_passing-22c55e)](.)
+[![DB Schema](https://img.shields.io/badge/DB_Schema-v30-8b5cf6)](.)
 
 [![Language: Korean](https://img.shields.io/badge/Language-한국어-2563eb)](./README.md)
 [![English](https://img.shields.io/badge/English-9ca3af)](./README.en.md)

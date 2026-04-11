@@ -71,14 +71,17 @@ pub fn run() {
                 read: std::sync::Arc::new(std::sync::Mutex::new(read_conn)),
             });
 
-            app.manage(CancelRegistry(std::sync::Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new()))));
+            let cancel_registry = CancelRegistry(std::sync::Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new())));
 
             // Start HTTP API server (E2E testing + mobile access + MCP)
             {
                 let db_state = app.state::<DbState>().inner().clone();
-                let api_token = http_api::start_server(db_state, app.handle().clone());
+                let cancel_arc = std::sync::Arc::clone(&cancel_registry.0);
+                let api_token = http_api::start_server(db_state, app.handle().clone(), cancel_arc);
                 eprintln!("[startup] HTTP API token: {}", api_token);
             }
+
+            app.manage(cancel_registry);
             app.manage(commands::pty::PtyState::new());
             app.manage(commands::projects::RawqIndexing(std::sync::Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new()))));
 

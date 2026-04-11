@@ -1,6 +1,6 @@
 # tunaFlow 구현 현황
 
-최종 갱신: 2026-04-04 세션 10 (코드베이스 기준)
+최종 갱신: 2026-04-11 세션 19 (코드베이스 기준)
 SSOT: `docs/reference/dataModelRevised.md`
 
 ---
@@ -20,7 +20,22 @@ SSOT: `docs/reference/dataModelRevised.md`
 | Memo CRUD | done | list/create/delete + branch_brief |
 | Artifact CRUD | done | list/create/update_status/delete + subtask link + provenance |
 | Skill 로딩 | done | ~/.tunaflow/skills/ 스캔 + vendor 그룹핑 + 검색/필터 |
-| DB migrations v1-v25 | done | v13 hidden, v14 branch fix, v15 FTS5, v16 usage_status, v17 conversation_memory, v18 plan_events+plan 확장, v19-v20 plan 컬럼, v21 session_links+memory topics, v22 conversation_chunks, v23 trace_log.message_id, v24 subtask depends_on+parallel_group, v25 plans.parent_plan_id |
+| DB migrations v1-v30 | done | v13-v25 기존 + v26 plan.slug, v27 failure_lessons, v28 artifacts.plan_id, v29 insight_sessions/findings/reports, v30 vec_chunks(sqlite-vec) |
+
+### HTTP API (axum, localhost:19840)
+
+| 기능 | 상태 | 비고 |
+|---|---|---|
+| Health / Projects / Conversations / Messages | done | GET, Bearer token auth |
+| Plans / Plan Events / Artifacts / Agents Status | done | GET, read-only |
+| Create Project / Conversation / Branch | done | POST |
+| Send Message (dryRun + agent exec) | done | POST, background agent via spawn_blocking |
+| Delete Conversation / Branch | done | POST/DELETE |
+| Branch Archive / Adopt / Rename | done | POST, adopt summary = all assistant messages |
+| Roundtable Run | done | POST, sequential multi-engine, spawn_blocking |
+| RT Cancel | done | POST, CancelRegistry integration |
+| WebSocket Events | done | agent:completed, agent:error, roundtable:* bridge |
+| Auth | done | UUID v4 Bearer token (per startup) |
 
 ### Multi-Agent (4-engine parity)
 

@@ -139,6 +139,16 @@ export function CommandPalette() {
             >
               Settings
             </PaletteItem>
+            <PaletteItem
+              icon={<span className="text-red-500">💀</span>}
+              onSelect={async () => {
+                setOpen(false);
+                const { openDoom } = await import("./DoomModal");
+                openDoom();
+              }}
+            >
+              DOOM
+            </PaletteItem>
           </Command.Group>
         </Command.List>
 

@@ -9,6 +9,12 @@ use tuna_flow_lib::db::migrations::now_epoch_ms;
 
 /// Create a fresh in-memory DB with all migrations applied.
 fn setup_db() -> Connection {
+    // Register sqlite-vec extension (same as db::init)
+    unsafe {
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
+    }
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     db::migrations::run(&conn).unwrap();
@@ -345,4 +351,200 @@ fn artifact_subtask_link() {
         .query_row("SELECT subtask_id FROM artifacts WHERE id = 'art1'", [], |r| r.get(0))
         .unwrap();
     assert_eq!(linked, "st2");
+}
+
+// ─── HTTP API DB patterns ───────────────────────────────────────────────────
+
+/// Helper: create a project via the same SQL the HTTP API uses.
+fn create_api_project(conn: &Connection, key: &str, name: &str, path: Option<&str>) {
+    let now = now_epoch_ms();
+    conn.execute(
+        "INSERT OR IGNORE INTO projects (key, name, path, type, source, hidden, updated_at) VALUES (?1, ?2, ?3, 'project', 'api', 0, ?4)",
+        params![key, name, path, now],
+    ).unwrap();
+}
+
+/// Helper: create a conversation via the same SQL the HTTP API uses.
+fn create_api_conversation(conn: &Connection, id: &str, project_key: &str, label: &str) {
+    let now = now_epoch_ms();
+    conn.execute(
+        "INSERT INTO conversations (id, project_key, label, mode, usage_status, source, created_at, updated_at) VALUES (?1, ?2, ?3, 'chat', 'active', 'api', ?4, ?4)",
+        params![id, project_key, label, now],
+    ).unwrap();
+}
+
+#[test]
+fn http_api_project_crud() {
+    let conn = setup_db();
+    create_api_project(&conn, "test-proj", "Test Project", Some("/tmp/test"));
+
+    let name: String = conn.query_row("SELECT name FROM projects WHERE key = 'test-proj'", [], |r| r.get(0)).unwrap();
+    assert_eq!(name, "Test Project");
+
+    // Duplicate insert is ignored (OR IGNORE)
+    create_api_project(&conn, "test-proj", "Different Name", None);
+    let name2: String = conn.query_row("SELECT name FROM projects WHERE key = 'test-proj'", [], |r| r.get(0)).unwrap();
+    assert_eq!(name2, "Test Project"); // unchanged
+}
+
+#[test]
+fn http_api_conversation_crud() {
+    let conn = setup_db();
+    create_api_project(&conn, "proj1", "P1", None);
+    create_api_conversation(&conn, "conv1", "proj1", "[E2E] Test Conv");
+
+    let label: String = conn.query_row("SELECT label FROM conversations WHERE id = 'conv1'", [], |r| r.get(0)).unwrap();
+    assert_eq!(label, "[E2E] Test Conv");
+
+    // Delete conversation + messages
+    conn.execute("INSERT INTO messages (id, conversation_id, role, content, timestamp, status) VALUES ('m1', 'conv1', 'user', 'hello', 0, 'done')", []).unwrap();
+    conn.execute("DELETE FROM messages WHERE conversation_id = 'conv1'", []).unwrap();
+    conn.execute("DELETE FROM conversations WHERE id = 'conv1'", []).unwrap();
+
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM conversations WHERE id = 'conv1'", [], |r| r.get(0)).unwrap();
+    assert_eq!(count, 0);
+    let msg_count: i64 = conn.query_row("SELECT COUNT(*) FROM messages WHERE conversation_id = 'conv1'", [], |r| r.get(0)).unwrap();
+    assert_eq!(msg_count, 0);
+}
+
+#[test]
+fn http_api_branch_lifecycle() {
+    let conn = setup_db();
+    create_api_project(&conn, "proj1", "P1", None);
+    create_api_conversation(&conn, "conv1", "proj1", "Main");
+
+    let now = now_epoch_ms();
+
+    // Create branch
+    conn.execute(
+        "INSERT INTO branches (id, conversation_id, label, status, mode, created_at) VALUES ('br1', 'conv1', 'test-branch', 'active', 'chat', ?1)",
+        params![now],
+    ).unwrap();
+
+    // Create shadow conversation
+    conn.execute(
+        "INSERT INTO conversations (id, project_key, label, mode, usage_status, source, created_at, updated_at) VALUES ('branch:br1', 'proj1', 'Branch test-branch', 'chat', 'active', 'api', ?1, ?1)",
+        params![now],
+    ).unwrap();
+
+    // Add message to shadow
+    conn.execute(
+        "INSERT INTO messages (id, conversation_id, role, content, timestamp, status) VALUES ('m1', 'branch:br1', 'user', 'branch msg', ?1, 'done')",
+        params![now],
+    ).unwrap();
+
+    // Archive
+    conn.execute("UPDATE branches SET status = 'archived' WHERE id = 'br1'", []).unwrap();
+    let status: String = conn.query_row("SELECT status FROM branches WHERE id = 'br1'", [], |r| r.get(0)).unwrap();
+    assert_eq!(status, "archived");
+
+    // Adopt
+    conn.execute("UPDATE branches SET status = 'adopted' WHERE id = 'br1'", []).unwrap();
+    let status2: String = conn.query_row("SELECT status FROM branches WHERE id = 'br1'", [], |r| r.get(0)).unwrap();
+    assert_eq!(status2, "adopted");
+
+    // Delete branch (active branch = full delete)
+    conn.execute("DELETE FROM messages WHERE conversation_id = 'branch:br1'", []).unwrap();
+    conn.execute("DELETE FROM conversations WHERE id = 'branch:br1'", []).unwrap();
+    conn.execute("DELETE FROM branches WHERE id = 'br1'", []).unwrap();
+
+    let br_count: i64 = conn.query_row("SELECT COUNT(*) FROM branches WHERE id = 'br1'", [], |r| r.get(0)).unwrap();
+    assert_eq!(br_count, 0);
+}
+
+#[test]
+fn http_api_adopt_summary_collects_all_assistants() {
+    let conn = setup_db();
+    create_api_project(&conn, "proj1", "P1", None);
+    create_api_conversation(&conn, "conv1", "proj1", "Main");
+
+    let now = now_epoch_ms();
+    conn.execute(
+        "INSERT INTO branches (id, conversation_id, label, status, mode, created_at) VALUES ('br1', 'conv1', 'rt-review', 'active', 'roundtable', ?1)",
+        params![now],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO conversations (id, project_key, label, mode, usage_status, source, created_at, updated_at) VALUES ('branch:br1', 'proj1', 'Branch RT', 'roundtable', 'active', 'api', ?1, ?1)",
+        params![now],
+    ).unwrap();
+
+    // 3 assistant messages (RT participants)
+    for (id, persona, engine, content) in [
+        ("a1", "Reviewer", "claude", "Code looks good."),
+        ("a2", "Architect", "gemini", "Consider MVC pattern."),
+        ("a3", "Critic", "codex", "Error handling missing."),
+    ] {
+        conn.execute(
+            "INSERT INTO messages (id, conversation_id, role, content, engine, persona, timestamp, status) VALUES (?1, 'branch:br1', 'assistant', ?2, ?3, ?4, ?5, 'done')",
+            params![id, content, engine, persona, now],
+        ).unwrap();
+    }
+
+    // Simulate adopt: collect all assistant messages
+    let mut stmt = conn.prepare(
+        "SELECT content, persona, engine FROM messages WHERE conversation_id = 'branch:br1' AND role = 'assistant' ORDER BY timestamp ASC"
+    ).unwrap();
+    let parts: Vec<String> = stmt.query_map([], |r| {
+        let content: String = r.get(0)?;
+        let persona: Option<String> = r.get(1)?;
+        let engine: Option<String> = r.get(2)?;
+        let label = persona.or(engine).unwrap_or_default();
+        Ok(if label.is_empty() { content } else { format!("**[{}]** {}", label, content) })
+    }).unwrap().filter_map(|r| r.ok()).collect();
+
+    assert_eq!(parts.len(), 3);
+    assert!(parts[0].contains("Reviewer"));
+    assert!(parts[1].contains("Architect"));
+    assert!(parts[2].contains("Critic"));
+
+    let summary = parts.join("\n\n");
+    assert!(summary.contains("**[Reviewer]**"));
+    assert!(summary.contains("**[Architect]**"));
+    assert!(summary.contains("**[Critic]**"));
+}
+
+#[test]
+fn http_api_fk_constraint_on_invalid_project() {
+    let conn = setup_db();
+    // Attempt to create conversation with non-existent project_key
+    let result = conn.execute(
+        "INSERT INTO conversations (id, project_key, label, mode, usage_status, source, created_at, updated_at) VALUES ('c1', 'nonexistent', 'test', 'chat', 'active', 'api', 0, 0)",
+        [],
+    );
+    assert!(result.is_err(), "FK constraint should reject nonexistent project_key");
+}
+
+#[test]
+fn http_api_message_send_pattern() {
+    let conn = setup_db();
+    create_api_project(&conn, "proj1", "P1", Some("/tmp/test"));
+    create_api_conversation(&conn, "conv1", "proj1", "Test");
+
+    // User message (dryRun pattern)
+    let now = now_epoch_ms();
+    conn.execute(
+        "INSERT INTO messages (id, conversation_id, role, content, timestamp, status) VALUES ('msg-user', 'conv1', 'user', 'What is 2+2?', ?1, 'done')",
+        params![now],
+    ).unwrap();
+
+    // Verify project path lookup (same query HTTP API uses)
+    let project_path: Option<String> = conn.query_row(
+        "SELECT p.path FROM projects p JOIN conversations c ON c.project_key = p.key WHERE c.id = 'conv1'",
+        [], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(project_path, Some("/tmp/test".to_string()));
+
+    // Assistant response (agent completion pattern)
+    conn.execute(
+        "INSERT INTO messages (id, conversation_id, role, content, engine, model, timestamp, status) VALUES ('msg-asst', 'conv1', 'assistant', 'Four.', 'claude', 'haiku', ?1, 'done')",
+        params![now + 1],
+    ).unwrap();
+
+    // Verify message ordering
+    let mut stmt = conn.prepare("SELECT role, content FROM messages WHERE conversation_id = 'conv1' ORDER BY timestamp ASC").unwrap();
+    let msgs: Vec<(String, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().filter_map(|r| r.ok()).collect();
+    assert_eq!(msgs.len(), 2);
+    assert_eq!(msgs[0].0, "user");
+    assert_eq!(msgs[1].0, "assistant");
+    assert_eq!(msgs[1].1, "Four.");
 }

@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo } from "react";
+import { useRef, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { X, Check, GitBranch, Users, Trash2, ChevronsLeft, ChevronsRight, ChevronRight, AlertTriangle, Pin, PinOff } from "lucide-react";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -13,6 +13,7 @@ import { RoundtableView } from "./RoundtableView";
 import { CreateRoundtableDialog } from "./CreateRoundtableDialog";
 import { requestPlanRevision } from "@/lib/workflowOrchestration";
 import * as planApi from "@/lib/api/plans";
+import { useNavigationChain } from "./useNavigationChain";
 
 export function BranchThreadPanel() {
   const {
@@ -70,45 +71,8 @@ export function BranchThreadPanel() {
   const isReadOnly = threadBranch?.status === "adopted" || threadBranch?.status === "archived";
 
   // Build full navigation chain: [Main, ...ancestors, current, ...descendants]
-  const { fullChain, currentIdx, windowStart, visibleChain, hasLeftOverflow, hasRightOverflow } = useMemo(() => {
-    const chain: { id: string | null; label: string; isRT?: boolean }[] = [];
-    // Walk up: ancestors
-    let cur = threadBranch;
-    while (cur?.parentBranchId) {
-      const parent = branches.find((b) => b.id === cur?.parentBranchId);
-      if (!parent) break;
-      chain.unshift({ id: parent.id, label: parent.customLabel ?? parent.label, isRT: parent.mode === "roundtable" });
-      cur = parent;
-    }
-    // Root conversation
-    const conv = selectedConversationId ? conversations.find((c) => c.id === selectedConversationId) : null;
-    chain.unshift({ id: null, label: conv?.customLabel ?? conv?.label ?? "Main" });
-    // Current
-    chain.push({ id: threadBranchId, label: threadBranchLabel ?? threadBranchId, isRT });
-    const idx = chain.length - 1;
-    // Walk down: descendants (follow most recent child at each level)
-    let descendantId: string | null = threadBranchId;
-    while (descendantId) {
-      const children = branches
-        .filter((b) => b.parentBranchId === descendantId)
-        .sort((a, b) => b.createdAt - a.createdAt);
-      if (children.length === 0) break;
-      const child = children[0];
-      chain.push({ id: child.id, label: child.customLabel ?? child.label, isRT: child.mode === "roundtable" });
-      descendantId = child.id;
-    }
-    // Visible window: 2 before + current + 2 after
-    const wStart = Math.max(0, idx - 2);
-    const wEnd = Math.min(chain.length - 1, idx + 2);
-    return {
-      fullChain: chain,
-      currentIdx: idx,
-      windowStart: wStart,
-      visibleChain: chain.slice(wStart, wEnd + 1),
-      hasLeftOverflow: wStart > 0,
-      hasRightOverflow: wEnd < chain.length - 1,
-    };
-  }, [threadBranchId, threadBranchLabel, isRT, branches, selectedConversationId, conversations]);
+  const { fullChain, currentIdx, windowStart, visibleChain, hasLeftOverflow, hasRightOverflow } =
+    useNavigationChain(threadBranchId, threadBranchLabel, branches, conversations, selectedConversationId);
 
   const handleAdopt = async () => {
     if (!selectedConversationId) return;

@@ -9,7 +9,7 @@
 
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{get, post, delete},
     extract::{Path, Query, State, WebSocketUpgrade, ws},
     http::{StatusCode, HeaderMap},
     response::{IntoResponse, Json},
@@ -19,20 +19,75 @@ use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use crate::db::DbState;
+use crate::commands::roundtable_helpers::executor::RoundtableParticipant;
 
 const DEFAULT_PORT: u16 = 19840;
+type CancelArc = std::sync::Arc<parking_lot::Mutex<std::collections::HashSet<String>>>;
+
+/// Helper: acquire lock, recovering from poison if needed.
+macro_rules! lock_or_recover {
+    ($mutex:expr) => {
+        match $mutex.lock() {
+            Ok(g) => g,
+            Err(poisoned) => {
+                eprintln!("[http-api] recovering poisoned mutex");
+                poisoned.into_inner()
+            }
+        }
+    };
+}
+
+/// Helper: run a fallible DB closure, returning 500 JSON on error.
+fn db_error(e: impl std::fmt::Display) -> axum::response::Response {
+    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("db: {}", e)}))).into_response()
+}
+
+/// Run a blocking DB operation off the async executor.
+/// Prevents head-of-line blocking when holding std::sync::Mutex.
+async fn with_read_db<F, T>(state: &ApiState, f: F) -> Result<T, axum::response::Response>
+where
+    F: FnOnce(&rusqlite::Connection) -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let conn = lock_or_recover!(db.read);
+        f(&conn)
+    })
+    .await
+    .map_err(|e| db_error(format!("task join: {}", e)))?
+    .map_err(|e| db_error(e))
+}
+
+async fn with_write_db<F, T>(state: &ApiState, f: F) -> Result<T, axum::response::Response>
+where
+    F: FnOnce(&rusqlite::Connection) -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let conn = lock_or_recover!(db.write);
+        f(&conn)
+    })
+    .await
+    .map_err(|e| db_error(format!("task join: {}", e)))?
+    .map_err(|e| db_error(e))
+}
 
 /// Shared state for axum handlers.
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct ApiState {
     pub db: DbState,
     pub token: String,
     pub event_tx: broadcast::Sender<String>,
+    pub app_handle: tauri::AppHandle,
+    pub cancel: CancelArc,
 }
 
 /// Start the HTTP API server on a background tokio task.
 /// Returns the generated Bearer token for auth.
-pub fn start_server(db: DbState, app_handle: tauri::AppHandle) -> String {
+pub fn start_server(db: DbState, app_handle: tauri::AppHandle, cancel: CancelArc) -> String {
     let token = generate_token();
     let (event_tx, _) = broadcast::channel::<String>(256);
 
@@ -40,6 +95,8 @@ pub fn start_server(db: DbState, app_handle: tauri::AppHandle) -> String {
         db: db.clone(),
         token: token.clone(),
         event_tx: event_tx.clone(),
+        app_handle: app_handle.clone(),
+        cancel,
     };
 
     // Bridge Tauri events → broadcast channel
@@ -66,9 +123,7 @@ pub fn start_server(db: DbState, app_handle: tauri::AppHandle) -> String {
 }
 
 fn generate_token() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
-    format!("{:032x}", seed ^ 0xdeadbeef_cafebabe_u128)
+    uuid::Uuid::new_v4().to_string()
 }
 
 fn build_router(state: ApiState) -> Router {
@@ -83,9 +138,21 @@ fn build_router(state: ApiState) -> Router {
         .route("/api/artifacts", get(list_artifacts))
         .route("/api/agents/status", get(agents_status))
         // Write endpoints
+        .route("/api/projects", post(create_project))
         .route("/api/conversations", post(create_conversation))
         .route("/api/conversations/{id}/send", post(send_message))
+        .route("/api/conversations/{id}/delete", post(delete_conversation))
         .route("/api/plans/{id}/approve", post(approve_plan))
+        // Branch endpoints
+        .route("/api/conversations/{id}/branches", get(list_branches))
+        .route("/api/branches", post(create_branch))
+        .route("/api/branches/{id}", delete(delete_branch))
+        .route("/api/branches/{id}/archive", post(archive_branch))
+        .route("/api/branches/{id}/adopt", post(adopt_branch))
+        .route("/api/branches/{id}/rename", post(rename_branch))
+        // Roundtable endpoints
+        .route("/api/roundtables/run", post(start_rt_run))
+        .route("/api/roundtables/{id}/cancel", post(cancel_rt))
         // WebSocket
         .route("/ws/events", get(ws_events))
         // Health
@@ -125,20 +192,22 @@ async fn health() -> impl IntoResponse {
 }
 
 async fn list_projects(State(state): State<ApiState>) -> impl IntoResponse {
-    let conn = match state.db.read.lock() {
-        Ok(c) => c,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "db lock"}))).into_response(),
-    };
-    let mut stmt = conn.prepare("SELECT key, name, path, type FROM projects WHERE hidden = 0 ORDER BY name").unwrap();
-    let rows: Vec<serde_json::Value> = stmt.query_map([], |r| {
-        Ok(serde_json::json!({
-            "key": r.get::<_, String>(0)?,
-            "name": r.get::<_, String>(1)?,
-            "path": r.get::<_, Option<String>>(2)?,
-            "type": r.get::<_, String>(3)?,
-        }))
-    }).unwrap().filter_map(|r| r.ok()).collect();
-    Json(serde_json::json!(rows)).into_response()
+    match with_read_db(&state, |conn| {
+        let mut stmt = conn.prepare("SELECT key, name, path, type FROM projects WHERE hidden = 0 ORDER BY name")
+            .map_err(|e| e.to_string())?;
+        let rows: Vec<serde_json::Value> = stmt.query_map([], |r| {
+            Ok(serde_json::json!({
+                "key": r.get::<_, String>(0)?,
+                "name": r.get::<_, String>(1)?,
+                "path": r.get::<_, Option<String>>(2)?,
+                "type": r.get::<_, String>(3)?,
+            }))
+        }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+        Ok(rows)
+    }).await {
+        Ok(rows) => Json(serde_json::json!(rows)).into_response(),
+        Err(resp) => resp,
+    }
 }
 
 #[derive(Deserialize)]
@@ -148,10 +217,7 @@ struct ConversationQuery {
 }
 
 async fn list_conversations(State(state): State<ApiState>, Query(q): Query<ConversationQuery>) -> impl IntoResponse {
-    let conn = match state.db.read.lock() {
-        Ok(c) => c,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "db lock"}))).into_response(),
-    };
+    let conn = lock_or_recover!(state.db.read);
     let map_conv = |r: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
         Ok(serde_json::json!({
             "id": r.get::<_, String>(0)?, "projectKey": r.get::<_, String>(1)?,
@@ -159,27 +225,24 @@ async fn list_conversations(State(state): State<ApiState>, Query(q): Query<Conve
         }))
     };
     let rows: Vec<serde_json::Value> = if let Some(ref pk) = q.project_key {
-        let mut stmt = conn.prepare(
+        let mut stmt = match conn.prepare(
             "SELECT id, project_key, label, mode FROM conversations WHERE project_key = ?1 AND usage_status != 'hidden' ORDER BY id"
-        ).unwrap();
+        ) { Ok(s) => s, Err(e) => return db_error(e) };
         stmt.query_map([pk], map_conv).unwrap().filter_map(|r| r.ok()).collect()
     } else {
-        let mut stmt = conn.prepare(
+        let mut stmt = match conn.prepare(
             "SELECT id, project_key, label, mode FROM conversations WHERE usage_status != 'hidden' ORDER BY id"
-        ).unwrap();
+        ) { Ok(s) => s, Err(e) => return db_error(e) };
         stmt.query_map([], map_conv).unwrap().filter_map(|r| r.ok()).collect()
     };
     Json(serde_json::json!(rows)).into_response()
 }
 
 async fn list_messages(State(state): State<ApiState>, Path(conv_id): Path<String>) -> impl IntoResponse {
-    let conn = match state.db.read.lock() {
-        Ok(c) => c,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "db lock"}))).into_response(),
-    };
-    let mut stmt = conn.prepare(
+    let conn = lock_or_recover!(state.db.read);
+    let mut stmt = match conn.prepare(
         "SELECT id, role, content, engine, model, status, timestamp FROM messages WHERE conversation_id = ?1 ORDER BY timestamp ASC"
-    ).unwrap();
+    ) { Ok(s) => s, Err(e) => return db_error(e) };
     let rows: Vec<serde_json::Value> = stmt.query_map([&conv_id], |r| Ok(serde_json::json!({
         "id": r.get::<_, String>(0)?, "role": r.get::<_, String>(1)?,
         "content": r.get::<_, String>(2)?, "engine": r.get::<_, Option<String>>(3)?,
@@ -196,16 +259,13 @@ struct PlanQuery {
 }
 
 async fn list_plans(State(state): State<ApiState>, Query(q): Query<PlanQuery>) -> impl IntoResponse {
-    let conn = match state.db.read.lock() {
-        Ok(c) => c,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "db lock"}))).into_response(),
-    };
+    let conn = lock_or_recover!(state.db.read);
     let sql = if q.conversation_id.is_some() {
         "SELECT id, conversation_id, title, status, phase FROM plans WHERE conversation_id = ?1 ORDER BY created_at DESC"
     } else {
         "SELECT id, conversation_id, title, status, phase FROM plans ORDER BY created_at DESC LIMIT 20"
     };
-    let mut stmt = conn.prepare(sql).unwrap();
+    let mut stmt = match conn.prepare(sql) { Ok(s) => s, Err(e) => return db_error(e) };
     let rows: Vec<serde_json::Value> = if let Some(ref cid) = q.conversation_id {
         stmt.query_map([cid], |r| Ok(serde_json::json!({
             "id": r.get::<_, String>(0)?, "conversationId": r.get::<_, String>(1)?,
@@ -223,10 +283,7 @@ async fn list_plans(State(state): State<ApiState>, Query(q): Query<PlanQuery>) -
 }
 
 async fn get_plan(State(state): State<ApiState>, Path(plan_id): Path<String>) -> impl IntoResponse {
-    let conn = match state.db.read.lock() {
-        Ok(c) => c,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "db lock"}))).into_response(),
-    };
+    let conn = lock_or_recover!(state.db.read);
     let plan = conn.query_row(
         "SELECT id, conversation_id, title, status, phase FROM plans WHERE id = ?1",
         [&plan_id], |r| Ok(serde_json::json!({
@@ -242,13 +299,10 @@ async fn get_plan(State(state): State<ApiState>, Path(plan_id): Path<String>) ->
 }
 
 async fn list_plan_events(State(state): State<ApiState>, Path(plan_id): Path<String>) -> impl IntoResponse {
-    let conn = match state.db.read.lock() {
-        Ok(c) => c,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "db lock"}))).into_response(),
-    };
-    let mut stmt = conn.prepare(
+    let conn = lock_or_recover!(state.db.read);
+    let mut stmt = match conn.prepare(
         "SELECT id, event_type, actor, detail, created_at FROM plan_events WHERE plan_id = ?1 ORDER BY created_at ASC"
-    ).unwrap();
+    ) { Ok(s) => s, Err(e) => return db_error(e) };
     let rows: Vec<serde_json::Value> = stmt.query_map([&plan_id], |r| Ok(serde_json::json!({
         "id": r.get::<_, String>(0)?, "eventType": r.get::<_, String>(1)?,
         "actor": r.get::<_, Option<String>>(2)?, "detail": r.get::<_, Option<String>>(3)?,
@@ -264,16 +318,13 @@ struct ArtifactQuery {
 }
 
 async fn list_artifacts(State(state): State<ApiState>, Query(q): Query<ArtifactQuery>) -> impl IntoResponse {
-    let conn = match state.db.read.lock() {
-        Ok(c) => c,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "db lock"}))).into_response(),
-    };
+    let conn = lock_or_recover!(state.db.read);
     let sql = if q.conversation_id.is_some() {
         "SELECT id, conversation_id, type, title, status FROM artifacts WHERE conversation_id = ?1 ORDER BY created_at DESC"
     } else {
         "SELECT id, conversation_id, type, title, status FROM artifacts ORDER BY created_at DESC LIMIT 20"
     };
-    let mut stmt = conn.prepare(sql).unwrap();
+    let mut stmt = match conn.prepare(sql) { Ok(s) => s, Err(e) => return db_error(e) };
     let rows: Vec<serde_json::Value> = if let Some(ref cid) = q.conversation_id {
         stmt.query_map([cid], |r| Ok(serde_json::json!({
             "id": r.get::<_, String>(0)?, "conversationId": r.get::<_, String>(1)?,
@@ -291,13 +342,10 @@ async fn list_artifacts(State(state): State<ApiState>, Query(q): Query<ArtifactQ
 }
 
 async fn agents_status(State(state): State<ApiState>) -> impl IntoResponse {
-    let conn = match state.db.read.lock() {
-        Ok(c) => c,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "db lock"}))).into_response(),
-    };
-    let mut stmt = conn.prepare(
+    let conn = lock_or_recover!(state.db.read);
+    let mut stmt = match conn.prepare(
         "SELECT id, conversation_id, engine, kind, status FROM agent_jobs WHERE status = 'running'"
-    ).unwrap();
+    ) { Ok(s) => s, Err(e) => return db_error(e) };
     let jobs: Vec<serde_json::Value> = stmt.query_map([], |r| Ok(serde_json::json!({
         "id": r.get::<_, String>(0)?, "conversationId": r.get::<_, String>(1)?,
         "engine": r.get::<_, Option<String>>(2)?, "kind": r.get::<_, String>(3)?,
@@ -311,23 +359,42 @@ async fn agents_status(State(state): State<ApiState>) -> impl IntoResponse {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct CreateProjectInput {
+    key: String,
+    name: String,
+    path: Option<String>,
+}
+
+async fn create_project(State(state): State<ApiState>, Json(input): Json<CreateProjectInput>) -> impl IntoResponse {
+    let conn = lock_or_recover!(state.db.write);
+    let now = crate::db::migrations::now_epoch_ms();
+    if let Err(e) = conn.execute(
+        "INSERT OR IGNORE INTO projects (key, name, path, type, source, hidden, updated_at) VALUES (?1, ?2, ?3, 'project', 'api', 0, ?4)",
+        rusqlite::params![input.key, input.name, input.path, now],
+    ) {
+        return db_error(e);
+    }
+    (StatusCode::CREATED, Json(serde_json::json!({"key": input.key, "name": input.name, "path": input.path}))).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CreateConversationInput {
     project_key: String,
     label: Option<String>,
 }
 
 async fn create_conversation(State(state): State<ApiState>, Json(input): Json<CreateConversationInput>) -> impl IntoResponse {
-    let conn = match state.db.write.lock() {
-        Ok(c) => c,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "db lock"}))).into_response(),
-    };
+    let conn = lock_or_recover!(state.db.write);
     let id = uuid::Uuid::new_v4().to_string();
     let label = input.label.unwrap_or_else(|| "API conversation".into());
     let now = crate::db::migrations::now_epoch_ms();
-    conn.execute(
-        "INSERT INTO conversations (id, project_key, label, mode, usage_status) VALUES (?1, ?2, ?3, 'chat', 'active')",
-        rusqlite::params![id, input.project_key, label],
-    ).unwrap();
+    if let Err(e) = conn.execute(
+        "INSERT INTO conversations (id, project_key, label, mode, usage_status, source, created_at, updated_at) VALUES (?1, ?2, ?3, 'chat', 'active', 'api', ?4, ?4)",
+        rusqlite::params![id, input.project_key, label, now],
+    ) {
+        return db_error(e);
+    }
     (StatusCode::CREATED, Json(serde_json::json!({"id": id, "label": label, "createdAt": now}))).into_response()
 }
 
@@ -351,14 +418,13 @@ async fn send_message(
     let user_msg_id = uuid::Uuid::new_v4().to_string();
     let now = crate::db::migrations::now_epoch_ms();
     {
-        let conn = match state.db.write.lock() {
-            Ok(c) => c,
-            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "db lock"}))).into_response(),
-        };
-        conn.execute(
+        let conn = lock_or_recover!(state.db.write);
+        if let Err(e) = conn.execute(
             "INSERT INTO messages (id, conversation_id, role, content, timestamp, status) VALUES (?1, ?2, 'user', ?3, ?4, 'done')",
             rusqlite::params![user_msg_id, conv_id, input.prompt, now],
-        ).unwrap();
+        ) {
+            return db_error(e);
+        }
     }
 
     if input.dry_run.unwrap_or(false) {
@@ -367,6 +433,15 @@ async fn send_message(
             "info": "User message saved. Agent execution skipped (dry_run mode)."
         }))).into_response();
     }
+
+    // Resolve project path from DB
+    let project_path = {
+        let conn = lock_or_recover!(state.db.read);
+        conn.query_row(
+            "SELECT p.path FROM projects p JOIN conversations c ON c.project_key = p.key WHERE c.id = ?1",
+            [&conv_id], |r| r.get::<_, Option<String>>(0),
+        ).unwrap_or(None)
+    };
 
     // Execute agent in background (same pattern as Tauri commands)
     let db = state.db.clone();
@@ -384,7 +459,7 @@ async fn send_message(
                 model,
                 system_prompt: None,
                 resume_token: None,
-                project_path: None,
+                project_path: project_path.clone(),
             };
             match engine.as_str() {
                 "claude" => claude::run(run_input),
@@ -399,7 +474,8 @@ async fn send_message(
             Ok(Ok(out)) => {
                 let msg_id = uuid::Uuid::new_v4().to_string();
                 let now = crate::db::migrations::now_epoch_ms();
-                if let Ok(conn) = db.write.lock() {
+                let conn = match db.write.lock() { Ok(c) => c, Err(p) => p.into_inner() };
+                {
                     conn.execute(
                         "INSERT INTO messages (id, conversation_id, role, content, engine, model, timestamp, status) VALUES (?1, ?2, 'assistant', ?3, ?4, ?5, ?6, 'done')",
                         rusqlite::params![msg_id, conv_id_clone, out.content, engine_for_db, out.session_id, now],
@@ -412,6 +488,7 @@ async fn send_message(
                 }).to_string());
             }
             Ok(Err(e)) => {
+                eprintln!("[http-api] agent error: {}", e);
                 let _ = event_tx.send(serde_json::json!({
                     "type": "agent:error",
                     "conversationId": conv_id_clone,
@@ -431,10 +508,7 @@ async fn send_message(
 }
 
 async fn approve_plan(State(state): State<ApiState>, Path(plan_id): Path<String>) -> impl IntoResponse {
-    let conn = match state.db.write.lock() {
-        Ok(c) => c,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "db lock"}))).into_response(),
-    };
+    let conn = lock_or_recover!(state.db.write);
     let updated = conn.execute(
         "UPDATE plans SET status = 'active', phase = 'implementation' WHERE id = ?1 AND status != 'done'",
         [&plan_id],
@@ -450,6 +524,312 @@ async fn approve_plan(State(state): State<ApiState>, Path(plan_id): Path<String>
     } else {
         (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "plan not found or already done"}))).into_response()
     }
+}
+
+// ─── Conversation delete ────────────────────────────────────────────────
+
+async fn delete_conversation(State(state): State<ApiState>, Path(conv_id): Path<String>) -> impl IntoResponse {
+    let conn = lock_or_recover!(state.db.write);
+    // Delete messages first (FK), then conversation
+    conn.execute("DELETE FROM messages WHERE conversation_id = ?1", [&conv_id]).ok();
+    conn.execute("DELETE FROM memos WHERE conversation_id = ?1", [&conv_id]).ok();
+    let deleted = conn.execute("DELETE FROM conversations WHERE id = ?1", [&conv_id]).unwrap_or(0);
+    if deleted > 0 {
+        Json(serde_json::json!({"deleted": true, "conversationId": conv_id})).into_response()
+    } else {
+        (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "conversation not found"}))).into_response()
+    }
+}
+
+// ─── Branch handlers ───────────────────────────────────────────────────
+
+async fn list_branches(State(state): State<ApiState>, Path(conv_id): Path<String>) -> impl IntoResponse {
+    let conn = lock_or_recover!(state.db.read);
+    let mut stmt = match conn.prepare(
+        "SELECT id, label, custom_label, status, checkpoint_id, mode, parent_branch_id, created_at FROM branches WHERE conversation_id = ?1 ORDER BY created_at ASC"
+    ) { Ok(s) => s, Err(e) => return db_error(e) };
+    let rows: Vec<serde_json::Value> = stmt.query_map([&conv_id], |r| Ok(serde_json::json!({
+        "id": r.get::<_, String>(0)?, "label": r.get::<_, String>(1)?,
+        "customLabel": r.get::<_, Option<String>>(2)?, "status": r.get::<_, String>(3)?,
+        "checkpointId": r.get::<_, Option<String>>(4)?, "mode": r.get::<_, String>(5)?,
+        "parentBranchId": r.get::<_, Option<String>>(6)?, "createdAt": r.get::<_, i64>(7)?,
+    }))).unwrap().filter_map(|r| r.ok()).collect();
+    Json(serde_json::json!(rows)).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateBranchInput {
+    conversation_id: String,
+    label: Option<String>,
+    mode: Option<String>,
+    checkpoint_id: Option<String>,
+}
+
+async fn create_branch(State(state): State<ApiState>, Json(input): Json<CreateBranchInput>) -> impl IntoResponse {
+    let conn = lock_or_recover!(state.db.write);
+    let id = uuid::Uuid::new_v4().to_string();
+    let label = input.label.unwrap_or_else(|| format!("b{}", id.chars().take(4).collect::<String>()));
+    let mode = input.mode.unwrap_or_else(|| "chat".into());
+    let now = crate::db::migrations::now_epoch_ms();
+
+    if let Err(e) = conn.execute(
+        "INSERT INTO branches (id, conversation_id, label, status, mode, checkpoint_id, created_at) VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?6)",
+        rusqlite::params![id, input.conversation_id, label, mode, input.checkpoint_id, now],
+    ) {
+        return db_error(e);
+    }
+
+    // Create shadow conversation for the branch
+    let shadow_id = format!("branch:{}", id);
+    if let Err(e) = conn.execute(
+        "INSERT INTO conversations (id, project_key, label, mode, usage_status, source, created_at, updated_at) \
+         SELECT ?1, project_key, ?2, ?3, 'active', 'api', ?4, ?4 FROM conversations WHERE id = ?5",
+        rusqlite::params![shadow_id, format!("Branch {}", label), mode, now, input.conversation_id],
+    ) {
+        return db_error(e);
+    }
+
+    (StatusCode::CREATED, Json(serde_json::json!({
+        "id": id, "label": label, "mode": mode, "shadowConversationId": shadow_id
+    }))).into_response()
+}
+
+async fn delete_branch(State(state): State<ApiState>, Path(branch_id): Path<String>) -> impl IntoResponse {
+    let conn = lock_or_recover!(state.db.write);
+    let shadow_id = format!("branch:{}", branch_id);
+    // Delete messages in shadow conversation
+    conn.execute("DELETE FROM messages WHERE conversation_id = ?1", [&shadow_id]).ok();
+    // Delete shadow conversation
+    conn.execute("DELETE FROM conversations WHERE id = ?1", [&shadow_id]).ok();
+    // Delete branch
+    let deleted = conn.execute("DELETE FROM branches WHERE id = ?1", [&branch_id]).unwrap_or(0);
+    if deleted > 0 {
+        Json(serde_json::json!({"deleted": true, "branchId": branch_id})).into_response()
+    } else {
+        (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "branch not found"}))).into_response()
+    }
+}
+
+async fn archive_branch(State(state): State<ApiState>, Path(branch_id): Path<String>) -> impl IntoResponse {
+    let conn = lock_or_recover!(state.db.write);
+    let updated = conn.execute("UPDATE branches SET status = 'archived' WHERE id = ?1", [&branch_id]).unwrap_or(0);
+    if updated > 0 {
+        Json(serde_json::json!({"archived": true, "branchId": branch_id})).into_response()
+    } else {
+        (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "branch not found"}))).into_response()
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AdoptInput {
+    conversation_id: String,
+}
+
+async fn adopt_branch(State(state): State<ApiState>, Path(branch_id): Path<String>, Json(input): Json<AdoptInput>) -> impl IntoResponse {
+    let conn = lock_or_recover!(state.db.write);
+    let shadow_id = format!("branch:{}", branch_id);
+
+    // Collect ALL assistant messages as summary (with persona/engine attribution)
+    let summary = {
+        let mut stmt = match conn.prepare(
+            "SELECT content, persona, engine FROM messages WHERE conversation_id = ?1 AND role = 'assistant' ORDER BY timestamp ASC"
+        ) { Ok(s) => s, Err(e) => return db_error(e) };
+        let parts: Vec<String> = stmt.query_map([&shadow_id], |r| {
+            let content: String = r.get(0)?;
+            let persona: Option<String> = r.get(1)?;
+            let engine: Option<String> = r.get(2)?;
+            let label = persona.or(engine).unwrap_or_default();
+            let truncated = if content.len() > 300 { format!("{}...", &content[..300]) } else { content };
+            Ok(if label.is_empty() { truncated } else { format!("**[{}]** {}", label, truncated) })
+        }).unwrap().filter_map(|r| r.ok()).collect();
+        if parts.is_empty() { "(no summary available)".to_string() } else { parts.join("\n\n") }
+    };
+
+    // Mark branch as adopted
+    let updated = conn.execute("UPDATE branches SET status = 'adopted' WHERE id = ?1", [&branch_id]).unwrap_or(0);
+    if updated == 0 {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "branch not found"}))).into_response();
+    }
+
+    // Insert adopt-summary into parent conversation (cap at 2000 chars)
+    let msg_id = uuid::Uuid::new_v4().to_string();
+    let now = crate::db::migrations::now_epoch_ms();
+    let capped = if summary.len() > 2000 { format!("{}...", &summary[..2000]) } else { summary };
+    let adopt_content = format!("[Branch adopted]\n\n{}", capped);
+    conn.execute(
+        "INSERT INTO messages (id, conversation_id, role, content, timestamp, status) VALUES (?1, ?2, 'system', ?3, ?4, 'done')",
+        rusqlite::params![msg_id, input.conversation_id, adopt_content, now],
+    ).ok();
+
+    Json(serde_json::json!({"adopted": true, "branchId": branch_id, "summaryMessageId": msg_id})).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RenameInput {
+    label: String,
+}
+
+async fn rename_branch(State(state): State<ApiState>, Path(branch_id): Path<String>, Json(input): Json<RenameInput>) -> impl IntoResponse {
+    let conn = lock_or_recover!(state.db.write);
+    let updated = conn.execute("UPDATE branches SET custom_label = ?1 WHERE id = ?2", rusqlite::params![input.label, branch_id]).unwrap_or(0);
+    if updated > 0 {
+        Json(serde_json::json!({"renamed": true, "branchId": branch_id, "label": input.label})).into_response()
+    } else {
+        (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "branch not found"}))).into_response()
+    }
+}
+
+// ─── Roundtable handlers ───────────────────────────────────────────────
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RtRunInput {
+    conversation_id: String,
+    prompt: String,
+    participants: Vec<RoundtableParticipant>,
+    mode: Option<String>,
+}
+
+async fn start_rt_run(State(state): State<ApiState>, Json(input): Json<RtRunInput>) -> impl IntoResponse {
+    use crate::commands::roundtable::RoundtableRunInput;
+
+    let rt_input = RoundtableRunInput {
+        conversation_id: input.conversation_id.clone(),
+        prompt: input.prompt,
+        participants: input.participants,
+        rounds: None,
+        mode: input.mode,
+    };
+
+    let db = state.db.clone();
+    let event_tx = state.event_tx.clone();
+
+    let write_arc = std::sync::Arc::clone(&db.write);
+
+    tokio::task::spawn_blocking(move || {
+        use crate::commands::agents_helpers::context_pack::build_rt_inheritance_section;
+        use crate::commands::context_queries::project_path_for_conversation;
+        use crate::db::migrations::now_epoch_ms;
+
+        let result: Result<(), String> = (|| {
+            let conn = match write_arc.lock() { Ok(c) => c, Err(p) => p.into_inner() };
+            let _pp = project_path_for_conversation(&conn, &rt_input.conversation_id);
+            let inheritance = build_rt_inheritance_section(&conn, &rt_input.conversation_id, None);
+            let enriched = if let Some(ctx) = inheritance {
+                format!("{}\n\n---\n\n{}", ctx, rt_input.prompt)
+            } else {
+                rt_input.prompt.clone()
+            };
+
+            let names: Vec<&str> = rt_input.participants.iter().map(|p| p.name.as_str()).collect();
+            let mode_label = rt_input.mode.as_deref().unwrap_or("sequential");
+            let header = format!("--- Round 1 · {} · {} ---", mode_label, names.join(", "));
+
+            // Save user message
+            let user_id = uuid::Uuid::new_v4().to_string();
+            let now = now_epoch_ms();
+            conn.execute(
+                "INSERT INTO messages (id, conversation_id, role, content, timestamp, status) VALUES (?1, ?2, 'user', ?3, ?4, 'done')",
+                rusqlite::params![user_id, rt_input.conversation_id, rt_input.prompt, now],
+            ).map_err(|e| e.to_string())?;
+
+            // Save header
+            let header_id = uuid::Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO messages (id, conversation_id, role, content, timestamp, status) VALUES (?1, ?2, 'system', ?3, ?4, 'done')",
+                rusqlite::params![header_id, rt_input.conversation_id, header, now_epoch_ms()],
+            ).map_err(|e| e.to_string())?;
+
+            drop(conn); // Release write lock before running agents
+
+            // Execute each participant sequentially
+            for participant in &rt_input.participants {
+                let engine = participant.engine.as_deref().unwrap_or("claude");
+                let model = participant.model.clone();
+                let name = &participant.name;
+
+                // Emit participant status
+                let _ = event_tx.send(serde_json::json!({
+                    "type": "roundtable:participant_status",
+                    "payload": {"conversationId": rt_input.conversation_id, "name": name, "status": "running"}
+                }).to_string());
+
+                // Run agent (use temp dir to avoid project-level CLI conflicts)
+                let run_result = {
+                    use crate::agents::claude;
+                    let run_input = claude::RunInput {
+                        prompt: enriched.clone(),
+                        model,
+                        system_prompt: Some(format!("You are {} participating in a roundtable discussion. Be concise.", name)),
+                        resume_token: None,
+                        project_path: None, // temp dir — avoids conflict with PTY sessions
+                    };
+                    match engine {
+                        "claude" => claude::run(run_input),
+                        "codex" => crate::agents::codex::run(run_input),
+                        "gemini" => crate::agents::gemini::run(run_input),
+                        "ollama" => crate::agents::openai_compat::run(run_input),
+                        _ => claude::run(run_input),
+                    }
+                };
+
+                match run_result {
+                    Ok(out) => {
+                        let msg_id = uuid::Uuid::new_v4().to_string();
+                        let conn = match write_arc.lock() { Ok(c) => c, Err(p) => p.into_inner() };
+                        conn.execute(
+                            "INSERT INTO messages (id, conversation_id, role, content, engine, model, persona, timestamp, status) VALUES (?1, ?2, 'assistant', ?3, ?4, ?5, ?6, ?7, 'done')",
+                            rusqlite::params![msg_id, rt_input.conversation_id, out.content, engine, out.session_id, name, now_epoch_ms()],
+                        ).ok();
+                        let _ = event_tx.send(serde_json::json!({
+                            "type": "roundtable:participant_status",
+                            "payload": {"conversationId": rt_input.conversation_id, "name": name, "status": "done"}
+                        }).to_string());
+                    }
+                    Err(e) => {
+                        eprintln!("[http-api] RT participant {} error: {}", name, e);
+                        // Save error as system message so it's visible in conversation
+                        let err_msg_id = uuid::Uuid::new_v4().to_string();
+                        let conn = match write_arc.lock() { Ok(c) => c, Err(p) => p.into_inner() };
+                        conn.execute(
+                            "INSERT INTO messages (id, conversation_id, role, content, timestamp, status) VALUES (?1, ?2, 'system', ?3, ?4, 'done')",
+                            rusqlite::params![err_msg_id, rt_input.conversation_id, format!("[{}] 에이전트 실패: {}", name, e), now_epoch_ms()],
+                        ).ok();
+                        let _ = event_tx.send(serde_json::json!({
+                            "type": "agent:error",
+                            "payload": {"conversationId": rt_input.conversation_id, "name": name, "error": format!("{}", e)}
+                        }).to_string());
+                    }
+                }
+            }
+
+            let _ = event_tx.send(serde_json::json!({
+                "type": "agent:completed",
+                "payload": {"conversationId": rt_input.conversation_id}
+            }).to_string());
+
+            Ok(())
+        })();
+
+        if let Err(e) = result {
+            eprintln!("[http-api] RT run failed: {}", e);
+        }
+    });
+
+    (StatusCode::ACCEPTED, Json(serde_json::json!({
+        "status": "running",
+        "conversationId": input.conversation_id,
+        "info": "Roundtable started. Listen on /ws/events for progress."
+    }))).into_response()
+}
+
+async fn cancel_rt(State(state): State<ApiState>, Path(conv_id): Path<String>) -> impl IntoResponse {
+    let mut set = state.cancel.lock();
+    set.insert(conv_id.clone());
+    Json(serde_json::json!({"cancelled": true, "conversationId": conv_id})).into_response()
 }
 
 // ─── WebSocket events ───────────────────────────────────────────────────
