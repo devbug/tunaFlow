@@ -14,17 +14,19 @@ import { AddProjectForm } from "./sidebar/AddProjectForm";
 import { useProjectBranches } from "./sidebar/useProjectBranches";
 import { getSetting, setSetting } from "@/lib/appStore";
 
-// ─── CollapsibleSection: header + collapsible content ────────────────────────
+// ─── CollapsibleSection: header + resizable collapsible content ─────────────
+
+const MIN_SECTION_HEIGHT = 60;
 
 function CollapsibleSection({
-  title, count, expanded, onToggle, children, action,
+  title, count, expanded, onToggle, children, action, height,
 }: {
   title: string; count?: number; expanded: boolean;
   onToggle: () => void; children: React.ReactNode;
-  action?: React.ReactNode;
+  action?: React.ReactNode; height?: number;
 }) {
   return (
-    <div className={cn("flex flex-col min-h-0", expanded && "flex-1")}>
+    <div className="flex flex-col shrink-0" style={expanded ? { height } : undefined}>
       <div className="shrink-0 flex items-center px-3 py-1">
         <button
           onClick={onToggle}
@@ -39,10 +41,36 @@ function CollapsibleSection({
         {action && <div className="shrink-0">{action}</div>}
       </div>
       {expanded && (
-        <div className="flex-1 overflow-y-auto px-3 pb-1">
+        <div className="flex-1 overflow-y-auto px-3 pb-1 min-h-0">
           {children}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── ResizeHandle between sections ───────────────────────────────────────────
+
+function SectionResizeHandle({ onDrag, onDragEnd }: { onDrag: (delta: number) => void; onDragEnd: () => void }) {
+  return (
+    <div
+      className="h-1.5 shrink-0 cursor-row-resize hover:bg-primary/20 active:bg-primary/30 transition-colors group"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        let lastY = e.clientY;
+        const onMove = (ev: MouseEvent) => { onDrag(ev.clientY - lastY); lastY = ev.clientY; };
+        const onUp = () => {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          document.body.style.cursor = "";
+          onDragEnd();
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        document.body.style.cursor = "row-resize";
+      }}
+    >
+      <div className="h-px bg-border/20 group-hover:bg-primary/30 transition-colors mx-3 mt-0.5" />
     </div>
   );
 }
@@ -69,11 +97,11 @@ export function Sidebar() {
   const [renameCounter, setRenameCounter] = useState(0);
   const [showCreateRT, setShowCreateRT] = useState(false);
 
-  // 3-tier collapsible sections (persisted)
-  const [sectionState, setSectionState] = useState({ branches: true, docs: true, archive: true });
+  // 3-tier collapsible sections — expanded state (persisted)
+  const [sectionState, setSectionState] = useState({ branches: true, docs: true, archive: false });
   useEffect(() => {
-    getSetting<Record<string, boolean>>("sidebarSections", { branches: true, docs: true, archive: true })
-      .then((v) => setSectionState({ branches: v.branches ?? true, docs: v.docs ?? true, archive: v.archive ?? true }));
+    getSetting<Record<string, boolean>>("sidebarSections", { branches: true, docs: true, archive: false })
+      .then((v) => setSectionState({ branches: v.branches ?? true, docs: v.docs ?? true, archive: v.archive ?? false }));
   }, []);
   const toggleSection = useCallback((key: "branches" | "docs" | "archive") => {
     setSectionState((prev) => {
@@ -81,6 +109,29 @@ export function Sidebar() {
       setSetting("sidebarSections", next);
       return next;
     });
+  }, []);
+
+  // Section heights in px (persisted) — only used when section is expanded
+  const DEFAULT_HEIGHTS = { branches: 220, docs: 160, archive: 140 };
+  const [sectionHeights, setSectionHeights] = useState(DEFAULT_HEIGHTS);
+  const sectionHeightsRef = useRef(sectionHeights);
+  sectionHeightsRef.current = sectionHeights;
+  useEffect(() => {
+    getSetting<Record<string, number>>("sidebarSectionHeights", DEFAULT_HEIGHTS)
+      .then((v) => setSectionHeights({
+        branches: v.branches ?? DEFAULT_HEIGHTS.branches,
+        docs: v.docs ?? DEFAULT_HEIGHTS.docs,
+        archive: v.archive ?? DEFAULT_HEIGHTS.archive,
+      }));
+  }, []);
+  const persistHeights = useCallback(() => {
+    setSetting("sidebarSectionHeights", sectionHeightsRef.current);
+  }, []);
+  const adjustHeight = useCallback((key: "branches" | "docs" | "archive", delta: number) => {
+    setSectionHeights((prev) => ({
+      ...prev,
+      [key]: Math.max(MIN_SECTION_HEIGHT, prev[key] + delta),
+    }));
   }, []);
 
   // Project dropdown state
@@ -270,6 +321,7 @@ export function Sidebar() {
             count={activeChatBranches.length}
             expanded={sectionState.branches}
             onToggle={() => toggleSection("branches")}
+            height={sectionHeights.branches}
           >
             {activeChatBranches.length === 0 ? (
               <p className="text-[10px] text-sidebar-foreground/25 italic py-1">No active branches</p>
@@ -293,12 +345,21 @@ export function Sidebar() {
             )}
           </CollapsibleSection>
 
+          {/* Resize: Branches ↕ Roundtables (shared tier) */}
+          {sectionState.branches && (
+            <SectionResizeHandle
+              onDrag={(d) => adjustHeight("branches", d)}
+              onDragEnd={persistHeights}
+            />
+          )}
+
           {/* Tier 1b: Roundtables */}
           <CollapsibleSection
             title="Roundtables"
             count={activeRTBranches.length}
             expanded={sectionState.branches}
             onToggle={() => toggleSection("branches")}
+            height={sectionHeights.branches}
             action={
               <button onClick={() => setShowCreateRT(true)}
                 className="p-0.5 rounded text-sidebar-foreground/25 hover:text-agent-gemini transition-colors"
@@ -334,14 +395,37 @@ export function Sidebar() {
             renameConversation={renameConversation}
           />
 
+          {/* Resize: between RT/Branches and Docs */}
+          {(sectionState.branches || sectionState.docs) && (
+            <SectionResizeHandle
+              onDrag={(d) => {
+                if (sectionState.branches) adjustHeight("branches", d);
+                else adjustHeight("docs", -d);
+              }}
+              onDragEnd={persistHeights}
+            />
+          )}
+
           {/* Tier 2: Docs */}
           <CollapsibleSection
             title="Docs"
             expanded={sectionState.docs}
             onToggle={() => toggleSection("docs")}
+            height={sectionHeights.docs}
           >
             <DocsSection projectPath={currentProject?.path} />
           </CollapsibleSection>
+
+          {/* Resize: between Docs and Archive */}
+          {(sectionState.docs || sectionState.archive) && (
+            <SectionResizeHandle
+              onDrag={(d) => {
+                if (sectionState.docs) adjustHeight("docs", d);
+                else adjustHeight("archive", -d);
+              }}
+              onDragEnd={persistHeights}
+            />
+          )}
 
           {/* Tier 3: Archive (archived/adopted branches) */}
           <CollapsibleSection
@@ -349,6 +433,7 @@ export function Sidebar() {
             count={archivedBranches.length}
             expanded={sectionState.archive}
             onToggle={() => toggleSection("archive")}
+            height={sectionHeights.archive}
           >
             {storeBranches
               .filter((b) => b.status === "archived" || b.status === "adopted")
