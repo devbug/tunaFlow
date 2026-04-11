@@ -27,6 +27,8 @@ interface ChatsSectionProps {
   handleRenameBranch: (branchId: string, newLabel: string) => Promise<void>;
   onDeleteBranch: (branchId: string, label: string) => void;
   onCreateRT?: () => void;
+  /** Show only active branches (no conversation headers, no history) */
+  branchesOnly?: boolean;
 }
 
 export function ChatsSection({
@@ -34,6 +36,7 @@ export function ChatsSection({
   activeBranchId, threadBranchId,
   selectConversation, renameConversation, handleDelete,
   branchesByConv, childMap, openThread, handleRenameBranch, onDeleteBranch, onCreateRT,
+  branchesOnly = false,
 }: ChatsSectionProps) {
   // Build set of branch IDs that should be expanded (ancestors of active thread)
   const expandedBranchIds = useMemo(() => {
@@ -106,6 +109,33 @@ export function ChatsSection({
       </div>
     );
   };
+
+  // branchesOnly mode: flat list of active branches + RT (no conversation headers)
+  if (branchesOnly) {
+    const activeBranches: Branch[] = [];
+    for (const [, branches] of branchesByConv) {
+      for (const b of branches) {
+        if (b.status === "active" && !b.parentBranchId) activeBranches.push(b);
+      }
+    }
+    return (
+      <>
+        {activeBranches.length === 0 ? (
+          <p className="text-[10px] text-sidebar-foreground/25 italic py-1">No active branches</p>
+        ) : (
+          activeBranches.map((b) => renderBranch(b, 0))
+        )}
+        {onCreateRT && (
+          <button onClick={onCreateRT}
+            className="flex items-center gap-1.5 px-1 py-0.5 mt-1 text-[10px] text-sidebar-foreground/30 hover:text-agent-gemini transition-colors rounded"
+          >
+            <Users className="w-3 h-3" />
+            <span>New roundtable</span>
+          </button>
+        )}
+      </>
+    );
+  }
 
   return (
     <>

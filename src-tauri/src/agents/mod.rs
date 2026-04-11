@@ -3,6 +3,7 @@ pub mod claude;
 pub mod codex;
 pub mod context_hub;
 pub mod crg;
+pub mod embedder;
 pub mod gemini;
 pub mod gemini_sdk;
 pub mod loader;

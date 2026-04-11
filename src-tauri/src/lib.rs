@@ -117,6 +117,19 @@ pub fn run() {
                 crate::agents::rawq::ensure_daemon();
             });
 
+            // Initialize bge-m3 embedder (document/conversation search)
+            // Try sync init first (if model already cached), then async download if needed
+            if let Err(e) = crate::agents::embedder::init_global_embedder() {
+                eprintln!("[startup] bge-m3 sync init error: {}", e);
+            }
+            if crate::agents::embedder::get_embedder().is_none() {
+                tauri::async_runtime::spawn(async {
+                    if let Err(e) = crate::agents::embedder::init_global_embedder_async().await {
+                        eprintln!("[startup] bge-m3 async download/init error: {}", e);
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -182,6 +195,7 @@ pub fn run() {
             commands::roundtable::start_roundtable_followup,
             // Skill
             commands::skills::list_skills,
+            commands::skills::list_skills_with_project,
             commands::skills::get_skill,
             commands::skills::get_skills_snapshot,
             commands::skills::detect_project_stack,
@@ -232,6 +246,7 @@ pub fn run() {
             commands::context_hub::context_hub_get,
             // Files
             commands::files::list_directory,
+            commands::files::read_file_content,
             commands::files::read_text_file,
             // Tracing
             commands::tracing::list_traces,

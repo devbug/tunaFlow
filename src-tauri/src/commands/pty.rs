@@ -619,22 +619,26 @@ pub fn pty_update_claude_md(
         String::new()
     };
 
-    let marker_start = "## tunaFlow Context";
-    let marker_end = "\n## "; // Next h2 section (must start on new line)
+    // Use explicit end marker to avoid false matches on ## headers inside the ContextPack
+    let marker_start = "<!-- tunaflow:context-start -->";
+    let marker_end = "<!-- tunaflow:context-end -->";
 
-    let new_section = format!("{}\n\n{}\n", marker_start, context_section);
+    let new_section = format!("{}\n{}\n{}", marker_start, context_section, marker_end);
 
     let updated = if let Some(start_idx) = content.find(marker_start) {
-        // Find the end of this section (next \n## or EOF)
-        let after_start = start_idx + marker_start.len();
-        let end_idx = content[after_start..]
+        // Replace everything between start and end markers (inclusive)
+        let end_idx = content[start_idx..]
             .find(marker_end)
-            .map(|i| after_start + i)
+            .map(|i| start_idx + i + marker_end.len())
             .unwrap_or(content.len());
         format!("{}{}{}", &content[..start_idx], new_section, &content[end_idx..])
     } else {
-        // Append at the end
-        if content.is_empty() {
+        // Legacy: also check old marker format and replace it
+        let legacy_start = "## tunaFlow Context";
+        if let Some(legacy_idx) = content.find(legacy_start) {
+            // Strip everything from legacy marker to EOF (old accumulated junk)
+            format!("{}\n{}", content[..legacy_idx].trim_end(), new_section)
+        } else if content.is_empty() {
             new_section
         } else {
             format!("{}\n\n{}", content.trim_end(), new_section)

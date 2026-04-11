@@ -230,7 +230,7 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
   },
 
   getEffectiveSkills: (planPhase: string | null, prompt?: string) => {
-    const { activeSkills, workflowSkills } = get();
+    const { activeSkills, workflowSkills, skills } = get();
     const phase = planPhase ?? "chat";
     const phaseKey =
       phase === "drafting" || phase === "subtask_review" || phase === "approval"
@@ -241,6 +241,16 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
     const phaseRefs = workflowSkills[phaseKey] ?? [];
     // Expand set: refs and individual skills, then union with manual activeSkills
     const expanded = expandSkillRefs([...activeSkills, ...phaseRefs]);
+
+    // Auto-bind procedural skills matching current workflow phase
+    for (const skill of skills) {
+      if (skill.layer === "procedural" && skill.bindPhases.includes(phaseKey)) {
+        if (!expanded.includes(skill.name)) {
+          expanded.push(skill.name);
+        }
+      }
+    }
+
     // Dynamic prompt-based skill injection (feature C)
     if (prompt) {
       const dynamicSkills = matchPromptToSkills(prompt, expanded);

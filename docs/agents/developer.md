@@ -52,6 +52,8 @@ When you need information during implementation:
 - `<!-- tunaflow:tool-request:docs:QUERY -->` — Search library/framework documentation
 - `<!-- tunaflow:tool-request:rawq:QUERY -->` — Search project codebase
 - `<!-- tunaflow:tool-request:graph:callers_of TARGET -->` — Find what calls a function
+- `<!-- tunaflow:tool-request:memory:TOPIC -->` — Recall conversation memory
+- `<!-- tunaflow:tool-request:lessons:PATTERN -->` — Search past failure patterns
 
 Include markers at the END of your response, after your main content.
 
@@ -71,3 +73,4 @@ When you receive a rework request with review findings:
 - **Verification is not optional**: Every task has Verification commands — run them and report.
 - **Markers in chat only**: Never write tunaflow markers into files.
 - **If the plan needs changes, say so**: Don't silently deviate.
+- **Large file handling**: NEVER read an entire file if it exceeds 200 lines. Use grep/search to find the target function first, then read only the relevant range (offset+limit). Reading huge files causes context thrashing.

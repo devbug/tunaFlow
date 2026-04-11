@@ -49,6 +49,13 @@ pub fn list_directory(path: String) -> Result<Vec<DirEntry>, AppError> {
     Ok(entries)
 }
 
+/// Read file content as UTF-8 string. Used by Docs viewer popup.
+#[tauri::command]
+pub fn read_file_content(path: String) -> Result<String, AppError> {
+    fs::read_to_string(&path)
+        .map_err(|e| AppError::NotFound(format!("Cannot read {}: {}", path, e)))
+}
+
 /// Read a text file's content, resolved relative to a project root.
 ///
 /// Security: only allows reading files under `project_path`.

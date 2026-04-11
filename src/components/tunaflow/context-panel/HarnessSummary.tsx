@@ -110,28 +110,8 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
 
   return (
     <div className="mb-3 space-y-2">
-      {/* Stage chips — clickable as tab navigation */}
+      {/* Stage chips ��� clickable as tab navigation */}
       <div className="flex items-center gap-0.5">
-        {/* "All" chip — shows total plan count */}
-        <button
-          onClick={() => onStageClick?.("all" as WorkflowStageId)}
-          className={cn(
-            "text-[8px] font-medium px-1.5 py-0.5 rounded transition-colors flex items-center gap-1",
-            activeStage === "all"
-              ? "bg-primary/20 text-primary ring-1 ring-primary/30"
-              : "text-foreground/60 hover:bg-accent/60 hover:text-foreground/80"
-          )}
-        >
-          All
-          {allPlans.length > 0 && (
-            <span className={cn("min-w-[14px] h-3.5 flex items-center justify-center rounded-full text-[7px] font-semibold",
-              activeStage === "all" ? "bg-primary/30 text-primary" : "bg-accent text-foreground/50"
-            )}>
-              {allPlans.length}
-            </span>
-          )}
-        </button>
-        <div className="w-3 h-px mx-0.5 bg-border/40" />
         {stages.map((stage, i) => {
           const isSelected = activeStage === stage.id;
           return (
@@ -165,6 +145,26 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
             </div>
           );
         })}
+        {/* "All" chip — debug view, after Decision */}
+        <div className="w-3 h-px mx-0.5 bg-border/40" />
+        <button
+          onClick={() => onStageClick?.("all" as WorkflowStageId)}
+          className={cn(
+            "text-[8px] font-medium px-1.5 py-0.5 rounded transition-colors flex items-center gap-1",
+            activeStage === "all"
+              ? "bg-primary/20 text-primary ring-1 ring-primary/30"
+              : "text-foreground/40 hover:bg-accent/60 hover:text-foreground/60"
+          )}
+        >
+          All
+          {allPlans.length > 0 && (
+            <span className={cn("min-w-[14px] h-3.5 flex items-center justify-center rounded-full text-[7px] font-semibold",
+              activeStage === "all" ? "bg-primary/30 text-primary" : "bg-accent text-foreground/40"
+            )}>
+              {allPlans.length}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Subtask summary for active plan */}

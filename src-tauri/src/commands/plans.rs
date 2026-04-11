@@ -239,6 +239,22 @@ pub fn update_plan_status(
         "UPDATE plans SET status = ?1, updated_at = ?2 WHERE id = ?3",
         params![input.status, now, input.id],
     )?;
+    // Sync phase + archive branches when status reaches terminal state
+    if input.status == "done" || input.status == "abandoned" {
+        conn.execute(
+            "UPDATE plans SET phase = 'done' WHERE id = ?1 AND phase != 'done'",
+            params![input.id],
+        )?;
+        // Archive linked implementation/review branches
+        conn.execute(
+            "UPDATE branches SET status = 'archived' WHERE status = 'active' AND id IN (
+                SELECT implementation_branch_id FROM plans WHERE id = ?1 AND implementation_branch_id IS NOT NULL
+                UNION
+                SELECT review_branch_id FROM plans WHERE id = ?1 AND review_branch_id IS NOT NULL
+            )",
+            params![input.id],
+        )?;
+    }
     Ok(())
 }
 

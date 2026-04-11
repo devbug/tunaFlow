@@ -166,11 +166,10 @@ struct RtVectorEntry {
 impl RtVectorIndex {
     fn new() -> Self { Self { entries: Vec::new() } }
 
-    /// Add a participant's response to the index. Embeds via rawq daemon.
+    /// Add a participant's response to the index. Embeds via bge-m3 (or rawq fallback).
     fn add(&mut self, name: &str, content: &str) {
-        use crate::agents::rawq;
         let text = super::prompt::truncate(content, 800);
-        match rawq::embed_text(&text, false) {
+        match crate::agents::embedder::embed_text(&text, false) {
             Ok(emb) => {
                 self.entries.push(RtVectorEntry {
                     name: name.to_string(), text, embedding: emb,
@@ -183,14 +182,13 @@ impl RtVectorIndex {
     /// Search for top-K most relevant chunks given a topic query.
     /// Returns (name, relevant_text) pairs.
     fn search(&self, topic: &str, limit: usize) -> Vec<(String, String)> {
-        use crate::agents::rawq;
-        let query_emb = match rawq::embed_text(topic, true) {
+        let query_emb = match crate::agents::embedder::embed_text(topic, true) {
             Ok(e) => e,
             Err(_) => return Vec::new(),
         };
 
         let mut scored: Vec<(f32, &RtVectorEntry)> = self.entries.iter()
-            .map(|e| (rawq::cosine_similarity(&query_emb, &e.embedding), e))
+            .map(|e| (crate::agents::rawq::cosine_similarity(&query_emb, &e.embedding), e))
             .collect();
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         scored.truncate(limit);

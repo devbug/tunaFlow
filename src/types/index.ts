@@ -90,12 +90,16 @@ export interface Artifact {
   updatedAt: number;
 }
 
+export type SkillLayer = "reference" | "procedural";
+
 export interface SkillDef {
   name: string;
   description: string;
   content: string;
   vendor?: string | null;
   sourcePath?: string | null;
+  layer: SkillLayer;
+  bindPhases: string[];
 }
 
 export interface SkillsSnapshotInfo {

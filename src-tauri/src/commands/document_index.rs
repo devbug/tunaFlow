@@ -304,7 +304,7 @@ pub fn index_project_documents(
                 continue;
             }
             let embed_input = format!("{}\n{}", section.title, section.content);
-            match crate::agents::rawq::embed_text(&embed_input, false) {
+            match crate::agents::embedder::embed_text(&embed_input, false) {
                 Ok(v) => {
                     let blob = super::vector_search::embedding_to_blob(&v);
                     let preview = super::vector_search::truncate_str(&section.content, 300).to_string();
@@ -506,8 +506,7 @@ pub fn search_documents(
     query: &str,
     limit: usize,
 ) -> Result<Vec<DocumentSearchResult>, AppError> {
-    let query_embedding = crate::agents::rawq::embed_text(query, true)
-        .map_err(|e| AppError::Agent(format!("embed failed: {:?}", e)))?;
+    let query_embedding = crate::agents::embedder::embed_text(query, true)?;
 
     let conn = db.read.lock().map_err(|_| AppError::Lock)?;
     let query_blob = super::vector_search::embedding_to_blob(&query_embedding);

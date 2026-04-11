@@ -4,7 +4,16 @@ use std::path::PathBuf;
 
 use crate::errors::AppError;
 
+/// Skill layer type: Reference (library docs) or Procedural (behavioral procedures).
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum SkillLayer {
+    Reference,
+    Procedural,
+}
+
 /// Parsed skill definition loaded from `~/.tunaflow/skills/{name}/SKILL.md`
+/// or project `docs/skills/{name}.md` (procedural).
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillDef {
@@ -13,6 +22,10 @@ pub struct SkillDef {
     pub content: String,
     pub vendor: Option<String>,
     pub source_path: Option<String>,
+    /// Skill layer: reference (library docs) or procedural (behavioral procedures)
+    pub layer: SkillLayer,
+    /// Workflow phases this skill binds to (procedural only)
+    pub bind_phases: Vec<String>,
 }
 
 /// Snapshot-level metadata from `~/.tunaflow/skills/_snapshot.json`
@@ -75,6 +88,8 @@ pub fn list_skills() -> Result<Vec<SkillDef>, AppError> {
             content: body,
             vendor,
             source_path,
+            layer: SkillLayer::Reference,
+            bind_phases: vec![],
         });
     }
 
@@ -101,6 +116,65 @@ pub fn list_skills() -> Result<Vec<SkillDef>, AppError> {
     Ok(skills)
 }
 
+/// List all skills including procedural skills from a project path.
+/// Procedural skills are loaded from `{project_path}/docs/skills/*.md`.
+#[tauri::command]
+pub fn list_skills_with_project(project_path: Option<String>) -> Result<Vec<SkillDef>, AppError> {
+    let mut skills = list_skills()?;
+
+    if let Some(ref path) = project_path {
+        let skills_dir = std::path::Path::new(path).join("docs").join("skills");
+        if skills_dir.is_dir() {
+            let seen_names: std::collections::HashSet<String> = skills.iter().map(|s| s.name.clone()).collect();
+            if let Ok(entries) = fs::read_dir(&skills_dir) {
+                for entry in entries.flatten() {
+                    let epath = entry.path();
+                    let ext = epath.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    if ext != "md" { continue; }
+                    let Ok(content) = fs::read_to_string(&epath) else { continue };
+                    let stem = epath.file_stem()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    if seen_names.contains(&stem) { continue; }
+
+                    let (description, body) = parse_skill(&content);
+                    let bind_phases = parse_bind_phases(&content);
+
+                    skills.push(SkillDef {
+                        name: stem,
+                        description,
+                        content: body,
+                        vendor: Some("project".to_string()),
+                        source_path: Some(epath.to_string_lossy().to_string()),
+                        layer: SkillLayer::Procedural,
+                        bind_phases,
+                    });
+                }
+            }
+        }
+    }
+
+    skills.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(skills)
+}
+
+/// Parse `bind_phases:` frontmatter from a procedural skill file.
+/// Format: `bind_phases: implementation, review, rework`
+fn parse_bind_phases(content: &str) -> Vec<String> {
+    for line in content.lines().take(10) {
+        let trimmed = line.trim().to_lowercase();
+        if trimmed.starts_with("bind_phases:") || trimmed.starts_with("bind-phases:") {
+            let value = line.split_once(':').map(|(_, v)| v.trim()).unwrap_or("");
+            return value.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
 /// Load a single skill by name. Used by ContextPack assembly.
 #[tauri::command]
 pub fn get_skill(name: String) -> Result<SkillDef, AppError> {
@@ -121,6 +195,8 @@ pub fn get_skill(name: String) -> Result<SkillDef, AppError> {
         content: body,
         vendor,
         source_path,
+        layer: SkillLayer::Reference,
+        bind_phases: vec![],
     })
 }
 
@@ -273,6 +349,8 @@ fn scan_skill_dir(dir: &str, tool_source: &str) -> Vec<SkillDef> {
                         content: body,
                         vendor: Some(tool_source.to_string()),
                         source_path: Some(skill_file.to_string_lossy().to_string()),
+                        layer: SkillLayer::Reference,
+                        bind_phases: vec![],
                     });
                 }
             }
@@ -305,6 +383,8 @@ fn scan_skill_dir(dir: &str, tool_source: &str) -> Vec<SkillDef> {
                         content: body,
                         vendor: Some(tool_source.to_string()),
                         source_path: Some(epath.to_string_lossy().to_string()),
+                        layer: SkillLayer::Reference,
+                        bind_phases: vec![],
                     });
                 }
             }

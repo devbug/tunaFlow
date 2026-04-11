@@ -19,3 +19,6 @@
 - [promptAuthoringPolicy_2026-03-30](./promptAuthoringPolicy_2026-03-30.md)
 - [projectFirstEntryPolicy_2026-03-30](./projectFirstEntryPolicy_2026-03-30.md)
 - [workingRulesForAgents](./workingRulesForAgents.md)
+- [codeQualityAudit_2026-04-05](./codeQualityAudit_2026-04-05.md)
+- [knownIssues_2026-04-04](./knownIssues_2026-04-04.md)
+- [planImplementationComparison_2026-04-11](./planImplementationComparison_2026-04-11.md)

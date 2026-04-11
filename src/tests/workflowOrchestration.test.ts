@@ -62,7 +62,7 @@ const mockPlan: Plan = {
 beforeEach(() => {
   vi.clearAllMocks();
   (invoke as any).mockImplementation((cmd: string) => {
-    if (cmd === "create_branch") return Promise.resolve({ id: "br-1", conversationId: "conv-1", label: "Impl", status: "active", createdAt: Date.now() });
+    if (cmd === "create_branch") return Promise.resolve({ id: "br-1", conversationId: "conv-1", label: "dev", status: "active", createdAt: Date.now() });
     if (cmd === "open_branch_stream") return Promise.resolve("branch:br-1");
     if (cmd === "save_rt_config") return Promise.resolve();
     if (cmd === "create_user_message") return Promise.resolve({ id: "msg-1" });
@@ -206,8 +206,7 @@ describe("scanMessagesForMarkers", () => {
 // ─���─ Doom loop escalation ────────────────────────────────────────────────
 
 describe("processReviewVerdict — doom loop", () => {
-  it("escalates to subtask_review after 3 failures", async () => {
-    // Mock listPlanEvents to return 3 prior review_failed events (including current)
+  it("warns at 3 failures but does NOT force escalate", async () => {
     vi.mocked(planApi.listPlanEvents).mockResolvedValue([
       { id: "e1", planId: "p-1", eventType: "review_failed", actor: "reviewer", detail: '{"findings":["x"]}', createdAt: 1 },
       { id: "e2", planId: "p-1", eventType: "review_failed", actor: "reviewer", detail: '{"findings":["y"]}', createdAt: 2 },
@@ -222,15 +221,38 @@ describe("processReviewVerdict — doom loop", () => {
       raw: "",
     });
 
-    // Should first go to rework, then escalate to subtask_review
+    // Should go to rework + warn, but NOT force escalate
     expect(planApi.updatePlanPhase).toHaveBeenCalledWith("p-1", "rework");
-    expect(planApi.updatePlanPhase).toHaveBeenCalledWith("p-1", "subtask_review");
+    expect(planApi.updatePlanPhase).not.toHaveBeenCalledWith("p-1", "subtask_review");
     expect(planApi.createPlanEvent).toHaveBeenCalledWith(
-      "p-1", "doom_loop_escalated", "system", expect.stringContaining("3회"),
+      "p-1", "doom_loop_warning", "system", expect.stringContaining("3회"),
     );
   });
 
-  it("does NOT escalate at 2 failures", async () => {
+  it("force escalates to subtask_review at 5 failures", async () => {
+    vi.mocked(planApi.listPlanEvents).mockResolvedValue([
+      { id: "e1", planId: "p-1", eventType: "review_failed", actor: "reviewer", detail: '{"findings":["a"]}', createdAt: 1 },
+      { id: "e2", planId: "p-1", eventType: "review_failed", actor: "reviewer", detail: '{"findings":["b"]}', createdAt: 2 },
+      { id: "e3", planId: "p-1", eventType: "review_failed", actor: "reviewer", detail: '{"findings":["c"]}', createdAt: 3 },
+      { id: "e4", planId: "p-1", eventType: "review_failed", actor: "reviewer", detail: '{"findings":["d"]}', createdAt: 4 },
+      { id: "e5", planId: "p-1", eventType: "review_failed", actor: "reviewer", detail: '{"findings":["e"]}', createdAt: 5 },
+    ]);
+
+    await processReviewVerdict(mockPlan, {
+      verdict: "fail",
+      findings: ["Bug"],
+      recommendations: [],
+      failedSubtaskIds: [],
+      raw: "",
+    });
+
+    expect(planApi.updatePlanPhase).toHaveBeenCalledWith("p-1", "subtask_review");
+    expect(planApi.createPlanEvent).toHaveBeenCalledWith(
+      "p-1", "doom_loop_escalated", "system", expect.stringContaining("5회"),
+    );
+  });
+
+  it("does NOT warn at 2 failures", async () => {
     vi.mocked(planApi.listPlanEvents).mockResolvedValue([
       { id: "e1", planId: "p-1", eventType: "review_failed", actor: "reviewer", detail: '{"findings":["x"]}', createdAt: 1 },
       { id: "e2", planId: "p-1", eventType: "review_failed", actor: "reviewer", detail: '{"findings":["y"]}', createdAt: 2 },
@@ -316,7 +338,7 @@ describe("startReviewBranch", () => {
     const result = await startReviewBranch(mockPlan, "Please review the subtask structure");
 
     expect(invoke).toHaveBeenCalledWith("create_branch", expect.objectContaining({
-      input: expect.objectContaining({ label: expect.stringContaining("Review") }),
+      input: expect.objectContaining({ label: expect.stringContaining("review") }),
     }));
     expect(planApi.createPlanEvent).toHaveBeenCalledWith("p-1", "review_requested", "user", expect.any(String));
     expect(invoke).toHaveBeenCalledWith("create_user_message", expect.objectContaining({

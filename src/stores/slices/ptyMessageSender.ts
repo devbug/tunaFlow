@@ -145,22 +145,19 @@ export async function sendMessageViaPty(
         console.log(`[pty] injected full ContextPack (${contextResult.sections.length} sections)`);
       }
     } else {
-      const contextResult = await invoke<{ assembledPrompt: string }>(
-        "pty_build_context", {
-          conversationId, prompt: "", projectPath: projectPath || null,
-          activeSkills: activeSkills ?? [], crossSessionIds: crossSessionIds ?? [],
-          personaFragment: null, contextMode: "lite",
-        }
-      );
-      if (contextResult.assembledPrompt && projectPath) {
-        invoke("pty_update_claude_md", {
-          projectPath, contextSection: contextResult.assembledPrompt,
-        }).catch(() => {});
-      }
+      // PTY session maintains its own conversation history — no need to update CLAUDE.md.
+      // Previous design wrote ContextPack delta to CLAUDE.md, but this caused
+      // infinite accumulation (see knownIssues_2026-04-12.md).
+      // Claude CLI reads CLAUDE.md on its own; the first message already has full context.
     }
   } catch (e) {
     console.warn("[pty] ContextPack failed, sending raw prompt:", e);
   }
+
+  // ── Timeouts ──
+  const START_TIMEOUT_MS = 90_000;  // 90s: must see ANY activity (screen or JSONL) after write
+  const TOTAL_TIMEOUT_MS = 600_000; // 10min: total execution limit (agents can run long)
+  const POLL_INTERVAL_MS = 200;
 
   // Send prompt via bracket paste + Enter
   try {
@@ -168,10 +165,57 @@ export async function sendMessageViaPty(
     await new Promise((r) => setTimeout(r, 150));
     await invoke("pty_write", { sessionId, data: "\r" });
 
+    // ── Delivery confirmation: check pty:screen for idle prompt disappearing ──
+    let deliveryConfirmed = false;
+    let activitySeen = false; // Any signal that the agent is working (screen or JSONL)
+
+    const ulDelivery = await listenEvent<{ sessionId: number; data: string }>("pty:screen", (e) => {
+      if (e.payload.sessionId !== sessionId || deliveryConfirmed) return;
+      // If we see ⏺ (response indicator) or thinking symbols, delivery is confirmed
+      if (/⏺|[✻✢✳✶✽]/.test(e.payload.data)) {
+        deliveryConfirmed = true;
+        activitySeen = true; // Screen activity counts — resets start timeout
+        ulDelivery();
+        console.log("[pty] delivery confirmed via screen indicator");
+      }
+    });
+
     // Poll JSONL for assistant messages
     for (let attempt = 0; ; attempt++) {
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       if (finalized) break;
+
+      const elapsed = Date.now() - now;
+
+      // ── Start timeout: no JSONL activity within 30s → error ──
+      if (!activitySeen && elapsed > START_TIMEOUT_MS) {
+        finalized = true;
+        ulScreen();
+        ulDelivery();
+        usePtyStore.getState().endCapture();
+        console.error("[pty] start timeout: no activity within 90s");
+        updateAsstMsg({
+          content: "(PTY 전달 실패 — 90초 내 응답 없음. 에이전트 상태를 확인하세요)",
+          status: "error" as const,
+        });
+        get()._endRun(conversationId);
+        return;
+      }
+
+      // ��─ Total timeout: 3 minutes ──
+      if (elapsed > TOTAL_TIMEOUT_MS) {
+        finalized = true;
+        ulScreen();
+        ulDelivery();
+        usePtyStore.getState().endCapture();
+        console.error("[pty] total timeout: 10 minutes exceeded");
+        updateAsstMsg({
+          content: "(응답 대기 시간 초과 — 10분)",
+          status: "error" as const,
+        });
+        get()._endRun(conversationId);
+        return;
+      }
 
       // Lazy JSONL detection: if no tracked path, detect new file by snapshot diff
       if (!trackedJsonl && snapshotBefore && attempt >= 10 && attempt % 15 === 0) {
@@ -190,6 +234,7 @@ export async function sendMessageViaPty(
               );
             }
             console.log(`[pty-jsonl] detected JSONL: ${trackedJsonl} (session: ${claudeSessionId})`);
+            activitySeen = true;
             try {
               const blArgs: Record<string, unknown> = engine === "gemini"
                 ? { jsonPath: trackedJsonl, afterMessageCount: 0 }
@@ -220,6 +265,11 @@ export async function sendMessageViaPty(
         const result = await invoke<PtyResult | null>(pollConfig.pollCmd, mainPollArgs);
 
         if (result) {
+          // Mark JSONL activity seen (resets start timeout concern)
+          if (result.totalLines > baselineLines || result.text.length > 0) {
+            activitySeen = true;
+          }
+
           // Show tool steps progress during streaming
           if (result.toolSteps.length > 0 && !result.isComplete) {
             hasToolSteps = true;
@@ -233,6 +283,7 @@ export async function sendMessageViaPty(
           if (result.isComplete && result.text.length > 0) {
             finalized = true;
             ulScreen();
+            ulDelivery();
             usePtyStore.getState().endCapture();
 
             let progressContent: string | undefined;
@@ -296,12 +347,13 @@ export async function sendMessageViaPty(
       }
     }
 
-    // Safety net: loop exited without finalization
+    // Safety net: loop exited without finalization (should not reach here)
     if (!finalized) {
       finalized = true;
       ulScreen();
+      ulDelivery();
       usePtyStore.getState().endCapture();
-      updateAsstMsg({ content: "(응답 대기 시간 초과 — 3분)", status: "error" as const });
+      updateAsstMsg({ content: "(응답 대기 시간 초과)", status: "error" as const });
       get()._endRun(conversationId);
     }
   } catch (err) {

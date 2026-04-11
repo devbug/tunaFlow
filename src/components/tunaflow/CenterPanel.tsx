@@ -19,7 +19,7 @@ const TABS: { id: CenterTab; label: string }[] = [
   { id: "chat", label: "Chat" },
   { id: "plan", label: "Plan" },
   { id: "artifacts", label: "Artifacts" },
-  { id: "review", label: "Review" },
+  { id: "review", label: "Results" },
   { id: "insight", label: "Insight" },
 ];
 

@@ -405,7 +405,7 @@ export function PlanCard({
           {(() => {
             const planBranches = branches.filter(
               (b) => b.id === plan.implementationBranchId || b.id === plan.reviewBranchId
-                || b.label?.startsWith("Impl:") || b.label?.startsWith("Review:") || b.label?.startsWith("Re-review:")
+                || b.label?.startsWith("dev:") || b.label?.startsWith("Impl:") || b.label?.startsWith("Dev:") || b.label?.startsWith("review:") || b.label?.startsWith("Review:")
             ).filter((b) => b.conversationId === plan.conversationId);
             return (events.length > 0 || planBranches.length > 0) ? (
               <div className="pl-5">

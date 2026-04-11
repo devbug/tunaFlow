@@ -300,9 +300,9 @@ pub fn load_context_data(
         // Boost with vector search results (best-effort, skip if rawq unavailable)
         // Skip vector search for short/simple prompts (avoid cold-start delays)
         let needs_vector = prompt.chars().count() >= 15
-            && crate::agents::rawq::is_daemon_ready();
+            && (crate::agents::embedder::is_available() || crate::agents::rawq::is_daemon_ready());
         if needs_vector {
-        if let Ok(query_emb) = crate::agents::rawq::embed_text(prompt, true) {
+        if let Ok(query_emb) = crate::agents::embedder::embed_text(prompt, true) {
             let vec_results = crate::commands::vector_search::search_similar(conn, &query_emb, pk, conversation_id, 5);
             eprintln!("[retrieval] Vector: {} chunks (threshold 0.3)", vec_results.len());
             for (i, vc) in vec_results.iter().enumerate() {
@@ -336,8 +336,8 @@ pub fn load_context_data(
 
     // Query 10b: project document search (vector, Standard+ only)
     let document_chunks: Vec<(String, Option<String>, String, f32)> = if let Some(pk) = &project_key {
-        if prompt.chars().count() >= 15 && crate::agents::rawq::is_daemon_ready() {
-            if let Ok(query_emb) = crate::agents::rawq::embed_text(prompt, true) {
+        if prompt.chars().count() >= 15 && (crate::agents::embedder::is_available() || crate::agents::rawq::is_daemon_ready()) {
+            if let Ok(query_emb) = crate::agents::embedder::embed_text(prompt, true) {
                 let query_blob = crate::commands::vector_search::embedding_to_blob(&query_emb);
                 // Search document chunks via vec0 KNN
                 let sql = "

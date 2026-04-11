@@ -122,8 +122,31 @@ pub fn start_server(db: DbState, app_handle: tauri::AppHandle, cancel: CancelArc
     token
 }
 
+/// Load or create a persistent API token.
+/// Stored at `~/.tunaflow/api-token` so it survives app restarts.
 fn generate_token() -> String {
-    uuid::Uuid::new_v4().to_string()
+    let token_path = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".tunaflow")
+        .join("api-token");
+
+    // Try to read existing token
+    if let Ok(existing) = std::fs::read_to_string(&token_path) {
+        let trimmed = existing.trim().to_string();
+        if trimmed.len() >= 32 {
+            return trimmed;
+        }
+    }
+
+    // Generate new token and persist
+    let token = uuid::Uuid::new_v4().to_string();
+    if let Some(parent) = token_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(e) = std::fs::write(&token_path, &token) {
+        eprintln!("[http-api] failed to persist token: {}", e);
+    }
+    token
 }
 
 fn build_router(state: ApiState) -> Router {

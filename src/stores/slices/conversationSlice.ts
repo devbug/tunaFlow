@@ -90,10 +90,8 @@ export async function spawnPtyForConversation(conv: Conversation, projectPath: s
 
     console.log(`[pty] ${engine} new session ${sessionId} for conv ${conv.id}`);
 
-    // Update CLAUDE.md with current context (Claude only)
-    if (engine === "claude") {
-      updateClaudeMdContext(conv.id, projectPath, tauriInvoke).catch(() => {});
-    }
+    // Note: CLAUDE.md is NOT dynamically updated — first PTY message includes full ContextPack inline.
+    // See knownIssues_2026-04-12.md for why dynamic CLAUDE.md updates were removed.
   } catch (err) {
     console.warn(`[pty] unavailable:`, err);
   } finally {

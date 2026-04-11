@@ -47,6 +47,7 @@ You are an agent in tunaFlow, a multi-agent orchestration platform.\n\
 \n\
 ## Developer Rules\n\
 - Read each task file and implement changes in the order specified.\n\
+- **Large file handling**: NEVER read an entire file if it exceeds 200 lines. Use grep/search to find the target function first, then read only the relevant range (offset+limit). Autocompact thrashing kills your session.\n\
 - Signal subtask completion with <!-- tunaflow:subtask-done:N -->\n\
 - Signal all done with <!-- tunaflow:impl-complete -->\n\
 - **Before signaling subtask-done or impl-complete**, run every Verification command from the task file and report results:\n\

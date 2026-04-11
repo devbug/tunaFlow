@@ -1,13 +1,14 @@
-//! Vector-based conversation search — semantic retrieval using rawq embeddings.
+//! Vector-based conversation search — semantic retrieval using bge-m3 embeddings.
 //!
 //! Indexes conversation messages as chunks (user+assistant pairs) with
-//! BLOB embeddings in `conversation_chunks`. Provides brute-force cosine
-//! similarity search for semantic retrieval beyond FTS5 keyword matching.
+//! BLOB embeddings in `conversation_chunks`. Uses bge-m3 (1024dim) for
+//! document/conversation search, rawq (384dim) for code search only.
 
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
-use crate::agents::rawq::{self, EMBED_DIM};
+use crate::agents::embedder;
+use crate::agents::rawq;
 use crate::db::migrations::now_epoch_ms;
 use crate::errors::AppError;
 
@@ -101,7 +102,7 @@ pub fn index_conversation(
 
     for (root_id, kind, text) in &chunks {
         // Embed (passage mode, not query)
-        let embedding = match rawq::embed_text(text, false) {
+        let embedding = match embedder::embed_text(text, false) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("[vector] embed failed for chunk {}: {:?}", root_id, e);
@@ -402,10 +403,12 @@ pub fn embedding_to_blob(embedding: &[f32]) -> Vec<u8> {
 }
 
 fn blob_to_embedding(blob: &[u8]) -> Option<Vec<f32>> {
-    if blob.len() != EMBED_DIM * 4 {
+    // Dynamic dimension: accept any valid f32 blob (must be multiple of 4 bytes)
+    if blob.len() % 4 != 0 || blob.is_empty() {
         return None;
     }
-    let mut vec = Vec::with_capacity(EMBED_DIM);
+    let dim = blob.len() / 4;
+    let mut vec = Vec::with_capacity(dim);
     for chunk in blob.chunks_exact(4) {
         vec.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
     }
@@ -458,7 +461,7 @@ pub async fn index_conversation_chunks(
         // Phase 2: embed (NO lock held — rawq is external process, can be slow)
         let mut embedded: Vec<(String, String, String, Vec<u8>)> = Vec::new();
         for (root_id, kind, text) in &chunks {
-            match rawq::embed_text(text, false) {
+            match embedder::embed_text(text, false) {
                 Ok(v) => {
                     embedded.push((root_id.clone(), kind.clone(), text.clone(), embedding_to_blob(&v)));
                 }
@@ -525,7 +528,7 @@ pub fn index_chunks_blocking(db: &crate::db::DbState, conversation_id: &str) -> 
     if chunks.is_empty() { return Ok(0); }
     let mut embedded: Vec<(String, String, String, Vec<u8>)> = Vec::new();
     for (root_id, kind, text) in &chunks {
-        if let Ok(v) = crate::agents::rawq::embed_text(text, false) {
+        if let Ok(v) = crate::agents::embedder::embed_text(text, false) {
             embedded.push((root_id.clone(), kind.clone(), text.clone(), embedding_to_blob(&v)));
         }
     }
@@ -553,8 +556,7 @@ pub fn index_chunks_blocking(db: &crate::db::DbState, conversation_id: &str) -> 
 
 /// Blocking search — callable from HTTP API without Tauri State.
 pub fn search_chunks_blocking(db: &crate::db::DbState, conversation_id: &str, query: &str, limit: usize) -> Result<Vec<serde_json::Value>, AppError> {
-    let query_embedding = crate::agents::rawq::embed_text(query, true)
-        .map_err(|e| AppError::Agent(format!("embed failed: {:?}", e)))?;
+    let query_embedding = embedder::embed_text(query, true)?;
     let conn = db.read.lock().map_err(|_| AppError::Lock)?;
     let project_key: String = conn.query_row("SELECT project_key FROM conversations WHERE id = ?1", [conversation_id], |r| r.get(0))
         .map_err(|_| AppError::NotFound("conversation not found".into()))?;
@@ -574,8 +576,7 @@ pub fn search_conversation_vectors(
     limit: usize,
     state: tauri::State<crate::db::DbState>,
 ) -> Result<Vec<VectorChunk>, AppError> {
-    let query_embedding = rawq::embed_text(&query, true)
-        .map_err(|e| AppError::Agent(format!("embed failed: {:?}", e)))?;
+    let query_embedding = embedder::embed_text(&query, true)?;
     let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     Ok(search_similar(
         &conn,
@@ -600,21 +601,23 @@ pub fn get_vector_index_status(
 mod tests {
     use super::*;
 
+    const TEST_DIM: usize = 1024;
+
     #[test]
     fn embedding_blob_roundtrip() {
-        let original: Vec<f32> = (0..EMBED_DIM).map(|i| i as f32 * 0.01).collect();
+        let original: Vec<f32> = (0..TEST_DIM).map(|i| i as f32 * 0.01).collect();
         let blob = embedding_to_blob(&original);
-        assert_eq!(blob.len(), EMBED_DIM * 4);
+        assert_eq!(blob.len(), TEST_DIM * 4);
         let recovered = blob_to_embedding(&blob).unwrap();
-        assert_eq!(recovered.len(), EMBED_DIM);
-        for i in 0..EMBED_DIM {
+        assert_eq!(recovered.len(), TEST_DIM);
+        for i in 0..TEST_DIM {
             assert!((original[i] - recovered[i]).abs() < 1e-6);
         }
     }
 
     #[test]
     fn blob_wrong_size_returns_none() {
-        let blob = vec![0u8; 100]; // wrong size
+        let blob = vec![0u8; 3]; // not multiple of 4
         assert!(blob_to_embedding(&blob).is_none());
     }
 
@@ -664,7 +667,7 @@ mod tests {
 
     #[test]
     fn embedding_blob_zeros() {
-        let zeros: Vec<f32> = vec![0.0; EMBED_DIM];
+        let zeros: Vec<f32> = vec![0.0; TEST_DIM];
         let blob = embedding_to_blob(&zeros);
         let recovered = blob_to_embedding(&blob).unwrap();
         assert!(recovered.iter().all(|&v| v == 0.0));
@@ -672,10 +675,10 @@ mod tests {
 
     #[test]
     fn embedding_blob_negative_values() {
-        let negatives: Vec<f32> = (0..EMBED_DIM).map(|i| -(i as f32) * 0.1).collect();
+        let negatives: Vec<f32> = (0..TEST_DIM).map(|i| -(i as f32) * 0.1).collect();
         let blob = embedding_to_blob(&negatives);
         let recovered = blob_to_embedding(&blob).unwrap();
-        for i in 0..EMBED_DIM {
+        for i in 0..TEST_DIM {
             assert!((negatives[i] - recovered[i]).abs() < 1e-6);
         }
     }
@@ -797,7 +800,7 @@ mod tests {
 
     /// Generate a random-ish 384-dim embedding (deterministic from seed).
     fn fake_embedding(seed: usize) -> Vec<f32> {
-        (0..EMBED_DIM).map(|i| {
+        (0..TEST_DIM).map(|i| {
             let x = ((seed * 7919 + i * 104729) % 100000) as f32 / 100000.0;
             x * 2.0 - 1.0 // range [-1, 1]
         }).collect()
@@ -837,7 +840,7 @@ mod tests {
                 timestamp INTEGER
             );
             CREATE VIRTUAL TABLE vec_chunks USING vec0(
-                embedding float[384] distance_metric=cosine
+                embedding float[1024] distance_metric=cosine
             );
         ").unwrap();
 

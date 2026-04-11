@@ -49,7 +49,7 @@ describe("CenterPanel smoke", () => {
     expect(screen.getByText("Chat")).toBeInTheDocument();
     expect(screen.getByText("Plan")).toBeInTheDocument();
     expect(screen.getByText("Artifacts")).toBeInTheDocument();
-    expect(screen.getByText("Review")).toBeInTheDocument();
+    expect(screen.getByText("Results")).toBeInTheDocument();
     expect(screen.getByText("Insight")).toBeInTheDocument();
   });
 
@@ -61,7 +61,7 @@ describe("CenterPanel smoke", () => {
 
   it("has all 5 tabs clickable", () => {
     render(<CenterPanel />);
-    const tabs = ["Chat", "Plan", "Artifacts", "Review", "Insight"];
+    const tabs = ["Chat", "Plan", "Artifacts", "Results", "Insight"];
     for (const tab of tabs) {
       const el = screen.getByText(tab);
       expect(el).toBeInTheDocument();

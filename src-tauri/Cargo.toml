@@ -43,6 +43,9 @@ tower-http = { version = "0.6", features = ["cors"] }
 portable-pty = "0.8"
 strip-ansi-escapes = "0.2.1"
 alacritty_terminal = "0.26.0"
+ort = "=2.0.0-rc.10"
+tokenizers = { version = "0.21", default-features = false, features = ["fancy-regex"] }
+ndarray = "0.16"
 
 [profile.release]
 panic = "abort"

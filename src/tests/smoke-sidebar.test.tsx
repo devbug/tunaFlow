@@ -59,13 +59,13 @@ describe("Sidebar smoke", () => {
     expect(screen.getByText("Test Project")).toBeInTheDocument();
   });
 
-  it("shows Chat as tree root (renamed from Main)", () => {
+  it("shows Branches section header", () => {
     render(<Sidebar />);
-    expect(screen.getByText("Chat")).toBeInTheDocument();
+    expect(screen.getByText("Branches")).toBeInTheDocument();
   });
 
-  it("shows Files section header", () => {
+  it("shows Docs section header", () => {
     render(<Sidebar />);
-    expect(screen.getByText("Files")).toBeInTheDocument();
+    expect(screen.getByText("Docs")).toBeInTheDocument();
   });
 });

@@ -1,17 +1,52 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "@/stores/chatStore";
-import { ChevronDown, FolderOpen, Folder, Trash2, Loader2, Settings, GitBranch } from "lucide-react";
+import { ChevronDown, ChevronRight, FolderOpen, Folder, Trash2, Loader2, Settings, GitBranch, Archive, Users, Plus } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { ask } from "@tauri-apps/plugin-dialog";
 import type { Branch } from "@/types";
 
 import { ChatsSection } from "./sidebar/ChatsSection";
 import { ScratchpadSection } from "./sidebar/ScratchpadSection";
 import { CreateRoundtableDialog } from "./CreateRoundtableDialog";
-import { FilesSection } from "./sidebar/FilesSection";
+import { DocsSection } from "./sidebar/DocsSection";
 import { AddProjectForm } from "./sidebar/AddProjectForm";
 import { useProjectBranches } from "./sidebar/useProjectBranches";
 import { SettingsPanel } from "./SettingsPanel";
+import { getSetting, setSetting } from "@/lib/appStore";
+
+// ─── CollapsibleSection: header + collapsible content ────────────────────────
+
+function CollapsibleSection({
+  title, count, expanded, onToggle, children, action,
+}: {
+  title: string; count?: number; expanded: boolean;
+  onToggle: () => void; children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className={cn("flex flex-col min-h-0", expanded && "flex-1")}>
+      <div className="shrink-0 flex items-center px-3 py-1">
+        <button
+          onClick={onToggle}
+          className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 hover:text-sidebar-foreground/60 transition-colors flex-1"
+        >
+          <ChevronRight className={cn("w-3 h-3 transition-transform", expanded && "rotate-90")} />
+          <span>{title}</span>
+          {!expanded && count != null && count > 0 && (
+            <span className="text-[9px] text-sidebar-foreground/25 font-normal ml-1">({count})</span>
+          )}
+        </button>
+        {action && <div className="shrink-0">{action}</div>}
+      </div>
+      {expanded && (
+        <div className="flex-1 overflow-y-auto px-3 pb-1">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Sidebar() {
   const projects = useChatStore((s) => s.projects);
@@ -33,9 +68,22 @@ export function Sidebar() {
   const runningThreadIds = useChatStore((s) => s.runningThreadIds);
   const messageQueue = useChatStore((s) => s.messageQueue);
   const [renameCounter, setRenameCounter] = useState(0);
-  const [filesOpen, setFilesOpen] = useState(false);
   const [showCreateRT, setShowCreateRT] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // 3-tier collapsible sections (persisted)
+  const [sectionState, setSectionState] = useState({ branches: true, docs: true, archive: true });
+  useEffect(() => {
+    getSetting<Record<string, boolean>>("sidebarSections", { branches: true, docs: true, archive: true })
+      .then((v) => setSectionState({ branches: v.branches ?? true, docs: v.docs ?? true, archive: v.archive ?? true }));
+  }, []);
+  const toggleSection = useCallback((key: "branches" | "docs" | "archive") => {
+    setSectionState((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      setSetting("sidebarSections", next);
+      return next;
+    });
+  }, []);
 
   // Project dropdown state
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
@@ -70,6 +118,11 @@ export function Sidebar() {
   // Current project data
   const chatConvs = conversations.filter((c) => !c.id.startsWith("branch:") && c.mode !== "roundtable" && c.type !== "scratchpad");
   const scratchpads = conversations.filter((c) => c.type === "scratchpad");
+
+  // Branch/RT/Archive counts for collapsed section labels
+  const activeChatBranches = storeBranches.filter((b) => b.status === "active" && b.mode !== "roundtable");
+  const activeRTBranches = storeBranches.filter((b) => b.status === "active" && b.mode === "roundtable");
+  const archivedBranches = storeBranches.filter((b) => b.status === "archived" || b.status === "adopted");
 
   const allBranches = useProjectBranches(conversations, storeBranches, renameCounter);
   const childMap = new Map<string, Branch[]>();
@@ -210,41 +263,116 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* Workspace tree */}
-      <nav className="flex-1 overflow-y-auto py-1 px-3">
-        {selectedProjectKey && (
-          <>
-            <ChatsSection
-              filteredChats={chatConvs}
-              selectedConversationId={selectedConversationId}
-              activeBranchId={activeBranchId}
-              threadBranchId={threadBranchId}
-              selectConversation={selectConversation}
-              renameConversation={renameConversation}
-              handleDelete={handleDelete}
-              branchesByConv={branchesByConv}
-              childMap={childMap}
-              openThread={openThread}
-              handleRenameBranch={handleRenameBranch}
-              onDeleteBranch={handleDeleteBranch}
-              onCreateRT={() => setShowCreateRT(true)}
-            />
+      {/* 3-tier collapsible workspace */}
+      {selectedProjectKey ? (
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+          {/* Tier 1a: Branches */}
+          <CollapsibleSection
+            title="Branches"
+            count={activeChatBranches.length}
+            expanded={sectionState.branches}
+            onToggle={() => toggleSection("branches")}
+          >
+            {activeChatBranches.length === 0 ? (
+              <p className="text-[10px] text-sidebar-foreground/25 italic py-1">No active branches</p>
+            ) : (
+              activeChatBranches.map((b) => (
+                <button key={b.id} onClick={() => openThread(b.id)}
+                  className={cn(
+                    "w-full flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded transition-colors group",
+                    b.id === threadBranchId
+                      ? "bg-sidebar-accent text-sidebar-foreground"
+                      : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/40"
+                  )}
+                >
+                  <GitBranch className="w-3 h-3 shrink-0" />
+                  <span className="truncate flex-1 text-left">{b.customLabel ?? b.label}</span>
+                  {runningThreadIds.includes(b.conversationId) && (
+                    <Loader2 className="w-3 h-3 animate-spin text-primary/70 shrink-0" />
+                  )}
+                </button>
+              ))
+            )}
+          </CollapsibleSection>
 
-            <ScratchpadSection
-              scratchpads={scratchpads}
-              selectedConversationId={selectedConversationId}
-              selectConversation={selectConversation}
-              renameConversation={renameConversation}
-            />
+          {/* Tier 1b: Roundtables */}
+          <CollapsibleSection
+            title="Roundtables"
+            count={activeRTBranches.length}
+            expanded={sectionState.branches}
+            onToggle={() => toggleSection("branches")}
+            action={
+              <button onClick={() => setShowCreateRT(true)}
+                className="p-0.5 rounded text-sidebar-foreground/25 hover:text-agent-gemini transition-colors"
+                title="New roundtable">
+                <Plus className="w-3 h-3" />
+              </button>
+            }
+          >
+            {activeRTBranches.length === 0 ? (
+              <p className="text-[10px] text-sidebar-foreground/25 italic py-1">No roundtables</p>
+            ) : (
+              activeRTBranches.map((b) => (
+                <button key={b.id} onClick={() => openThread(b.id)}
+                  className={cn(
+                    "w-full flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded transition-colors",
+                    b.id === threadBranchId
+                      ? "bg-sidebar-accent text-sidebar-foreground"
+                      : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/40"
+                  )}
+                >
+                  <Users className="w-3 h-3 shrink-0 text-agent-gemini/50" />
+                  <span className="truncate flex-1 text-left">{b.customLabel ?? b.label}</span>
+                </button>
+              ))
+            )}
+          </CollapsibleSection>
 
-            <FilesSection
-              filesOpen={filesOpen}
-              setFilesOpen={setFilesOpen}
-              projectPath={currentProject?.path}
-            />
-          </>
-        )}
-      </nav>
+          {/* Tier 1c: Scratchpad */}
+          <ScratchpadSection
+            scratchpads={scratchpads}
+            selectedConversationId={selectedConversationId}
+            selectConversation={selectConversation}
+            renameConversation={renameConversation}
+          />
+
+          {/* Tier 2: Docs */}
+          <CollapsibleSection
+            title="Docs"
+            expanded={sectionState.docs}
+            onToggle={() => toggleSection("docs")}
+          >
+            <DocsSection projectPath={currentProject?.path} />
+          </CollapsibleSection>
+
+          {/* Tier 3: Archive (archived/adopted branches) */}
+          <CollapsibleSection
+            title="Archive"
+            count={archivedBranches.length}
+            expanded={sectionState.archive}
+            onToggle={() => toggleSection("archive")}
+          >
+            {storeBranches
+              .filter((b) => b.status === "archived" || b.status === "adopted")
+              .map((b) => (
+                <button key={b.id} onClick={() => openThread(b.id)}
+                  className={cn(
+                    "w-full flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded transition-colors",
+                    b.id === threadBranchId
+                      ? "bg-sidebar-accent text-sidebar-foreground"
+                      : "text-sidebar-foreground/35 hover:text-sidebar-foreground/60 hover:bg-sidebar-accent/40"
+                  )}
+                >
+                  <Archive className="w-3 h-3 shrink-0" />
+                  <span className="truncate">{b.customLabel ?? b.label}</span>
+                </button>
+              ))
+            }
+          </CollapsibleSection>
+        </div>
+      ) : (
+        <nav className="flex-1" />
+      )}
 
       {/* Settings button — bottom left */}
       <div className="shrink-0 px-3 py-2">

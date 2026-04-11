@@ -70,7 +70,8 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
       }
 
       const isRework = plan.phase === "rework" || !!reviewVerdict;
-      const roundLabel = isRework ? `Re-review` : `Review`;
+      const reviewRound = (plan.versionMinor || 0) + 1;
+      const roundLabel = isRework ? `review (${reviewRound})` : `review`;
       await planApi.updatePlanPhase(plan.id, "review");
       await planApi.createPlanEvent(plan.id, "review_started", "user",
         `reviewer=${selectedProfile.label}${isRework ? " (rework)" : ""}`);

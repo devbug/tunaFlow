@@ -188,7 +188,7 @@ export async function startReviewBranch(
   feedback: string,
 ): Promise<CreateBranchResult> {
   const { branch, shadowConvId } = await createAndLinkBranch(
-    plan, "review", `Review: ${plan.title}`, "chat",
+    plan, "review", `review: ${plan.title}`, "chat",
   );
   await planApi.createPlanEvent(plan.id, "review_requested", "user", feedback);
 
@@ -228,7 +228,7 @@ export async function approveAndStartImplementation(
 
   // Create implementation branch
   const { branch, shadowConvId } = await createAndLinkBranch(
-    plan, "implementation", `Impl: ${plan.title}`, "chat",
+    plan, "implementation", `dev: ${plan.title}`, "chat",
   );
 
   // Build developer prompt — lightweight, agent reads files directly
@@ -289,7 +289,7 @@ export async function startReviewRT(
 
   // Generate implementation result report before review
   syncResultReport(plan.id, implMessages, plan.developerEngine ?? undefined,
-    plan.implementationBranchId ? `Impl: ${plan.title}` : undefined);
+    plan.implementationBranchId ? `dev: ${plan.title}` : undefined);
 
   // Create test-report artifact if test output exists
   if (testOutput) {
@@ -461,14 +461,23 @@ export async function processReviewVerdict(
       } catch { /* ignore parse errors */ }
     }
 
-    // Escalate at 2 failures if overlap detected, always at 3
-    if (failCount >= 3) {
+    // 2-stage escalation:
+    // - 3 failures: warn + suggest (user chooses: architect redesign / continue rework / manual)
+    // - 5 failures: force escalation to architect
+    if (failCount >= 5) {
       await planApi.updatePlanPhase(plan.id, "subtask_review");
       await planApi.createPlanEvent(
         plan.id,
         "doom_loop_escalated",
         "system",
-        `Review 실패 ${failCount}회 — 설계 재검토로 자동 에스컬레이션`,
+        `Review 실패 ${failCount}회 — Architect 재설계로 강제 에스컬레이션`,
+      );
+    } else if (failCount >= 3) {
+      await planApi.createPlanEvent(
+        plan.id,
+        "doom_loop_warning",
+        "system",
+        `Review 실패 ${failCount}회 — 설계 재검토를 권장합니다. Architect 재설계 또는 Developer 계속 rework 중 선택하세요.`,
       );
     }
   } else {

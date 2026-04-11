@@ -106,8 +106,8 @@ pub fn discover_related_sessions(
 
     // Boost with vector similarity (best-effort, skip if daemon not ready)
     let combined = &user_messages.join(" ");
-    if crate::agents::rawq::is_daemon_ready() {
-    if let Ok(query_emb) = crate::agents::rawq::embed_text(combined, true) {
+    if crate::agents::embedder::is_available() || crate::agents::rawq::is_daemon_ready() {
+    if let Ok(query_emb) = crate::agents::embedder::embed_text(combined, true) {
         let vec_results = crate::commands::vector_search::search_similar(
             conn, &query_emb, project_key, conversation_id, 10,
         );
