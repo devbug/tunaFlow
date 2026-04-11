@@ -18,6 +18,8 @@ Opus/Claude에 전달하는 실행 지시문, hand-off 문서, 초기 구현 프
 - [workspacePanelRedesignPrompt](./workspacePanelRedesignPrompt.md): ContextPanel을 3모드 우선의 workflow형 workspace panel로 재구성하는 Phase 1 실행 프롬프트
 
 - [backgroundAgentExecutionPrompt](./backgroundAgentExecutionPrompt.md): 장기 agent 실행을 background worker + event + DB 기반으로 전환하는 실행 프롬프트
+- [session19-handoff](./session19-handoff.md): HTTP API E2E 테스트 세션 핸드오프
+- [session20-handoff](./session20-handoff.md): 장기기억 자동 트리거 + main 머지 준비 핸드오프
 - [contextBudgetScalingPrompt](./contextBudgetScalingPrompt.md): ContextPack budget을 베타에서 단계적으로 상향 실험하기 위한 준비 프롬프트
 - [2026-03-28/skills_runtime_snapshot_all_vendors_prompt](./2026-03-28/skills_runtime_snapshot_all_vendors_prompt.md): _research/_skills 전체 vendor를 ~/.tunaflow/skills로 runtime snapshot 발행하는 실행 프롬프트
 - [2026-03-28/skills_snapshot_runtime_policy_prompt](./2026-03-28/skills_snapshot_runtime_policy_prompt.md): ~/.tunaflow/skills 운영 규칙 문서화 지시 프롬프트

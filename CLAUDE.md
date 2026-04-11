@@ -1,6 +1,6 @@
 # tunaFlow — Claude Code Handoff Document
 
-> 최종 갱신: 2026-04-11 (세션 18 반영)
+> 최종 갱신: 2026-04-11 (세션 19 반영)
 > SSOT: `docs/reference/dataModelRevised.md` (도메인 모델), `docs/reference/implementationStatus.md` (구현 현황)
 
 ---
@@ -463,6 +463,7 @@ tunaFlow/
 | 16 | 2026-04-10 | RT 중간 스트리밍 + ContextPack Tiering Tier 0+1 (RT ~70% 절감) + PTY Phase 1-2 + MCP 서버 + JSONL 응답 수집 |
 | 17 | 2026-04-11 | PTY Phase 3-5 + 잔여 항목 (delta 주입, Codex/Gemini resume, ToolSteps 고도화, TerminalPanel→StatusBar) |
 | 18 | 2026-04-11 | **ContextPack Tiering 8항목 완료** (chunk 품질, sqlite-vec 18x, RT 벡터 맥락 공유 ~80%, Tier 2 9종, 메인 채팅 Tiering, RT resume_token), **P0 Structured Memory** (budget weight), **WIP Limits** 경고, **Fresh Session Rework**, Branch PTY 공유, **HTTP API Phase 1** (axum REST+WS+Bearer), DB v30 |
+| 19 | 2026-04-11 | **HTTP API E2E 테스트** (전 엔드포인트 검증 + Snake Game 풀 워크플로우), **HTTP API Phase 2** (Branch/RT/Memory/Search 16개 엔드포인트 추가, ContextPack 주입), **코덱스 리뷰 대응** (토큰 uuid, 문서 SSOT, async mutex 패턴, agentStreamHelper, 컴포넌트 분할, 테스트 19개), **장기기억 품질 테스트** (압축/세션링크/벡터검색 동작 확인 + 크로스세션 recall 한계 발견), DOOM 이스터에그 (WIP) |
 
 ---
 
