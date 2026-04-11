@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
@@ -10,7 +10,7 @@ import { HarnessSummary, type WorkflowStageId } from "./context-panel/HarnessSum
 import { ReviewPanel } from "./context-panel/ReviewPanel";
 import { InsightPanel } from "./context-panel/InsightPanel";
 import { ArtifactsPanel } from "./context-panel/ArtifactsPanel";
-const TerminalPanel = lazy(() => import("./TerminalPanel").then((m) => ({ default: m.TerminalPanel })));
+// TerminalPanel moved to RuntimeStatusBar (bottom panel toggle)
 import { InlineRename } from "./InlineRename";
 
 type CenterTab = "chat" | "plan" | "artifacts" | "review" | "insight";
@@ -277,12 +277,7 @@ export function CenterPanel() {
               <ChatPanel />
             </div>
           </div>
-          {/* PTY debug terminal — bottom 1/3 of chat view */}
-          <div className="min-h-0 overflow-hidden border-t border-border/30" style={{ flex: "1 1 0%" }}>
-            <Suspense fallback={<div className="flex items-center justify-center h-full text-prose-faint text-tf-micro">PTY loading...</div>}>
-              <TerminalPanel />
-            </Suspense>
-          </div>
+          {/* PTY terminal moved to RuntimeStatusBar bottom panel */}
         </div>
 
         {effectiveTab === "artifacts" && (

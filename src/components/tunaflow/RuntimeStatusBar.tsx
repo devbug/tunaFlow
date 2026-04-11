@@ -3,9 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { usePtyStore } from "@/stores/ptyStore";
-import { Activity, Loader2, Zap } from "lucide-react";
+import { Activity, Loader2, Zap, Terminal } from "lucide-react";
 import { TraceModal } from "./TraceModal";
 import type { Message } from "@/types";
+import { lazy, Suspense } from "react";
+const TerminalPanel = lazy(() => import("./TerminalPanel").then((m) => ({ default: m.TerminalPanel })));
 
 function SkillsBadge() {
   const activeSkills = useChatStore((s) => s.activeSkills);
@@ -65,6 +67,8 @@ export function RuntimeStatusBar() {
   const [lastContextPct, setLastContextPct] = useState<number | null>(null);
   const [gitStatus, setGitStatus] = useState<{ branch: string | null; dirty: boolean; added: number; modified: number; untracked: number } | null>(null);
   const [traceOpen, setTraceOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const hasPtySession = usePtyStore((s) => s.sessions.size > 0);
 
   const isRunning = runningThreadIds.length > 0;
   const runningEngines = [...new Set(jobs.filter((j) => j.status === "running").map((j) => j.engine))];
@@ -280,7 +284,7 @@ export function RuntimeStatusBar() {
         {/* Separator */}
         <span className="w-px h-3 bg-border/30" />
 
-        {/* rawq status — right edge */}
+        {/* rawq status */}
         <div className="flex items-center gap-1.5 px-3 h-full">
           {rawqStatus && (
             <>
@@ -293,9 +297,35 @@ export function RuntimeStatusBar() {
             </>
           )}
         </div>
+
+        {/* PTY terminal toggle — right edge */}
+        {hasPtySession && (
+          <>
+            <span className="w-px h-3 bg-border/30" />
+            <button
+              onClick={() => setTerminalOpen((v) => !v)}
+              className={cn(
+                "flex items-center gap-1 px-2 h-full transition-colors",
+                terminalOpen ? "text-primary" : "text-muted-foreground/50 hover:text-muted-foreground"
+              )}
+              title="PTY Terminal"
+            >
+              <Terminal className="w-3 h-3" />
+            </button>
+          </>
+        )}
       </div>
 
       {traceOpen && <TraceModal onClose={() => setTraceOpen(false)} />}
+
+      {/* PTY Terminal Panel — slides up from status bar */}
+      {terminalOpen && (
+        <div className="border-t border-border/30 bg-[#1a1a1a]" style={{ height: 240 }}>
+          <Suspense fallback={<div className="p-2 text-xs text-muted-foreground">Loading terminal...</div>}>
+            <TerminalPanel />
+          </Suspense>
+        </div>
+      )}
     </>
   );
 }
