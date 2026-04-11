@@ -34,6 +34,8 @@ pub struct PtyState {
 struct PtySession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     _child: Box<dyn portable_pty::Child + Send>,
+    /// Latest VTE screen text — shared with reader thread for on-demand access.
+    screen: Arc<Mutex<String>>,
 }
 
 impl PtyState {
@@ -109,6 +111,10 @@ pub fn pty_spawn(
         current
     };
 
+    // Shared screen buffer — updated by reader thread, readable via pty_get_screen
+    let shared_screen = Arc::new(Mutex::new(String::new()));
+    let screen_for_reader = Arc::clone(&shared_screen);
+
     // Store session
     {
         let mut sessions = state.sessions.lock();
@@ -117,6 +123,7 @@ pub fn pty_spawn(
             PtySession {
                 writer: Arc::clone(&writer),
                 _child: child,
+                screen: shared_screen,
             },
         );
     }
@@ -183,6 +190,8 @@ pub fn pty_spawn(
                     // 1. pty:screen — VTE screen snapshot (for completion detection)
                     if screen_text != prev_screen_text && !screen_text.trim().is_empty() {
                         prev_screen_text = screen_text.clone();
+                        // Update shared screen buffer for on-demand access
+                        *screen_for_reader.lock() = screen_text.clone();
                         let _ = app.emit("pty:screen", PtyOutputPayload {
                             session_id: sid, data: screen_text,
                         });
@@ -240,6 +249,34 @@ pub fn pty_write(
         .flush()
         .map_err(|e| AppError::Agent(format!("PTY flush error: {}", e)))?;
     Ok(())
+}
+
+/// Get the current VTE screen text for a PTY session (on-demand).
+#[tauri::command]
+pub fn pty_get_screen(
+    session_id: u32,
+    state: State<'_, PtyState>,
+) -> Result<String, AppError> {
+    let arc = {
+        let sessions = state.sessions.lock();
+        Arc::clone(&sessions
+            .get(&session_id)
+            .ok_or_else(|| AppError::NotFound(format!("PTY session {} not found", session_id)))?
+            .screen)
+    };
+    let guard = arc.lock();
+    let text = guard.clone();
+    Ok(text)
+}
+
+/// Check if a PTY session's child process is alive.
+#[tauri::command]
+pub fn pty_is_alive(
+    session_id: u32,
+    state: State<'_, PtyState>,
+) -> bool {
+    let sessions = state.sessions.lock();
+    sessions.contains_key(&session_id)
 }
 
 /// Resize a PTY session.

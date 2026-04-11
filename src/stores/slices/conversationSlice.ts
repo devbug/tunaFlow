@@ -72,6 +72,25 @@ export async function spawnPtyForConversation(conv: Conversation, projectPath: s
     });
     pty.setSession(engine, sessionId, projectPath);
 
+    // Wait for CLI to become ready (❯ prompt or response indicator)
+    // Claude CLI takes 2-5s to load, especially with --resume
+    const { listen } = await import("@tauri-apps/api/event");
+    const readyPromise = new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => { unlisten(); resolve(); }, 15_000); // 15s max
+      let unlisten = () => {};
+      listen<{ sessionId: number; data: string }>("pty:screen", (e) => {
+        if (e.payload.sessionId !== sessionId) return;
+        // ❯ prompt = CLI ready for input
+        if (/❯/.test(e.payload.data)) {
+          clearTimeout(timeout);
+          unlisten();
+          console.log(`[pty] ${engine} CLI ready (prompt detected)`);
+          resolve();
+        }
+      }).then((ul) => { unlisten = ul; });
+    });
+    await readyPromise;
+
     // Find session file for resume tracking
     if (conv.resumeToken) {
       const listCmd = engine === "claude" ? "pty_list_jsonl_files"

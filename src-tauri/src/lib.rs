@@ -301,6 +301,8 @@ pub fn run() {
             // PTY
             commands::pty::pty_spawn,
             commands::pty::pty_write,
+            commands::pty::pty_get_screen,
+            commands::pty::pty_is_alive,
             commands::pty::pty_resize,
             commands::pty::pty_kill,
             commands::pty::pty_poll_jsonl,

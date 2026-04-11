@@ -161,6 +161,25 @@ export async function sendMessageViaPty(
 
   // Send prompt via bracket paste + Enter
   try {
+    // ── Pre-write: ensure CLI is ready (❯ prompt visible) ──
+    const screen = await invoke<string>("pty_get_screen", { sessionId }).catch(() => "");
+    if (screen && !/❯/.test(screen)) {
+      // CLI not showing prompt — send Enter to wake it
+      console.log("[pty] CLI not ready, sending wake signal...");
+      await invoke("pty_write", { sessionId, data: "\r" });
+      // Wait for prompt to appear (max 10s)
+      const { listen } = await import("@tauri-apps/api/event");
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => { ul(); resolve(); }, 10_000);
+        let ul = () => {};
+        listenEvent<{ sessionId: number; data: string }>("pty:screen", (e) => {
+          if (e.payload.sessionId === sessionId && /❯/.test(e.payload.data)) {
+            clearTimeout(timeout); ul(); resolve();
+          }
+        }).then((u) => { ul = u; });
+      });
+    }
+
     await invoke("pty_write", { sessionId, data: `\x1b[200~${enrichedPrompt}\x1b[201~` });
     await new Promise((r) => setTimeout(r, 150));
     await invoke("pty_write", { sessionId, data: "\r" });
