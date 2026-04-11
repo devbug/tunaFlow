@@ -210,6 +210,23 @@ pub fn get_active_plan_phase(
     Ok(phase)
 }
 
+/// Count active (non-done, non-abandoned) plans for a project. Used for WIP limit warnings.
+#[tauri::command]
+pub fn count_active_plans(
+    project_key: String,
+    state: State<DbState>,
+) -> Result<i64, AppError> {
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM plans p
+         JOIN conversations c ON c.id = p.conversation_id
+         WHERE c.project_key = ?1 AND p.status NOT IN ('done', 'abandoned')",
+        [&project_key],
+        |row| row.get(0),
+    ).unwrap_or(0);
+    Ok(count)
+}
+
 /// Update the status of a plan (draft → active → done | abandoned).
 #[tauri::command]
 pub fn update_plan_status(

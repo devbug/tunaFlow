@@ -46,17 +46,23 @@ pub fn assemble_prompt(
 
     let total_budget = data.context_budget_cap.unwrap_or(guardrail::MAX_TOTAL_PROMPT);
 
-    // Dynamic budget allocation — measure actual content, distribute proportionally
+    // Dynamic budget allocation — measure actual content, distribute proportionally.
+    // Weight policy (Structured Memory Source Strengthening):
+    //   Structured task memory (plan/findings/artifacts) > Conversational memory (compressed) > Cross-session
+    //   "현재 작업과 직접 연결된 구조화 객체"가 "대화 요약"보다 우선한다.
     let budget_alloc = guardrail::allocate_budgets(total_budget, &[
-        guardrail::SectionBudget { name: "plan",       content_len: data.plan_section.as_ref().map_or(0, |s| s.len()),     weight: 1.0, min_chars: 500,  max_chars: guardrail::MAX_PLAN_SECTION },
+        // Structured task memory — highest priority
+        guardrail::SectionBudget { name: "plan",       content_len: data.plan_section.as_ref().map_or(0, |s| s.len()),     weight: 1.5, min_chars: 500,  max_chars: guardrail::MAX_PLAN_SECTION },
         guardrail::SectionBudget { name: "plan-doc",   content_len: data.plan_document.as_ref().map_or(0, |s| s.len()),    weight: 2.0, min_chars: 1000, max_chars: 6000 },
-        guardrail::SectionBudget { name: "findings",   content_len: data.findings_section.as_ref().map_or(0, |s| s.len()), weight: 1.0, min_chars: 500,  max_chars: guardrail::MAX_FINDINGS_SECTION },
-        guardrail::SectionBudget { name: "artifacts",  content_len: data.artifacts_section.as_ref().map_or(0, |s| s.len()),weight: 0.8, min_chars: 300,  max_chars: guardrail::MAX_ARTIFACTS_SECTION },
-        guardrail::SectionBudget { name: "skills",     content_len: if data.active_skills.is_empty() { 0 } else { 2000 },  weight: 1.0, min_chars: 500,  max_chars: guardrail::MAX_SKILLS_SECTION },
+        guardrail::SectionBudget { name: "findings",   content_len: data.findings_section.as_ref().map_or(0, |s| s.len()), weight: 1.2, min_chars: 500,  max_chars: guardrail::MAX_FINDINGS_SECTION },
+        guardrail::SectionBudget { name: "artifacts",  content_len: data.artifacts_section.as_ref().map_or(0, |s| s.len()),weight: 1.0, min_chars: 300,  max_chars: guardrail::MAX_ARTIFACTS_SECTION },
+        // Supplementary sources
+        guardrail::SectionBudget { name: "skills",     content_len: if data.active_skills.is_empty() { 0 } else { 2000 },  weight: 0.8, min_chars: 500,  max_chars: guardrail::MAX_SKILLS_SECTION },
         guardrail::SectionBudget { name: "rawq",       content_len: if data.retrieval_chunks.is_empty() { 0 } else { 1000 }, weight: 0.8, min_chars: 500, max_chars: guardrail::MAX_RAWQ_SECTION },
-        guardrail::SectionBudget { name: "retrieval",  content_len: data.retrieval_chunks.len() * 300,                     weight: 1.2, min_chars: 500,  max_chars: guardrail::MAX_RETRIEVAL_SECTION },
-        guardrail::SectionBudget { name: "compressed", content_len: data.compressed_memory.as_ref().map_or(0, |s| s.len()),weight: 1.0, min_chars: 500,  max_chars: guardrail::MAX_COMPRESSED_MEMORY_SECTION },
-        guardrail::SectionBudget { name: "cross",      content_len: if data.cross_session_data.is_empty() { 0 } else { 1000 }, weight: 0.6, min_chars: 300, max_chars: guardrail::MAX_CROSS_SESSION_SECTION },
+        guardrail::SectionBudget { name: "retrieval",  content_len: data.retrieval_chunks.len() * 300,                     weight: 1.0, min_chars: 500,  max_chars: guardrail::MAX_RETRIEVAL_SECTION },
+        // Conversational memory — lower than structured task memory
+        guardrail::SectionBudget { name: "compressed", content_len: data.compressed_memory.as_ref().map_or(0, |s| s.len()),weight: 0.7, min_chars: 500,  max_chars: guardrail::MAX_COMPRESSED_MEMORY_SECTION },
+        guardrail::SectionBudget { name: "cross",      content_len: if data.cross_session_data.is_empty() { 0 } else { 1000 }, weight: 0.4, min_chars: 300, max_chars: guardrail::MAX_CROSS_SESSION_SECTION },
     ]);
     let dyn_cap = |name: &str| -> usize {
         budget_alloc.iter().find(|(n, _)| *n == name).map_or(2000, |(_, c)| *c)
@@ -232,8 +238,11 @@ pub fn assemble_prompt(
     }
 
     // ═══ UNIFIED MEMORY POLICY ═══
+    // Priority: structured task memory > conversational memory > cross-session
+    // Structured = plan/findings/artifacts (작업 continuity)
+    // Conversational = compressed memory (대화 continuity)
 
-    // Layer 2: Structured task memory (plan / findings / artifacts)
+    // Layer 2: Structured task memory — highest priority after context window
     if ctx_mode >= ContextMode::Standard {
         if let Some(s) = guardrail::truncate_section(
             data.plan_section.clone(),
@@ -421,9 +430,11 @@ pub fn assemble_prompt(
         let mut sorted_sizes = section_sizes.clone();
         sorted_sizes.sort_by(|a, b| b.1.cmp(&a.1));
         let top3: Vec<String> = sorted_sizes.iter().take(3).map(|(n, s)| format!("{}={:.1}k", n, *s as f64 / 1000.0)).collect();
+        let structured: Vec<&str> = active.iter().filter(|s| matches!(*s, &"plan" | &"plan-document" | &"findings" | &"artifacts")).copied().collect();
+        let conversational: Vec<&str> = active.iter().filter(|s| matches!(*s, &"compressed-memory" | &"cross-session")).copied().collect();
         eprintln!(
-            "[memory_policy] budget={}/{} active=[{}] skipped=[{}] top=[{}]",
-            total_chars, total_budget, active.join(","), skipped_str, top3.join(","),
+            "[memory_policy] budget={}/{} structured=[{}] conversational=[{}] skipped=[{}] top=[{}]",
+            total_chars, total_budget, structured.join(","), conversational.join(","), skipped_str, top3.join(","),
         );
     }
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useChatStore } from "@/stores/chatStore";
+import { invoke } from "@tauri-apps/api/core";
 import { Check, Pause } from "lucide-react";
 import type { Plan, PlanPhase, PlanStatus, PlanSubtask } from "@/types";
 import * as planApi from "@/lib/api/plans";
@@ -28,6 +29,14 @@ export function ApprovalGate({
   const handleDevStart = async () => {
     setMode("busy");
     try {
+      // WIP limit check: warn if too many active plans
+      const projectKey = useChatStore.getState().selectedProjectKey;
+      if (projectKey) {
+        const activePlans = await invoke<number>("count_active_plans", { projectKey }).catch(() => 0);
+        if (activePlans >= 5) {
+          toast.warning(`동시 진행 Plan ${activePlans}개 — 리뷰 병목 주의. WIP 줄이기 권장.`);
+        }
+      }
       const engine = selectedProfile?.engine ?? "claude";
       const { branch, prompt } = await approveAndStartImplementation(plan, engine);
       onPlanUpdate({ phase: "implementation", status: "active" as PlanStatus, implementationBranchId: branch.id });

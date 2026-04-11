@@ -737,4 +737,108 @@ mod tests {
     fn format_author_label_fallback() {
         assert_eq!(format_author_label("", ""), "assistant");
     }
+
+    // ─── sqlite-vec benchmark ───────────────────────────────────────────
+
+    /// Generate a random-ish 384-dim embedding (deterministic from seed).
+    fn fake_embedding(seed: usize) -> Vec<f32> {
+        (0..EMBED_DIM).map(|i| {
+            let x = ((seed * 7919 + i * 104729) % 100000) as f32 / 100000.0;
+            x * 2.0 - 1.0 // range [-1, 1]
+        }).collect()
+    }
+
+    #[test]
+    fn benchmark_brute_force_vs_vec0() {
+        use std::time::Instant;
+
+        // Init sqlite-vec
+        unsafe {
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )));
+        }
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA journal_mode = WAL;").unwrap();
+
+        // Create tables
+        conn.execute_batch("
+            CREATE TABLE conversation_chunks (
+                id TEXT PRIMARY KEY,
+                project_key TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'pair',
+                root_message_id TEXT NOT NULL,
+                text_preview TEXT NOT NULL,
+                embedding BLOB,
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE messages (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT,
+                role TEXT,
+                content TEXT,
+                timestamp INTEGER
+            );
+            CREATE VIRTUAL TABLE vec_chunks USING vec0(
+                embedding float[384] distance_metric=cosine
+            );
+        ").unwrap();
+
+        // Insert N fake chunks
+        let n = 11_000;
+        let t_insert = Instant::now();
+        for i in 0..n {
+            let id = format!("chunk-{}", i);
+            let conv_id = format!("conv-{}", i % 100);
+            let emb = fake_embedding(i);
+            let blob = embedding_to_blob(&emb);
+            conn.execute(
+                "INSERT INTO conversation_chunks (id, project_key, conversation_id, kind, root_message_id, text_preview, embedding, created_at)
+                 VALUES (?1, 'proj1', ?2, 'window', ?3, ?4, ?5, 0)",
+                rusqlite::params![id, conv_id, format!("msg-{}", i), format!("text preview {}", i), blob],
+            ).unwrap();
+            let rowid: i64 = conn.last_insert_rowid();
+            conn.execute(
+                "INSERT INTO vec_chunks(rowid, embedding) VALUES (?1, ?2)",
+                rusqlite::params![rowid, blob],
+            ).unwrap();
+        }
+        let insert_ms = t_insert.elapsed().as_millis();
+        eprintln!("[bench] inserted {} chunks in {}ms", n, insert_ms);
+
+        // Also insert messages for parent retriever
+        for i in 0..n {
+            conn.execute(
+                "INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?1, ?2, 'assistant', ?3, 0)",
+                rusqlite::params![format!("msg-{}", i), format!("conv-{}", i % 100), format!("Full message content for chunk {}", i)],
+            ).unwrap();
+        }
+
+        let query = fake_embedding(42);
+        let query_blob = embedding_to_blob(&query);
+
+        // Benchmark: brute-force
+        let t_brute = Instant::now();
+        let brute_results = search_brute_force(&conn, &query, "proj1", "conv-999", 10);
+        let brute_ms = t_brute.elapsed().as_micros();
+
+        // Benchmark: vec0 KNN
+        let t_vec0 = Instant::now();
+        let vec0_results = search_via_vec0(&conn, &query_blob, "proj1", "conv-999", 10);
+        let vec0_ms = t_vec0.elapsed().as_micros();
+
+        eprintln!("[bench] {} chunks:", n);
+        eprintln!("  brute-force: {}μs ({} results)", brute_ms, brute_results.len());
+        eprintln!("  vec0 KNN:    {}μs ({} results)", vec0_ms, vec0_results.len());
+        eprintln!("  speedup:     {:.1}x", brute_ms as f64 / vec0_ms.max(1) as f64);
+
+        // Both should return results
+        assert!(!brute_results.is_empty(), "brute-force should return results");
+        assert!(!vec0_results.is_empty(), "vec0 should return results");
+        // Both should have parent text resolved
+        assert!(brute_results[0].full_text.is_some(), "brute-force should resolve parent text");
+        assert!(vec0_results[0].full_text.is_some(), "vec0 should resolve parent text");
+    }
 }

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { cn, errorMessage } from "@/lib/utils";
+import { useChatStore } from "@/stores/chatStore";
 import type { Plan, PlanPhase, PlanStatus } from "@/types";
 import type { ParsedReviewVerdict } from "@/lib/planProposalParser";
-import { processReviewVerdict } from "@/lib/workflowOrchestration";
+import { processReviewVerdict, approveAndStartImplementation } from "@/lib/workflowOrchestration";
 import * as planApi from "@/lib/api/plans";
 import { toast } from "sonner";
 
@@ -37,6 +38,44 @@ export function ReviewVerdictCard({
     } catch (e) {
       console.error("[ReviewVerdictCard] rework failed:", e);
       toast.error("Rework 처리 실패: " + errorMessage(e));
+    }
+    setBusy(false);
+  };
+
+  // Fresh Session: kill current context, create new Implementation Branch from scratch
+  const handleFreshRestart = async () => {
+    setBusy(true);
+    try {
+      // Record failure verdict first
+      await processReviewVerdict(plan, { ...verdict, verdict: "fail" });
+      await planApi.createPlanEvent(plan.id, "fresh_restart", "user", "컨텍스트 오염 — fresh session으로 재시작");
+
+      // Reset all subtasks to pending
+      const { invoke } = await import("@tauri-apps/api/core");
+      const subtasks = await invoke<{ id: string }[]>("list_subtasks", { planId: plan.id });
+      for (const st of subtasks) {
+        await invoke("update_subtask_status", { id: st.id, status: "pending" }).catch(() => {});
+      }
+
+      // Create new Implementation Branch with fresh start
+      const { openThread, loadBranches, sendThreadMessage, saveConversationEngine } = useChatStore.getState();
+      const profiles = useChatStore.getState().agentProfiles;
+      const devProfile = profiles.find((p) => p.label?.toLowerCase().includes("dev")) ?? profiles[0];
+      const engine = devProfile?.engine ?? "claude";
+
+      const { branch, prompt } = await approveAndStartImplementation(plan, engine);
+      onPlanUpdate({ phase: "implementation" as PlanPhase, implementationBranchId: branch.id });
+      await loadBranches(plan.conversationId);
+
+      const shadowConvId = `branch:${branch.id}`;
+      saveConversationEngine(shadowConvId, { profileId: devProfile?.id ?? "", engine, model: devProfile?.model });
+
+      await openThread(branch.id);
+      await sendThreadMessage(prompt, engine, devProfile?.model);
+      toast.success("Fresh session으로 재시작합니다");
+    } catch (e) {
+      console.error("[ReviewVerdictCard] fresh restart failed:", e);
+      toast.error("Fresh restart 실패: " + errorMessage(e));
     }
     setBusy(false);
   };
@@ -110,7 +149,12 @@ export function ReviewVerdictCard({
           </button>
           <button onClick={handleRework} disabled={busy}
             className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-rejected/10 text-status-rejected hover:bg-status-rejected/20 disabled:opacity-50 transition-colors">
-            Rework
+            이어서 수정
+          </button>
+          <button onClick={handleFreshRestart} disabled={busy}
+            className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-agent-gemini/10 text-agent-gemini hover:bg-agent-gemini/20 disabled:opacity-50 transition-colors"
+            title="컨텍스트를 버리고 새 Branch에서 처음부터 다시 구현">
+            처음부터 다시
           </button>
         </div>
       )}
