@@ -544,6 +544,16 @@ pub fn get_conversation_memory_status(
     Ok(get_memory_status(&conn, &conversation_id))
 }
 
+/// Tauri command: list memory topics for a conversation (for Tier 2 Pull).
+#[tauri::command]
+pub fn list_memory_topics(
+    conversation_id: String,
+    state: tauri::State<crate::db::DbState>,
+) -> Result<Vec<MemoryTopic>, AppError> {
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
+    Ok(load_compressed_memory_topics(&conn, &conversation_id))
+}
+
 /// Tauri command: trigger memory compression for a conversation.
 ///
 /// Lock strategy: read data with short lock → release → call Claude (slow) → re-lock to write.

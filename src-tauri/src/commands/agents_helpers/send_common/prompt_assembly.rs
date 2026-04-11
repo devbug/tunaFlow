@@ -333,7 +333,18 @@ pub fn assemble_prompt(
     }
 
     // Layer 5+: Skills, rawq, cross-session (supplementary sources)
-    if ctx_mode >= ContextMode::Full || !data.active_skills.is_empty() {
+    // Tiering: skills/cross-session are Tier 2 (Pull via tool-request) unless explicitly active.
+    // Agents can request them on-demand: <!-- tunaflow:tool-request:skills:KEYWORD -->
+    if !data.active_skills.is_empty() {
+        if let Some(s) = guardrail::truncate_section(
+            build_skills_section(&data.active_skills, &data.prompt),
+            dyn_cap("skills"),
+        ) {
+            sections.push(s);
+            included_sections.push("skills".into());
+        }
+    } else if ctx_mode >= ContextMode::Full {
+        // Full mode: still include keyword-matched skills as before
         if let Some(s) = guardrail::truncate_section(
             build_skills_section(&data.active_skills, &data.prompt),
             dyn_cap("skills"),
@@ -360,9 +371,10 @@ pub fn assemble_prompt(
             included_sections.push("graph".into());
         }
     }
-    // context-hub: now handled via marker-based tool requests (<!-- tunaflow:tool-request:docs:QUERY -->)
-    // Agents request docs on demand instead of automatic injection every turn.
-    if !data.cross_session_data.is_empty() {
+    // context-hub: handled via tool-request markers (<!-- tunaflow:tool-request:docs:QUERY -->)
+    // cross-session: Tier 2 in Lite/Standard, Push only in Full mode.
+    // Agents can request via <!-- tunaflow:tool-request:sessions:QUERY -->
+    if ctx_mode >= ContextMode::Full && !data.cross_session_data.is_empty() {
         if let Some(s) = maybe_compress_section_typed(
             build_cross_session_section(&data.cross_session_data),
             profile.cross_session_cap,

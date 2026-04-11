@@ -75,6 +75,82 @@ export async function executeToolRequests(requests: ToolRequest[]): Promise<stri
             }
           }
         }
+      } else if (req.type === "memory") {
+        // Tier 2 Pull: compressed conversation memory by topic
+        const { useChatStore } = await import("@/stores/chatStore");
+        const convId = useChatStore.getState().selectedConversationId;
+        if (convId) {
+          const topics = await invoke<{ topic: string; summary: string }[]>(
+            "list_memory_topics", { conversationId: convId }
+          ).catch(() => []);
+          const matched = topics.filter((t) =>
+            t.topic.toLowerCase().includes(req.query.toLowerCase()) ||
+            t.summary.toLowerCase().includes(req.query.toLowerCase())
+          ).slice(0, 3);
+          if (matched.length > 0) {
+            const lines = matched.map((t) => `### ${t.topic}\n${t.summary.slice(0, 800)}`);
+            results.push(`## 🧠 대화 기억: "${req.query}"\n\n${lines.join("\n\n")}`);
+          } else {
+            results.push(`> "${req.query}" 관련 대화 기억을 찾지 못했습니다.`);
+          }
+        }
+      } else if (req.type === "sessions") {
+        // Tier 2 Pull: cross-session search
+        const { useChatStore } = await import("@/stores/chatStore");
+        const convId = useChatStore.getState().selectedConversationId;
+        const pk = useChatStore.getState().selectedProjectKey;
+        if (convId && pk) {
+          const links = await invoke<{ linkedConvId: string; score: number; method: string }[]>(
+            "get_session_links", { conversationId: convId }
+          ).catch(() => []);
+          if (links.length > 0) {
+            const lines = links.slice(0, 5).map((l) => `- ${l.linkedConvId} (score: ${l.score.toFixed(2)}, ${l.method})`);
+            results.push(`## 🔗 관련 세션 (${links.length}개)\n\n${lines.join("\n")}`);
+          } else {
+            results.push(`> 관련 세션을 찾지 못했습니다.`);
+          }
+        }
+      } else if (req.type === "skills") {
+        // Tier 2 Pull: search skills by keyword
+        const { useChatStore } = await import("@/stores/chatStore");
+        const allSkills = useChatStore.getState().skills ?? [];
+        const matched = allSkills.filter((s) =>
+          s.name?.toLowerCase().includes(req.query.toLowerCase()) ||
+          s.description?.toLowerCase().includes(req.query.toLowerCase())
+        ).slice(0, 3);
+        if (matched.length > 0) {
+          const lines = matched.map((s) => `### ${s.name}\n${(s.content ?? s.description ?? "").slice(0, 1000)}`);
+          results.push(`## 📖 스킬: "${req.query}"\n\n${lines.join("\n\n")}`);
+        } else {
+          results.push(`> "${req.query}" 관련 스킬을 찾지 못했습니다.`);
+        }
+      } else if (req.type === "artifacts") {
+        // Tier 2 Pull: fetch artifact by ID or search by title
+        const { useChatStore } = await import("@/stores/chatStore");
+        const artifacts = useChatStore.getState().artifacts ?? [];
+        const matched = artifacts.filter((a) =>
+          a.id === req.query || a.title?.toLowerCase().includes(req.query.toLowerCase())
+        ).slice(0, 3);
+        if (matched.length > 0) {
+          const lines = matched.map((a) => `### ${a.title} (${a.type}, ${a.status})\n${(a.content ?? "").slice(0, 1500)}`);
+          results.push(`## 📦 아티팩트: "${req.query}"\n\n${lines.join("\n\n")}`);
+        } else {
+          results.push(`> "${req.query}" 관련 아티팩트를 찾지 못했습니다.`);
+        }
+      } else if (req.type === "lessons") {
+        // Tier 2 Pull: failure lessons by pattern
+        const pk = (await import("@/stores/chatStore")).useChatStore.getState().selectedProjectKey;
+        if (pk) {
+          const lessons = await invoke<{ pattern: string; finding: string; resolution: string | null }[]>(
+            "search_similar_failures", { projectKey: pk, query: req.query, filePaths: [], limit: 3 }
+          ).catch(() => []);
+          if (lessons.length > 0) {
+            const lines = lessons.map((l) => `- **${l.pattern}**: ${l.finding}${l.resolution ? ` → ${l.resolution}` : ""}`);
+            results.push(`## ⚠️ 과거 실패 패턴: "${req.query}"\n\n${lines.join("\n")}`);
+          } else {
+            results.push(`> "${req.query}" 관련 실패 패턴이 없습니다.`);
+          }
+        }
       } else if (req.type === "plans") {
         const { useChatStore } = await import("@/stores/chatStore");
         const convId = useChatStore.getState().selectedConversationId;

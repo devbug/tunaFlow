@@ -309,9 +309,10 @@ pub fn load_context_data(
             let fts_conv_ids: std::collections::HashSet<String> = fts_chunks.iter().map(|c| c.conversation_id.clone()).collect();
             for vc in vec_results {
                 if vc.score > 0.3 && !fts_conv_ids.contains(&vc.conversation_id) {
+                    let text = vc.full_text.unwrap_or(vc.text_preview);
                     fts_chunks.push(crate::commands::context_queries::RetrievedChunk {
                         kind: "anchor",
-                        messages: vec![("assistant".to_string(), vc.text_preview, None, None)],
+                        messages: vec![("assistant".to_string(), text, None, None)],
                         conversation_id: vc.conversation_id,
                         score: vc.score as f64,
                         timestamp: 0,

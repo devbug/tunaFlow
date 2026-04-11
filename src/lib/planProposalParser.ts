@@ -411,7 +411,7 @@ export function extractReviewVerdict(content: string): ParsedReviewVerdict | nul
 // ─── Tool request markers ──────────────────────────────────────────────────
 
 export interface ToolRequest {
-  type: "docs" | "rawq" | "graph" | "plans";
+  type: "docs" | "rawq" | "graph" | "plans" | "memory" | "sessions" | "skills" | "artifacts" | "lessons";
   query: string;
 }
 
@@ -424,7 +424,7 @@ export function extractToolRequests(content: string): ToolRequest[] {
   while ((match = TOOL_REQUEST_RE.exec(content)) !== null) {
     const type = match[1] as ToolRequest["type"];
     const query = match[2].trim();
-    if (["docs", "rawq", "graph", "plans"].includes(type) && query) {
+    if (["docs", "rawq", "graph", "plans", "memory", "sessions", "skills", "artifacts", "lessons"].includes(type) && query) {
       requests.push({ type, query });
     }
   }

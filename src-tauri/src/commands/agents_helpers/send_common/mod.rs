@@ -307,6 +307,7 @@ mod tests {
     #[test]
     fn cross_session_included_when_present() {
         let mut data = empty_context_data();
+        data.context_mode_override = Some("full".into()); // Tiering: cross-session is Tier 2, requires Full mode
         data.cross_session_data = vec![
             ("Other Chat".into(), vec![("user".into(), "context info".into())]),
         ];
