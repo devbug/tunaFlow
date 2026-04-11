@@ -4,14 +4,16 @@ import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { Loader2, Search, StickyNote } from "lucide-react";
 
+import { lazy, Suspense } from "react";
 import { ChatPanel } from "./ChatPanel";
 import { PlansPanel } from "./context-panel/PlansPanel";
 import { HarnessSummary, type WorkflowStageId } from "./context-panel/HarnessSummary";
 import { ReviewPanel } from "./context-panel/ReviewPanel";
 import { InsightPanel } from "./context-panel/InsightPanel";
 import { ArtifactsPanel } from "./context-panel/ArtifactsPanel";
-// TerminalPanel moved to RuntimeStatusBar (bottom panel toggle)
 import { InlineRename } from "./InlineRename";
+
+const TerminalPanel = lazy(() => import("./TerminalPanel").then((m) => ({ default: m.TerminalPanel })));
 
 type CenterTab = "chat" | "plan" | "artifacts" | "review" | "insight";
 
@@ -35,6 +37,14 @@ export function CenterPanel() {
   const [activeTab, setActiveTab] = useState<CenterTab>("chat");
   const [activeStage, setActiveStage] = useState<WorkflowStageId>("plan");
   const [planRefreshKey, setPlanRefreshKey] = useState(0);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+
+  // Listen for terminal toggle from RuntimeStatusBar
+  useEffect(() => {
+    const handler = (e: Event) => setTerminalOpen((e as CustomEvent).detail as boolean);
+    window.addEventListener("tunaflow:terminal-toggle", handler);
+    return () => window.removeEventListener("tunaflow:terminal-toggle", handler);
+  }, []);
   const selectedProjectKey = useChatStore((s) => s.selectedProjectKey);
   const artifacts = useChatStore((s) => s.artifacts);
   const selectedConversationId = useChatStore((s) => s.selectedConversationId);
@@ -237,7 +247,14 @@ export function CenterPanel() {
               <ChatPanel />
             </div>
           </div>
-          {/* PTY terminal moved to RuntimeStatusBar bottom panel */}
+          {/* PTY debug terminal — inside chat area */}
+          {terminalOpen && (
+            <div className="shrink-0 border-t border-border/30 bg-[#0d0f17]" style={{ height: 200 }}>
+              <Suspense fallback={<div className="p-2 text-xs text-muted-foreground">Loading terminal...</div>}>
+                <TerminalPanel />
+              </Suspense>
+            </div>
+          )}
         </div>
 
         {effectiveTab === "artifacts" && (

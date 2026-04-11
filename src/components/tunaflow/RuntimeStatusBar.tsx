@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
@@ -68,6 +68,14 @@ export function RuntimeStatusBar() {
   const [gitStatus, setGitStatus] = useState<{ branch: string | null; dirty: boolean; added: number; modified: number; untracked: number } | null>(null);
   const [traceOpen, setTraceOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  // Sync terminal toggle with CenterPanel via custom event
+  const toggleTerminal = useCallback(() => {
+    setTerminalOpen((v) => {
+      const next = !v;
+      window.dispatchEvent(new CustomEvent("tunaflow:terminal-toggle", { detail: next }));
+      return next;
+    });
+  }, []);
   const hasPtySession = usePtyStore((s) => s.sessions.size > 0);
 
   const isRunning = runningThreadIds.length > 0;
@@ -303,7 +311,7 @@ export function RuntimeStatusBar() {
           <>
             <span className="w-px h-3 bg-border/30" />
             <button
-              onClick={() => setTerminalOpen((v) => !v)}
+              onClick={toggleTerminal}
               className={cn(
                 "flex items-center gap-1 px-2 h-full transition-colors",
                 terminalOpen ? "text-primary" : "text-muted-foreground/50 hover:text-muted-foreground"
@@ -318,14 +326,7 @@ export function RuntimeStatusBar() {
 
       {traceOpen && <TraceModal onClose={() => setTraceOpen(false)} />}
 
-      {/* PTY Terminal Panel — slides up from status bar */}
-      {terminalOpen && (
-        <div className="border-t border-border/30 bg-[#1a1a1a]" style={{ height: 240 }}>
-          <Suspense fallback={<div className="p-2 text-xs text-muted-foreground">Loading terminal...</div>}>
-            <TerminalPanel />
-          </Suspense>
-        </div>
-      )}
+      {/* PTY Terminal Panel moved to CenterPanel (inside chat area) */}
     </>
   );
 }
