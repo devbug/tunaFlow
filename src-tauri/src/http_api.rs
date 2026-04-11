@@ -459,13 +459,35 @@ async fn send_message(
     let event_tx = state.event_tx.clone();
 
     let engine_for_db = engine.clone();
+    let conv_id_for_ctx = conv_id.clone();
     tokio::spawn(async move {
         let result = tokio::task::spawn_blocking(move || {
             use crate::agents::claude;
+            use crate::commands::agents_helpers::send_common::build_normalized_prompt_with_budget;
+
+            // Build ContextPack — same as Tauri commands
+            let (enriched_prompt, system_prompt, _meta) = {
+                let conn = match db.read.lock() { Ok(c) => c, Err(p) => p.into_inner() };
+                build_normalized_prompt_with_budget(
+                    &conn,
+                    &conv_id_for_ctx,
+                    &prompt,
+                    project_path.as_deref(),
+                    &[],  // active_skills
+                    &[],  // cross_session_ids (auto-discovered inside)
+                    None, // persona_fragment
+                    None, // context_mode_override
+                    None, // context_budget_cap
+                )
+            };
+
+            eprintln!("[http-api] ContextPack built: prompt={}chars system={}chars",
+                enriched_prompt.len(), system_prompt.as_ref().map(|s| s.len()).unwrap_or(0));
+
             let run_input = claude::RunInput {
-                prompt,
+                prompt: enriched_prompt,
                 model,
-                system_prompt: None,
+                system_prompt,
                 resume_token: None,
                 project_path: project_path.clone(),
             };
