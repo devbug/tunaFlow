@@ -620,18 +620,18 @@ pub fn pty_update_claude_md(
     };
 
     let marker_start = "## tunaFlow Context";
-    let marker_end = "## "; // Next h2 section
+    let marker_end = "\n## "; // Next h2 section (must start on new line)
 
     let new_section = format!("{}\n\n{}\n", marker_start, context_section);
 
     let updated = if let Some(start_idx) = content.find(marker_start) {
-        // Find the end of this section (next ## or EOF)
+        // Find the end of this section (next \n## or EOF)
         let after_start = start_idx + marker_start.len();
         let end_idx = content[after_start..]
             .find(marker_end)
             .map(|i| after_start + i)
             .unwrap_or(content.len());
-        format!("{}{}\n{}", &content[..start_idx], new_section, &content[end_idx..])
+        format!("{}{}{}", &content[..start_idx], new_section, &content[end_idx..])
     } else {
         // Append at the end
         if content.is_empty() {

@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { errorMessage } from "@/lib/utils";
 import { usePtyStore, isPtyEngine } from "@/stores/ptyStore";
+import { sendMessageViaPty } from "./ptyMessageSender";
 import { getSetting } from "@/lib/appStore";
 import { useToolStepsStore } from "@/stores/toolStepsStore";
 import { serializeSteps } from "@/lib/toolSteps";
@@ -113,34 +114,35 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     const { selectedProjectKey, selectedConversationId, runningThreadIds } = get();
     if (!selectedProjectKey || !selectedConversationId) return;
 
-    // PTY shortcut: if enabled and a PTY session is active, route through it
-    // Falls back to -p mode on PTY failure
-    const { getSetting: getAppSetting } = await import("@/lib/appStore");
-    const ptyEnabled = await getAppSetting<boolean>("ptyEnabled", true);
-    if (ptyEnabled && isPtyEngine(engine)) {
-      const ptySession = usePtyStore.getState().getSession(engine);
-      if (ptySession !== null) {
-        try {
-          await sendViaPty(set, get, prompt, ptySession, selectedConversationId, engine);
-          return;
-        } catch (ptyErr) {
-          console.error("[pty] sendViaPty failed, falling back to -p mode:", ptyErr);
-          // Clear broken PTY session
-          usePtyStore.getState().clearSession(engine as import("@/stores/ptyStore").PtyEngine);
-          import("sonner").then(({ toast }) => toast.warning("PTY 오류 — CLI 모드로 전환")).catch(() => {});
-          // Fall through to -p mode below
-        }
-      }
-    }
-
-    const config = ENGINE_CONFIGS[engine] ?? ENGINE_CONFIGS.claude;
-
+    // Queue if already running
     if (runningThreadIds.includes(selectedConversationId)) {
       get()._enqueue(selectedConversationId, prompt.slice(0, 30), () =>
         get().sendWithEngine(engine, prompt, model, systemPrompt),
       );
       return;
     }
+
+    // PTY shortcut: if enabled and a PTY session is active, route through it
+    const { getSetting: getAppSetting } = await import("@/lib/appStore");
+    const ptyEnabled = await getAppSetting<boolean>("ptyEnabled", true);
+    if (ptyEnabled && isPtyEngine(engine)) {
+      const ptySession = usePtyStore.getState().getSession(engine);
+      if (ptySession !== null) {
+        try {
+          await sendMessageViaPty(set, get, prompt, ptySession, selectedConversationId, engine, {
+            messageTarget: "messages",
+            isActiveCheck: () => get().selectedConversationId === selectedConversationId,
+          });
+          return;
+        } catch (ptyErr) {
+          console.error("[pty] sendViaPty failed, falling back to -p mode:", ptyErr);
+          usePtyStore.getState().clearSession(engine as import("@/stores/ptyStore").PtyEngine);
+          import("sonner").then(({ toast }) => toast.warning("PTY 오류 — CLI 모드로 전환")).catch(() => {});
+        }
+      }
+    }
+
+    const config = ENGINE_CONFIGS[engine] ?? ENGINE_CONFIGS.claude;
 
     get()._startRun(selectedConversationId);
     const now = Date.now();
@@ -465,336 +467,3 @@ async function runRoundtable(
   }
 }
 
-// ─── PTY interactive mode ────────────────────────────────────────────────────
-
-/** Determine the poll command and list command for each engine */
-function getPtyPollConfig(engine: string) {
-  switch (engine) {
-    case "codex": return { pollCmd: "pty_poll_codex", listCmd: "pty_list_codex_files", pathParam: "jsonlPath" };
-    case "gemini": return { pollCmd: "pty_poll_gemini", listCmd: "pty_list_gemini_files", pathParam: "jsonPath" };
-    default: return { pollCmd: "pty_poll_jsonl", listCmd: "pty_list_jsonl_files", pathParam: "jsonlPath" };
-  }
-}
-
-// Routes a chat message through the active PTY session instead of -p mode.
-// Output is streamed via pty:output events, ANSI-stripped, and displayed as a chat message.
-
-async function sendViaPty(
-  set: SetState, get: GetState,
-  prompt: string, sessionId: number, conversationId: string, engine: string = "claude",
-) {
-  const { listen: listenEvent } = await import("@tauri-apps/api/event");
-
-  if (get().runningThreadIds.includes(conversationId)) {
-    get()._enqueue(conversationId, prompt.slice(0, 30), () =>
-      get().sendWithEngine(engine, prompt),
-    );
-    return;
-  }
-
-  get()._startRun(conversationId);
-  const now = Date.now();
-
-  // Save user message to DB first
-  let userMsgId: string;
-  try {
-    const userMsg = await invoke<Message>("append_user_message", {
-      input: { conversationId, content: prompt },
-    });
-    userMsgId = userMsg.id;
-  } catch (e) {
-    console.error("[pty] append_user_message failed:", e);
-    userMsgId = `temp-user-${now}`;
-  }
-
-  const asstMsgId = `pty-${now}`;
-
-  // Add messages to store
-  set((state) => ({
-    error: null,
-    messages: [
-      ...state.messages,
-      { id: userMsgId, conversationId, role: "user" as const, content: prompt, timestamp: now, status: "done" as const },
-      { id: asstMsgId, conversationId, role: "assistant" as const, content: "", timestamp: now, status: "streaming" as const, engine: (ENGINE_CONFIGS[engine] ?? ENGINE_CONFIGS.claude).engineKey },
-    ],
-  }));
-
-  const isStillActive = () => get().selectedConversationId === conversationId;
-
-  // Mark PTY as capturing (prevents orphan recovery from clearing runningThreadIds)
-  usePtyStore.getState().endCapture(); // clear stale
-  usePtyStore.getState().startCapture(asstMsgId, engine as import("@/stores/ptyStore").PtyEngine);
-  // Capture starts after prompt is sent (below) — not here, to skip echo
-
-  // PTY mode: show status during streaming, extract response after completion.
-  // TUI output is too noisy for real-time chat display.
-  let finalized = false;
-  let hasToolSteps = false; // Once tool steps appear, stop status text updates
-
-  const ptySession = usePtyStore.getState().sessions.get(engine as import("@/stores/ptyStore").PtyEngine);
-  const projectPath = ptySession?.projectPath || "";
-  const jsonlPath = ptySession?.jsonlPath; // tracked JSONL file for this PTY session
-
-  // Status indicator via pty:screen (visual only, not for completion)
-  // Only shown before tool steps appear — once JSONL tool steps are active, pty:screen is redundant
-  const ulScreen = await listenEvent<{ sessionId: number; data: string }>("pty:screen", (e) => {
-    if (e.payload.sessionId !== sessionId || finalized || hasToolSteps) return;
-    const status = /⏺/.test(e.payload.data) ? "responding..." : /[✻✢✳✶✽]/.test(e.payload.data) ? "thinking..." : null;
-    if (status && isStillActive()) {
-      set((state) => ({
-        messages: state.messages.map((m) =>
-          m.id === asstMsgId ? { ...m, progressContent: status } : m
-        ),
-      }));
-    }
-  });
-
-  // Engine-specific poll/list commands
-  const pollConfig = getPtyPollConfig(engine);
-
-  // Get current JSONL line count (baseline — poll for lines after this)
-  let trackedJsonl = jsonlPath ?? null;
-  let baselineLines = 0;
-  if (trackedJsonl) {
-    try {
-      const pollArgs: Record<string, unknown> = { afterLine: 0 };
-      if (engine === "claude") { pollArgs.projectPath = projectPath; pollArgs.jsonlPath = trackedJsonl; }
-      else if (engine === "gemini") { pollArgs.jsonPath = trackedJsonl; pollArgs.afterMessageCount = 0; }
-      else { pollArgs.jsonlPath = trackedJsonl; pollArgs.afterLine = 0; }
-      const baseline = await invoke<{ totalLines: number; isComplete: boolean; [k: string]: unknown } | null>(
-        pollConfig.pollCmd, pollArgs
-      );
-      if (baseline) baselineLines = baseline.totalLines;
-    } catch { /* ok */ }
-  }
-
-  // If no tracked JSONL yet, snapshot existing files for detection after prompt
-  let snapshotBefore: Set<string> | null = null;
-  if (!trackedJsonl) {
-    try {
-      const files = await invoke<string[]>(pollConfig.listCmd, { projectPath });
-      snapshotBefore = new Set(files);
-    } catch { /* ok */ }
-  }
-
-  // ContextPack handling:
-  // - New session (no trackedJsonl): inject full ContextPack into prompt
-  // - Existing session: update CLAUDE.md with current context (delta via file)
-  let enrichedPrompt = prompt;
-  try {
-    const { activeSkills, crossSessionIds } = get();
-    if (!trackedJsonl) {
-      // New session: full ContextPack in prompt
-      const contextResult = await invoke<{ assembledPrompt: string; sections: string[] }>(
-        "pty_build_context", {
-          conversationId,
-          prompt,
-          projectPath: projectPath || null,
-          activeSkills: activeSkills ?? [],
-          crossSessionIds: crossSessionIds ?? [],
-          personaFragment: null,
-          contextMode: null,
-        }
-      );
-      if (contextResult.assembledPrompt) {
-        enrichedPrompt = contextResult.assembledPrompt;
-        console.log(`[pty] injected full ContextPack (${contextResult.sections.length} sections)`);
-      }
-    } else {
-      // Existing session: update CLAUDE.md so agent reads fresh context
-      const contextResult = await invoke<{ assembledPrompt: string }>(
-        "pty_build_context", {
-          conversationId, prompt: "", projectPath: projectPath || null,
-          activeSkills: activeSkills ?? [], crossSessionIds: crossSessionIds ?? [],
-          personaFragment: null, contextMode: "lite",
-        }
-      );
-      if (contextResult.assembledPrompt && projectPath) {
-        invoke("pty_update_claude_md", {
-          projectPath, contextSection: contextResult.assembledPrompt,
-        }).catch(() => {});
-      }
-    }
-  } catch (e) {
-    console.warn("[pty] ContextPack failed, sending raw prompt:", e);
-  }
-
-  // Send prompt via bracket paste + Enter
-  try {
-    await invoke("pty_write", { sessionId, data: `\x1b[200~${enrichedPrompt}\x1b[201~` });
-    await new Promise((r) => setTimeout(r, 150));
-    await invoke("pty_write", { sessionId, data: "\r" });
-
-    // Poll JSONL for assistant messages
-
-    for (let attempt = 0; ; attempt++) { // No timeout — wait for isComplete
-      await new Promise((r) => setTimeout(r, 200));
-      if (finalized) break;
-
-      // Lazy JSONL detection: if no tracked path, detect new file by snapshot diff
-      if (!trackedJsonl && snapshotBefore && attempt >= 10 && attempt % 15 === 0) {
-        try {
-          const filesNow = await invoke<string[]>("pty_list_jsonl_files", { projectPath });
-          const newFiles = filesNow.filter((f) => !snapshotBefore!.has(f));
-          if (newFiles.length > 0) {
-            newFiles.sort();
-            trackedJsonl = newFiles[newFiles.length - 1];
-            usePtyStore.getState().setJsonlPath(engine as import("@/stores/ptyStore").PtyEngine, trackedJsonl);
-            // Extract session ID from JSONL filename → save as resume_token on conversation
-            const basename = trackedJsonl.split("/").pop() ?? "";
-            const claudeSessionId = basename.replace(".jsonl", "");
-            if (claudeSessionId && conversationId) {
-              invoke("update_resume_token", { conversationId, resumeToken: claudeSessionId }).catch((e) =>
-                console.warn("[pty-jsonl] save resume_token:", e)
-              );
-            }
-            console.log(`[pty-jsonl] detected JSONL: ${trackedJsonl} (session: ${claudeSessionId})`);
-            // Get baseline for the newly found file
-            try {
-              const blArgs: Record<string, unknown> = engine === "gemini"
-                ? { jsonPath: trackedJsonl, afterMessageCount: 0 }
-                : { projectPath, afterLine: 0, jsonlPath: trackedJsonl };
-              const bl = await invoke<{ totalLines: number; isComplete: boolean; [k: string]: unknown } | null>(
-                pollConfig.pollCmd, blArgs
-              );
-              if (bl) baselineLines = Math.max(0, bl.totalLines - 2);
-            } catch { /* ok */ }
-          }
-        } catch { /* ok */ }
-      }
-
-      if (!trackedJsonl) continue; // Can't poll without a target file
-
-      try {
-        type PtyResult = {
-          text: string;
-          toolUses: string[];
-          toolSteps: { stepType: string; name: string; toolUseId?: string; input?: string; output?: string; status: string }[];
-          model: string | null;
-          totalLines: number;
-          isComplete: boolean;
-        };
-        const mainPollArgs: Record<string, unknown> = engine === "gemini"
-          ? { jsonPath: trackedJsonl, afterMessageCount: baselineLines }
-          : { projectPath, afterLine: baselineLines, jsonlPath: trackedJsonl };
-        const result = await invoke<PtyResult | null>(pollConfig.pollCmd, mainPollArgs);
-
-        if (result) {
-          // Show tool steps progress during streaming
-          if (result.toolSteps.length > 0 && !result.isComplete) {
-            hasToolSteps = true; // Stop pty:screen status updates
-            const liveSteps = result.toolSteps.map((s) => ({
-              type: s.stepType, name: s.name, input: s.input || "", output: s.output || undefined, status: s.status, ts: Date.now(),
-            }));
-            if (isStillActive()) {
-              set((state) => ({
-                messages: state.messages.map((m) =>
-                  m.id === asstMsgId ? { ...m, progressContent: JSON.stringify(liveSteps) } : m
-                ),
-              }));
-            }
-          }
-
-          // Complete: final text arrived
-          if (result.isComplete && result.text.length > 0) {
-            finalized = true;
-            ulScreen();
-            usePtyStore.getState().endCapture();
-
-            // Build progressContent from tool steps
-            let progressContent: string | undefined;
-            if (result.toolSteps.length > 0) {
-              const steps = result.toolSteps.map((s) => ({
-                type: s.stepType,
-                name: s.name,
-                input: s.input || "",
-                status: s.status,
-                ts: Date.now(),
-              }));
-              progressContent = JSON.stringify(steps);
-            }
-
-            // Save to DB + update UI
-            const durationMs = Date.now() - now;
-            const engineKey = (ENGINE_CONFIGS[engine] ?? ENGINE_CONFIGS.claude).engineKey;
-            try {
-              const savedMsg = await invoke<Message>("append_assistant_message", {
-                input: { conversationId, content: result.text, engine: engineKey, model: result.model, status: "done" },
-              });
-              // Save progressContent + duration to DB (fire-and-forget)
-              if (progressContent) {
-                invoke("save_progress_content", {
-                  messageId: savedMsg.id,
-                  progressContent,
-                }).catch(() => {});
-              }
-              invoke("update_message_status", {
-                input: { messageId: savedMsg.id, status: "done", durationMs },
-              }).catch(() => {});
-              if (isStillActive()) {
-                set((state) => ({
-                  messages: state.messages.map((m) =>
-                    m.id === asstMsgId
-                      ? { ...savedMsg, content: result.text, progressContent, durationMs }
-                      : m
-                  ),
-                }));
-              }
-            } catch (err) {
-              console.error("[pty-jsonl] DB save failed:", err);
-              if (isStillActive()) {
-                set((state) => ({
-                  messages: state.messages.map((m) =>
-                    m.id === asstMsgId ? { ...m, content: result.text, model: result.model ?? undefined, status: "done" as const, progressContent, durationMs } : m
-                  ),
-                }));
-              }
-            }
-
-            // Scan for workflow markers in the response (same as agent:completed handler)
-            if (result.text) {
-              import("@/lib/planProposalParser").then(({ extractToolRequests }) => {
-                const requests = extractToolRequests(result.text);
-                if (requests.length > 0) {
-                  console.log("[pty] tool-request markers detected:", requests.length);
-                }
-              }).catch(() => {});
-              // Emit synthetic agent:completed for notification system
-              import("@/stores/notificationStore").then(({ notify }) => {
-                notify("completed", "tunaFlow", "PTY 응답 완료", conversationId);
-              }).catch(() => {});
-            }
-
-            get()._endRun(conversationId);
-            return;
-          }
-        }
-      } catch (e) {
-        if (attempt % 75 === 0) console.log("[pty-jsonl] polling...", attempt, String(e).slice(0, 60));
-      }
-    }
-
-    // Timeout
-    if (!finalized) {
-      finalized = true;
-      ulScreen();
-      usePtyStore.getState().endCapture();
-      set((state) => ({
-        messages: state.messages.map((m) =>
-          m.id === asstMsgId ? { ...m, content: "(응답 대기 시간 초과 — 3분)", status: "error" as const } : m
-        ),
-      }));
-      get()._endRun(conversationId);
-    }
-  } catch (err) {
-    ulScreen();
-    usePtyStore.getState().endCapture();
-    set((state) => ({
-      error: errorMessage(err),
-      messages: state.messages.map((m) =>
-        m.id === asstMsgId ? { ...m, content: errorMessage(err), status: "error" as const } : m
-      ),
-    }));
-    get()._endRun(conversationId);
-  }
-}

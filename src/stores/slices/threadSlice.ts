@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { errorMessage } from "@/lib/utils";
 import { ENGINE_CONFIGS } from "@/lib/engineConfig";
+import { usePtyStore, isPtyEngine } from "@/stores/ptyStore";
+import { sendMessageViaPty } from "./ptyMessageSender";
 import { useToolStepsStore } from "@/stores/toolStepsStore";
 import { serializeSteps } from "@/lib/toolSteps";
 import type {
@@ -166,11 +168,72 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
   },
 
   sendThreadMessage: async (prompt: string, engine?: string, model?: string) => {
-    const { threadBranchConvId, threadBranchId, selectedProjectKey, activeSkills, crossSessionIds } = get();
+    const { threadBranchConvId, threadBranchId, selectedProjectKey } = get();
     if (!threadBranchConvId || !selectedProjectKey || !threadBranchId) return;
     const convId = threadBranchConvId; // narrowed: string (guaranteed by guard above)
+    const engineKey = engine ?? "claude";
 
-    // Add to runningThreadIds for thread-aware tracking
+    // Queue if already running
+    if (get().runningThreadIds.includes(convId)) {
+      get()._enqueue(convId, prompt.slice(0, 30), () =>
+        get().sendThreadMessage(prompt, engine, model),
+      );
+      return;
+    }
+
+    // PTY path: share parent conversation's PTY session (Branch reuses parent's CLI session)
+    const { getSetting: getAppSetting } = await import("@/lib/appStore");
+    const ptyEnabled = await getAppSetting<boolean>("ptyEnabled", true);
+    if (ptyEnabled && isPtyEngine(engineKey)) {
+      const ptySession = usePtyStore.getState().getSession(engineKey);
+      if (ptySession !== null) {
+        try {
+          await sendMessageViaPty(set, get, prompt, ptySession, convId, engineKey, {
+            messageTarget: "threadMessages",
+            isActiveCheck: () => get().threadBranchConvId === convId,
+            onCompleted: async (savedMsg, text) => {
+              // Reload thread messages from DB
+              const threadMessages = await invoke<Message[]>("list_messages", { conversationId: convId });
+              set({ threadMessages });
+              // Tool-request markers → auto follow-up
+              let toolRequestHandled = false;
+              if (savedMsg.role === "assistant") {
+                try {
+                  const { extractToolRequests } = await import("@/lib/planProposalParser");
+                  const requests = extractToolRequests(text);
+                  if (requests.length > 0) {
+                    const { executeToolRequests } = await import("@/lib/toolRequestHandler");
+                    const followUp = await executeToolRequests(requests);
+                    if (followUp) {
+                      const saved = get().getConversationEngine(convId);
+                      get()._endRun(convId);
+                      get().sendThreadMessage(followUp, saved?.engine ?? "claude", saved?.model ?? undefined);
+                      toolRequestHandled = true;
+                    }
+                  }
+                } catch (err) { console.warn("[tool-request]", err); }
+              }
+              // Auto-sync implementation subtasks + detect completion
+              autoSyncImplCompletion(convId, threadMessages);
+              autoDetectReviewVerdict(convId, threadMessages);
+              // Notify
+              import("@/stores/notificationStore").then(({ notify }) => {
+                notify("completed", "tunaFlow", "드로어 에이전트 응답 완료", convId);
+              }).catch(() => {});
+              return toolRequestHandled; // true = caller handles _endRun
+            },
+          });
+          return;
+        } catch (ptyErr) {
+          console.error("[pty] thread PTY failed, falling back to -p mode:", ptyErr);
+          usePtyStore.getState().clearSession(engineKey as import("@/stores/ptyStore").PtyEngine);
+          import("sonner").then(({ toast }) => toast.warning("PTY 오류 — CLI 모드로 전환")).catch(() => {});
+          // Fall through to -p mode below
+        }
+      }
+    }
+
+    // -p mode fallback
     get()._startRun(convId);
 
     const now = Date.now();
@@ -193,7 +256,7 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
       prompt,
       model,
       activeSkills: effectiveSkills,
-      crossSessionIds,
+      crossSessionIds: get().crossSessionIds,
       personaFragment: get().personaFragment ?? undefined,
       personaLabel: get().personaLabel ?? undefined,
       contextModeOverride: budgetCfg.mode === "auto" ? undefined : budgetCfg.mode,
@@ -202,7 +265,6 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
 
     // Event listeners for streaming updates
     const { listen } = await import("@tauri-apps/api/event");
-    const engineKey = engine ?? "claude";
     const progressEvent = `${engineKey}:progress`;
     const chunkEvent = `${engineKey}:chunk`;
 

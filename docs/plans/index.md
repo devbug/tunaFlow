@@ -2,7 +2,7 @@
 
 실행 계획, 로드맵, 리팩토링 계획, 테스트 계획 문서.
 
-## 진행 현황 (2026-04-02 기준)
+## 진행 현황 (2026-04-11 기준)
 
 ### 완료
 
@@ -62,7 +62,7 @@
 | 문서 | 요약 | 남은 것 |
 |------|------|--------|
 | [harnessEngineeringAdoptionPlan](./harnessEngineeringAdoptionPlan.md) | Phase 1-6 workspace 가시화 완료 | Review/Test 독립 모드, runtime RBAC |
-| [masterTestPlan](./masterTestPlan.md) | Rust 60 + Frontend 96 unit tests | E2E smoke, coverage 목표, property test |
+| [masterTestPlan](./masterTestPlan.md) | Rust 188 + Frontend 175 = 363 tests | E2E smoke, coverage 목표, property test |
 | [messagePairDeletionPlan](./messagePairDeletionPlan.md) | user+assistant 인접 메시지 쌍 삭제 계획 | 구현 미확인 |
 | [tauri2PluginAdoptionPlan](./tauri2PluginAdoptionPlan.md) | notification/store/dialog/window-state/clipboard/shell 적용 | updater 미적용 |
 | [ownerAgentAssignmentPlan](./ownerAgentAssignmentPlan.md) | DB 필드 + PlansPanel UI dropdown 존재 | 자동 할당 로직, agent lane 연동 |
@@ -71,18 +71,20 @@
 | [gitSyncBranchModelPlan_2026-03-29](./gitSyncBranchModelPlan_2026-03-29.md) | branch↔git 동기화 모델 설계. adopt=merge, delete=pointer-only | git CLI 연동, .tunaflow/ 구조 |
 | [projectScopedConcurrencyPlan](./projectScopedConcurrencyPlan.md) | thread-local queue 구현 | 프로젝트 간 병렬 UI, cross-project queue |
 | [rawqRequiredSidecarPlan](./rawqRequiredSidecarPlan.md) | sidecar bundle + daemon startup + fs watcher 구현 | 배포 경로 정리 |
-| [skillRegistryPlan](./skillRegistryPlan.md) | chops 참고 메모 기반 | UI registry, collections, applied skill visibility |
+| [skillRegistryPlan](./skillRegistryPlan.md) | 4-layer 스킬 + 레지스트리 + 스킬팩 구현 (세션 10) | collections UX 고도화 |
 | [2026-03-28_skills_runtime_snapshot_plan](./2026-03-28_skills_runtime_snapshot_plan.md) | Phase 1 snapshot 발행 완료 | Phase 2 manifest 고도화, Phase 3 앱 번들 |
 | [engineFeatureParityClassificationPlan](./engineFeatureParityClassificationPlan.md) | 4-engine parity 분류 기준 + Claude parity fix 완료 | 기능별 개별 parity 실행 |
-| [chatUiParityWithTunaChatPlan](./chatUiParityWithTunaChatPlan.md) | Markdown/codeblock/file viewer 완료 | message density, virtualization |
+| [chatUiParityWithTunaChatPlan](./chatUiParityWithTunaChatPlan.md) | Pretendard 3-tier 폰트, max-w-4xl, 아바타 인라인 (세션 14) | message density 고도화 |
 | [agentProfileUsagePolishPlan_2026-03-29](./agentProfileUsagePolishPlan_2026-03-29.md) | profile summary 기본 표시 | custom 규칙 가시화, RT 표시 polish |
 | [contextHubSearchGetUiPlan_2026-03-30](./contextHubSearchGetUiPlan_2026-03-30.md) | context-hub search/get 사용자 UI | 구현 진행 중 |
-| [contextPackAlgorithmImprovementsPlan](./contextPackAlgorithmImprovementsPlan.md) | ContextPack 알고리즘 개선 (dedup, 경량화) | Phase 1 미착수 |
+| [contextPackAlgorithmImprovementsPlan](./contextPackAlgorithmImprovementsPlan.md) | P2 동적 예산 배분(allocate_budgets) 구현 | P1 Jaccard dedup, P3-P5 미착수 |
 | [agentDaemonRoadmapPlan](./agentDaemonRoadmapPlan.md) | Phase 1-2 완료 (background worker + job registry) | Phase 3 daemon extraction |
 | [planBasedFollowupPlan](./planBasedFollowupPlan.md) | PlansPanel Forward 버튼 구현 | subtask 단위 자동 dispatch |
-| [workflowPipelineV2Plan](./workflowPipelineV2Plan.md) | V2 6-stage 파이프라인 재설계 문서 | 구현 미착수 |
-| [workflowStabilizationPlan](./workflowStabilizationPlan.md) | 워크플로우 안정화 — 프롬프트 표준화 + 풀사이클 실행 | 구현 미착수 |
+| [workflowPipelineV2Plan](./workflowPipelineV2Plan.md) | V2 6-stage 설계 + Phase 1 진행 (subtask_review, DevProgress) | 세부 UX 미완성 |
+| [workflowStabilizationPlan](./workflowStabilizationPlan.md) | Phase 1 프롬프트 양식 부분 구현, Phase 3-1 idle timeout | Phase 2, 3-2~3-3 미구현 |
 | [workflowDocumentV2Plan](./workflowDocumentV2Plan.md) | Architect 직접 작성 + semantic versioning 문서 모델 | 구현 미착수 |
+| [longTermMemoryRoadmapPlan_2026-03-30](./longTermMemoryRoadmapPlan_2026-03-30.md) | Phase 1 compressed memory 완료 (세션 7) | Phase 2-4 (structured/retrieval/unified) 미착수 |
+| [compressedMemoryOperationalPolishPlan_2026-03-30](./compressedMemoryOperationalPolishPlan_2026-03-30.md) | provenance/model_used/force_recompress 구현 (세션 7) | UI 가시화 미확인 |
 
 ### 보류
 
@@ -106,8 +108,6 @@
 
 | 문서 | 우선순위 |
 |------|---------|
-| [longTermMemoryRoadmapPlan_2026-03-30](./longTermMemoryRoadmapPlan_2026-03-30.md) | P0 — 장기기억 구조(working/compressed/structured/retrieval) 로드맵 |
-| [compressedMemoryOperationalPolishPlan_2026-03-30](./compressedMemoryOperationalPolishPlan_2026-03-30.md) | P0 — compressed memory 상태/실패/provenance/재압축 운영 보강 |
 | [structuredMemorySourceStrengtheningPlan_2026-03-30](./structuredMemorySourceStrengtheningPlan_2026-03-30.md) | P0 — plan/findings/artifacts/memo를 structured memory source로 강화 |
 | [geminiSdkIntegrationPlan](./geminiSdkIntegrationPlan.md) | P1 — Google AI SDK 직접 통합 (CLI 대체, SSE/token/function calling) |
 | [toolCallHandlerPlan](./toolCallHandlerPlan.md) | P1 — function calling으로 마커 대체 |
