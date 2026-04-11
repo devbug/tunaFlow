@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { GitBranch, Users, Loader2, Search, StickyNote } from "lucide-react";
+import { Loader2, Search, StickyNote } from "lucide-react";
 
 import { ChatPanel } from "./ChatPanel";
 import { PlansPanel } from "./context-panel/PlansPanel";
@@ -131,48 +131,8 @@ export function CenterPanel() {
           ))}
         </div>}
 
-        {/* Center: path (centered between tabs and search) */}
-        <div className="flex-1 flex items-center justify-center gap-1.5 min-w-0 px-3">
-          {effectiveTab === "chat" && selectedConversationId && (
-            <>
-              <span className={cn(
-                "text-[8px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0",
-                isRoundtable ? "text-agent-gemini/80 bg-agent-gemini/10" : "text-muted-foreground/40 bg-background/60"
-              )}>
-                {isRoundtable ? "RT" : "Chat"}
-              </span>
-              <span className="text-[13px] text-foreground/70 font-medium truncate max-w-[180px]">
-                {currentConv ? (
-                  <InlineRename
-                    value={currentConv.customLabel ?? currentConv.label}
-                    onSave={(v) => renameConversation(selectedConversationId, v)}
-                  />
-                ) : "Conversation"}
-              </span>
-
-              {(threadBranchId || activeBranchId) && (() => {
-                const branchId = activeBranchId || threadBranchId;
-                const branch = branchId ? branches.find((b) => b.id === branchId) : null;
-                const label = branch?.customLabel ?? branch?.label ?? threadBranchLabel;
-                const isBranchRT = branch?.mode === "roundtable";
-                if (!label) return null;
-                return (
-                  <span className="flex items-center gap-1 text-muted-foreground/40 shrink-0">
-                    <span className="text-[10px]">—</span>
-                    {isBranchRT
-                      ? <Users className="w-3 h-3 text-agent-gemini/40" />
-                      : <GitBranch className="w-3 h-3" />}
-                    <span className="text-[10px] truncate max-w-[120px]">{label}</span>
-                  </span>
-                );
-              })()}
-
-              {runningThreadIds.includes(selectedConversationId) && (
-                <Loader2 className="w-3 h-3 animate-spin text-primary/60 shrink-0" />
-              )}
-            </>
-          )}
-        </div>
+        {/* Center: spacer (path info moved to title bar) */}
+        <div className="flex-1 min-w-0" />
 
         {/* Right: memo icon + search */}
         <div className="flex items-center gap-1.5 shrink-0">
