@@ -3,6 +3,7 @@ mod commands;
 pub mod db;
 mod errors;
 mod guardrail;
+mod http_api;
 
 use db::DbState;
 
@@ -71,6 +72,13 @@ pub fn run() {
             });
 
             app.manage(CancelRegistry(std::sync::Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new()))));
+
+            // Start HTTP API server (E2E testing + mobile access + MCP)
+            {
+                let db_state = app.state::<DbState>().inner().clone();
+                let api_token = http_api::start_server(db_state, app.handle().clone());
+                eprintln!("[startup] HTTP API token: {}", api_token);
+            }
             app.manage(commands::pty::PtyState::new());
             app.manage(commands::projects::RawqIndexing(std::sync::Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new()))));
 
