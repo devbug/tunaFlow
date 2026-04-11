@@ -734,6 +734,20 @@ async function sendViaPty(
               }
             }
 
+            // Scan for workflow markers in the response (same as agent:completed handler)
+            if (result.text) {
+              import("@/lib/planProposalParser").then(({ extractToolRequests }) => {
+                const requests = extractToolRequests(result.text);
+                if (requests.length > 0) {
+                  console.log("[pty] tool-request markers detected:", requests.length);
+                }
+              }).catch(() => {});
+              // Emit synthetic agent:completed for notification system
+              import("@/stores/notificationStore").then(({ notify }) => {
+                notify("completed", "tunaFlow", "PTY 응답 완료", conversationId);
+              }).catch(() => {});
+            }
+
             get()._endRun(conversationId);
             return;
           }
