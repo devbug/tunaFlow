@@ -45,6 +45,8 @@ pub struct Conversation {
     pub total_input_tokens: i64,
     pub total_output_tokens: i64,
     pub total_cost_usd: f64,
+    // PTY session reuse
+    pub resume_token: Option<String>,
 }
 
 /// DATA_MODEL.md §1.5 Message

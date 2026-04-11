@@ -481,7 +481,8 @@ async function sendViaPty(
       input: { conversationId, content: prompt },
     });
     userMsgId = userMsg.id;
-  } catch {
+  } catch (e) {
+    console.error("[pty] append_user_message failed:", e);
     userMsgId = `temp-user-${now}`;
   }
 
@@ -507,35 +508,46 @@ async function sendViaPty(
   // PTY mode: show status during streaming, extract response after completion.
   // TUI output is too noisy for real-time chat display.
   let finalized = false;
+  let hasToolSteps = false; // Once tool steps appear, stop status text updates
 
-  // Status update — show "thinking" / "responding" in chat
-  const setStatus = (status: string) => {
-    if (isStillActive()) {
+  const ptySession = usePtyStore.getState().sessions.get(engine as import("@/stores/ptyStore").PtyEngine);
+  const projectPath = ptySession?.projectPath || "";
+  const jsonlPath = ptySession?.jsonlPath; // tracked JSONL file for this PTY session
+
+  // Status indicator via pty:screen (visual only, not for completion)
+  // Only shown before tool steps appear — once JSONL tool steps are active, pty:screen is redundant
+  const ulScreen = await listenEvent<{ sessionId: number; data: string }>("pty:screen", (e) => {
+    if (e.payload.sessionId !== sessionId || finalized || hasToolSteps) return;
+    const status = /⏺/.test(e.payload.data) ? "responding..." : /[✻✢✳✶✽]/.test(e.payload.data) ? "thinking..." : null;
+    if (status && isStillActive()) {
       set((state) => ({
         messages: state.messages.map((m) =>
           m.id === asstMsgId ? { ...m, progressContent: status } : m
         ),
       }));
     }
-  };
-
-  const projectPath = usePtyStore.getState().sessions.values().next().value?.projectPath || "";
-
-  // Status indicator via pty:screen (visual only, not for completion)
-  const ulScreen = await listenEvent<{ sessionId: number; data: string }>("pty:screen", (e) => {
-    if (e.payload.sessionId !== sessionId || finalized) return;
-    if (/⏺/.test(e.payload.data)) setStatus("responding...");
-    else if (/[✻✢✳✶✽]/.test(e.payload.data)) setStatus("thinking...");
   });
 
   // Get current JSONL line count (baseline — poll for lines after this)
+  let trackedJsonl = jsonlPath ?? null;
   let baselineLines = 0;
-  try {
-    const baseline = await invoke<{ text: string; toolUses: string[]; model: string | null; totalLines: number } | null>(
-      "pty_poll_jsonl", { projectPath, afterLine: 0 }
-    );
-    if (baseline) baselineLines = baseline.totalLines;
-  } catch { /* ok */ }
+  if (trackedJsonl) {
+    try {
+      const baseline = await invoke<{ totalLines: number; isComplete: boolean; [k: string]: unknown } | null>(
+        "pty_poll_jsonl", { projectPath, afterLine: 0, jsonlPath: trackedJsonl }
+      );
+      if (baseline) baselineLines = baseline.totalLines;
+    } catch { /* ok */ }
+  }
+
+  // If no tracked JSONL yet, snapshot existing files for detection after prompt
+  let snapshotBefore: Set<string> | null = null;
+  if (!trackedJsonl) {
+    try {
+      const files = await invoke<string[]>("pty_list_jsonl_files", { projectPath });
+      snapshotBefore = new Set(files);
+    } catch { /* ok */ }
+  }
 
   // Send prompt via bracket paste + Enter
   try {
@@ -543,56 +555,134 @@ async function sendViaPty(
     await new Promise((r) => setTimeout(r, 150));
     await invoke("pty_write", { sessionId, data: "\r" });
 
-    // Poll JSONL for new assistant message (1 second interval)
-    setStatus("thinking...");
-    for (let attempt = 0; attempt < 180; attempt++) { // Max 3 minutes
-      await new Promise((r) => setTimeout(r, 1000));
+    // Poll JSONL for assistant messages
+
+    for (let attempt = 0; ; attempt++) { // No timeout — wait for isComplete
+      await new Promise((r) => setTimeout(r, 200));
       if (finalized) break;
 
+      // Lazy JSONL detection: if no tracked path, detect new file by snapshot diff
+      if (!trackedJsonl && snapshotBefore && attempt >= 10 && attempt % 15 === 0) {
+        try {
+          const filesNow = await invoke<string[]>("pty_list_jsonl_files", { projectPath });
+          const newFiles = filesNow.filter((f) => !snapshotBefore!.has(f));
+          if (newFiles.length > 0) {
+            newFiles.sort();
+            trackedJsonl = newFiles[newFiles.length - 1];
+            usePtyStore.getState().setJsonlPath(engine as import("@/stores/ptyStore").PtyEngine, trackedJsonl);
+            // Extract session ID from JSONL filename → save as resume_token on conversation
+            const basename = trackedJsonl.split("/").pop() ?? "";
+            const claudeSessionId = basename.replace(".jsonl", "");
+            if (claudeSessionId && conversationId) {
+              invoke("update_resume_token", { conversationId, resumeToken: claudeSessionId }).catch((e) =>
+                console.warn("[pty-jsonl] save resume_token:", e)
+              );
+            }
+            console.log(`[pty-jsonl] detected JSONL: ${trackedJsonl} (session: ${claudeSessionId})`);
+            // Get baseline for the newly found file
+            try {
+              const bl = await invoke<{ totalLines: number; isComplete: boolean; [k: string]: unknown } | null>(
+                "pty_poll_jsonl", { projectPath, afterLine: 0, jsonlPath: trackedJsonl }
+              );
+              if (bl) baselineLines = Math.max(0, bl.totalLines - 2);
+            } catch { /* ok */ }
+          }
+        } catch { /* ok */ }
+      }
+
+      if (!trackedJsonl) continue; // Can't poll without a target file
+
       try {
-        const result = await invoke<{ text: string; toolUses: string[]; model: string | null; totalLines: number } | null>(
-          "pty_poll_jsonl", { projectPath, afterLine: baselineLines }
+        type PtyResult = {
+          text: string;
+          toolUses: string[];
+          toolSteps: { stepType: string; name: string; toolUseId?: string; input?: string; output?: string; status: string }[];
+          model: string | null;
+          totalLines: number;
+          isComplete: boolean;
+        };
+        const result = await invoke<PtyResult | null>(
+          "pty_poll_jsonl", { projectPath, afterLine: baselineLines, jsonlPath: trackedJsonl }
         );
 
-        if (result && result.text.length > 0) {
-          finalized = true;
-          ulScreen();
-          usePtyStore.getState().endCapture();
-
-          // Show tool uses in status
-          if (result.toolUses.length > 0) {
-            console.log("[pty-jsonl] tools used:", result.toolUses);
-          }
-
-          // Save to DB + update UI
-          const engineKey = (ENGINE_CONFIGS[engine] ?? ENGINE_CONFIGS.claude).engineKey;
-          try {
-            const savedMsg = await invoke<Message>("append_assistant_message", {
-              input: { conversationId, content: result.text, engine: engineKey, model: result.model, status: "done" },
-            });
+        if (result) {
+          // Show tool steps progress during streaming
+          if (result.toolSteps.length > 0 && !result.isComplete) {
+            hasToolSteps = true; // Stop pty:screen status updates
+            const liveSteps = result.toolSteps.map((s) => ({
+              type: s.stepType, name: s.name, input: s.input || "", output: s.output || undefined, status: s.status, ts: Date.now(),
+            }));
             if (isStillActive()) {
               set((state) => ({
                 messages: state.messages.map((m) =>
-                  m.id === asstMsgId ? { ...savedMsg, content: result.text } : m
-                ),
-              }));
-            }
-          } catch (err) {
-            console.error("[pty-jsonl] DB save failed:", err);
-            if (isStillActive()) {
-              set((state) => ({
-                messages: state.messages.map((m) =>
-                  m.id === asstMsgId ? { ...m, content: result.text, model: result.model ?? undefined, status: "done" as const } : m
+                  m.id === asstMsgId ? { ...m, progressContent: JSON.stringify(liveSteps) } : m
                 ),
               }));
             }
           }
 
-          get()._endRun(conversationId);
-          return;
+          // Complete: final text arrived
+          if (result.isComplete && result.text.length > 0) {
+            finalized = true;
+            ulScreen();
+            usePtyStore.getState().endCapture();
+
+            // Build progressContent from tool steps
+            let progressContent: string | undefined;
+            if (result.toolSteps.length > 0) {
+              const steps = result.toolSteps.map((s) => ({
+                type: s.stepType,
+                name: s.name,
+                input: s.input || "",
+                status: s.status,
+                ts: Date.now(),
+              }));
+              progressContent = JSON.stringify(steps);
+            }
+
+            // Save to DB + update UI
+            const durationMs = Date.now() - now;
+            const engineKey = (ENGINE_CONFIGS[engine] ?? ENGINE_CONFIGS.claude).engineKey;
+            try {
+              const savedMsg = await invoke<Message>("append_assistant_message", {
+                input: { conversationId, content: result.text, engine: engineKey, model: result.model, status: "done" },
+              });
+              // Save progressContent + duration to DB (fire-and-forget)
+              if (progressContent) {
+                invoke("save_progress_content", {
+                  messageId: savedMsg.id,
+                  progressContent,
+                }).catch(() => {});
+              }
+              invoke("update_message_status", {
+                input: { messageId: savedMsg.id, status: "done", durationMs },
+              }).catch(() => {});
+              if (isStillActive()) {
+                set((state) => ({
+                  messages: state.messages.map((m) =>
+                    m.id === asstMsgId
+                      ? { ...savedMsg, content: result.text, progressContent, durationMs }
+                      : m
+                  ),
+                }));
+              }
+            } catch (err) {
+              console.error("[pty-jsonl] DB save failed:", err);
+              if (isStillActive()) {
+                set((state) => ({
+                  messages: state.messages.map((m) =>
+                    m.id === asstMsgId ? { ...m, content: result.text, model: result.model ?? undefined, status: "done" as const, progressContent, durationMs } : m
+                  ),
+                }));
+              }
+            }
+
+            get()._endRun(conversationId);
+            return;
+          }
         }
       } catch (e) {
-        if (attempt % 15 === 0) console.log("[pty-jsonl] polling...", attempt, String(e).slice(0, 60));
+        if (attempt % 75 === 0) console.log("[pty-jsonl] polling...", attempt, String(e).slice(0, 60));
       }
     }
 

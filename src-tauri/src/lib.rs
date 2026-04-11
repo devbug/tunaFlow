@@ -130,9 +130,11 @@ pub fn run() {
             commands::conversations::rename_conversation,
             commands::conversations::save_rt_config,
             commands::conversations::get_rt_config,
+            commands::conversations::update_resume_token,
             // Message
             commands::messages::list_messages,
             commands::messages::create_user_message,
+            commands::messages::append_user_message,
             commands::messages::append_assistant_message,
             commands::messages::update_message_status,
             commands::messages::get_progress_content,
@@ -273,6 +275,7 @@ pub fn run() {
             commands::pty::pty_resize,
             commands::pty::pty_kill,
             commands::pty::pty_poll_jsonl,
+            commands::pty::pty_list_jsonl_files,
             commands::pty::pty_kill_all,
         ])
         .on_window_event(|window, event| {

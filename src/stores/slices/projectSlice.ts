@@ -16,7 +16,7 @@ export interface ProjectSlice {
 // Cleanup function for previous rawq listeners
 let rawqListenerCleanup: (() => void) | null = null;
 let ptyListenerCleanup: (() => void) | null = null;
-let ptySpawning = false; // Guard against concurrent spawn
+// ptySpawning guard removed — spawn moved to conversationSlice
 // Cleanup function for fs watcher
 let fsWatcherCleanup: (() => void) | null = null;
 
@@ -188,25 +188,17 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
       set({ rawqStatus: { available: false, indexed: false, status: "unavailable", message: "rawq not found" } });
     });
 
-    // PTY: spawn interactive sessions for all CLI engines (project-level lifecycle)
-    invoke<Project>("get_project", { key }).then(async (project) => {
-      if (!project.path) return;
-      if (ptySpawning) return; // Prevent concurrent spawn from double selectProject
-      ptySpawning = true;
-      const { usePtyStore, PTY_ENGINES, getPtyBinary } = await import("@/stores/ptyStore");
-      const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
+    // PTY: setup event listeners (project-level). Actual spawn is in conversationSlice.selectConversation.
+    (async () => {
+      const { usePtyStore, PTY_ENGINES } = await import("@/stores/ptyStore");
       const { listen: tauriListen } = await import("@tauri-apps/api/event");
-      const pty = usePtyStore.getState();
 
-      // Kill ALL previous sessions (handles stale sessions from HMR/restart)
-      await tauriInvoke("pty_kill_all").catch(() => {});
-      pty.clearAllSessions();
+      // PTY kill is handled by spawnPtyForConversation (kill_all before spawn)
+      // Here we only setup event listeners.
 
-      // Setup shared PTY output listener (lives as long as project is selected)
+      // Setup shared PTY event listeners (lives as long as project is selected)
       if (ptyListenerCleanup) { ptyListenerCleanup(); ptyListenerCleanup = null; }
-      const ulOutput = await tauriListen<{ sessionId: number; data: string }>("pty:output", () => {
-        // Output routing is handled by TerminalPanel and sendViaPty — no-op here
-      });
+      const ulOutput = await tauriListen<{ sessionId: number; data: string }>("pty:output", () => {});
       const ulExit = await tauriListen<{ sessionId: number }>("pty:exit", (e) => {
         const store = usePtyStore.getState();
         for (const engine of PTY_ENGINES) {
@@ -219,31 +211,6 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
         }
       });
       ptyListenerCleanup = () => { ulOutput(); ulExit(); };
-
-      // Spawn all engines (skip if already running for this project)
-      for (const engine of PTY_ENGINES) {
-        const existing = usePtyStore.getState().getSession(engine);
-        if (existing !== null) {
-          console.log(`[pty] ${engine} session ${existing} already active, skipping`);
-          continue;
-        }
-        const binary = getPtyBinary(engine);
-        if (!binary) continue;
-        try {
-          // Claude: bypass permissions (auto-accept edits/commands, same as -p mode)
-          const args = engine === "claude" ? ["--permission-mode", "bypassPermissions"] : [];
-          // TERM=dumb: disable TUI rendering → plain text output (RT consensus)
-          const env = { TERM: "dumb", NO_COLOR: "1" };
-          const sessionId = await tauriInvoke<number>("pty_spawn", {
-            file: binary, args, cwd: project.path, cols: 80, rows: 500, env,
-          });
-          usePtyStore.getState().setSession(engine, sessionId, project.path!);
-          console.log(`[pty] ${engine} session ${sessionId} started for project ${key}`);
-        } catch (err) {
-          console.warn(`[pty] ${engine} unavailable:`, err);
-        }
-      }
-      ptySpawning = false;
-    }).catch((e) => { ptySpawning = false; console.debug("[pty-init]", e); });
+    })().catch((e) => console.debug("[pty-init]", e));
   },
 });

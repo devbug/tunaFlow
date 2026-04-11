@@ -30,6 +30,8 @@ pub struct UpdateMessageStatusInput {
     pub status: String,
     /// If provided, also update the message content (e.g. finalise streaming content)
     pub content: Option<String>,
+    /// Duration in milliseconds (PTY mode)
+    pub duration_ms: Option<i64>,
 }
 
 /// Map a row WITHOUT full progress_content (lightweight, for list_messages).
@@ -132,6 +134,39 @@ pub fn create_user_message(
     })
 }
 
+/// Append a user message to a conversation (used by PTY mode).
+#[tauri::command]
+pub fn append_user_message(
+    input: CreateUserMessageInput,
+    state: State<DbState>,
+) -> Result<Message, AppError> {
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    let id = Uuid::new_v4().to_string();
+    let now = now_epoch_ms();
+    conn.execute(
+        "INSERT INTO messages
+         (id, conversation_id, role, content, timestamp, status)
+         VALUES (?1, ?2, 'user', ?3, ?4, 'done')",
+        params![id, input.conversation_id, input.content, now],
+    )?;
+    // Touch conversation updated_at
+    conn.execute(
+        "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
+        params![now, input.conversation_id],
+    )?;
+    Ok(Message {
+        id,
+        conversation_id: input.conversation_id,
+        role: "user".into(),
+        content: input.content,
+        timestamp: now,
+        status: "done".into(),
+        progress_content: None,
+        engine: None, model: None, persona: None,
+        duration_ms: None, input_tokens: None, output_tokens: None, cost_usd: None,
+    })
+}
+
 #[tauri::command]
 pub fn append_assistant_message(
     input: AppendAssistantMessageInput,
@@ -185,6 +220,12 @@ pub fn update_message_status(
         conn.execute(
             "UPDATE messages SET status = ?1 WHERE id = ?2",
             params![input.status, input.message_id],
+        )?;
+    }
+    if let Some(duration) = input.duration_ms {
+        conn.execute(
+            "UPDATE messages SET duration_ms = ?1 WHERE id = ?2",
+            params![duration, input.message_id],
         )?;
     }
     Ok(())

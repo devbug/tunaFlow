@@ -10,6 +10,7 @@ export interface ToolStep {
   type: "thinking" | "tool_use" | "tool_result" | "command" | "file_change";
   name: string;
   input: string;
+  output?: string;
   status: "running" | "done" | "error";
   ts: number; // epoch ms
 }

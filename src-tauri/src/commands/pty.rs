@@ -271,16 +271,12 @@ pub fn pty_kill_all(
     Ok(count)
 }
 
-/// Find the latest JSONL file for a project and return the last assistant message.
-/// Claude Code writes conversation logs to ~/.claude/projects/{encoded-cwd}/{sessionId}.jsonl
+/// List JSONL files in the Claude projects directory for a given project path.
+/// Used to snapshot before PTY spawn — new files after spawn = PTY session's JSONL.
 #[tauri::command]
-pub fn pty_poll_jsonl(
+pub fn pty_list_jsonl_files(
     project_path: String,
-    after_line: Option<usize>,
-) -> Result<Option<PtyJsonlResult>, AppError> {
-    use std::io::BufRead;
-
-    // Encode project path: /Users/foo/bar → -Users-foo-bar
+) -> Result<Vec<String>, AppError> {
     let encoded = project_path.replace('/', "-");
     let claude_dir = dirs::home_dir()
         .ok_or_else(|| AppError::Agent("no home dir".into()))?
@@ -288,36 +284,82 @@ pub fn pty_poll_jsonl(
         .join(&encoded);
 
     if !claude_dir.exists() {
-        return Ok(None);
+        return Ok(Vec::new());
     }
 
-    // Find the most recently modified .jsonl file (= current session)
-    let mut latest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    let mut files = Vec::new();
     for entry in std::fs::read_dir(&claude_dir).map_err(|e| AppError::Agent(e.to_string()))? {
         let entry = entry.map_err(|e| AppError::Agent(e.to_string()))?;
         let path = entry.path();
         if path.extension().map_or(false, |e| e == "jsonl") && !path.to_string_lossy().contains("subagents") {
-            if let Ok(meta) = path.metadata() {
-                if let Ok(modified) = meta.modified() {
-                    if latest.as_ref().map_or(true, |(t, _)| modified > *t) {
-                        latest = Some((modified, path));
+            files.push(path.to_string_lossy().to_string());
+        }
+    }
+    Ok(files)
+}
+
+/// Find the latest JSONL file for a project and return the last assistant message.
+/// Claude Code writes conversation logs to ~/.claude/projects/{encoded-cwd}/{sessionId}.jsonl
+///
+/// If `jsonl_path` is provided, read that specific file (PTY session tracking).
+/// Otherwise, fall back to the most recently modified .jsonl file.
+#[tauri::command]
+pub fn pty_poll_jsonl(
+    project_path: String,
+    after_line: Option<usize>,
+    jsonl_path: Option<String>,
+) -> Result<Option<PtyJsonlResult>, AppError> {
+    use std::io::BufRead;
+
+    let jsonl_path: std::path::PathBuf = if let Some(ref explicit) = jsonl_path {
+        let p = std::path::PathBuf::from(explicit);
+        if !p.exists() {
+            return Ok(None);
+        }
+        p
+    } else {
+        // Fallback: find most recently modified .jsonl file
+        let encoded = project_path.replace('/', "-");
+        let claude_dir = dirs::home_dir()
+            .ok_or_else(|| AppError::Agent("no home dir".into()))?
+            .join(".claude/projects")
+            .join(&encoded);
+
+        if !claude_dir.exists() {
+            return Ok(None);
+        }
+
+        let mut latest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+        for entry in std::fs::read_dir(&claude_dir).map_err(|e| AppError::Agent(e.to_string()))? {
+            let entry = entry.map_err(|e| AppError::Agent(e.to_string()))?;
+            let path = entry.path();
+            if path.extension().map_or(false, |e| e == "jsonl") && !path.to_string_lossy().contains("subagents") {
+                if let Ok(meta) = path.metadata() {
+                    if let Ok(modified) = meta.modified() {
+                        if latest.as_ref().map_or(true, |(t, _)| modified > *t) {
+                            latest = Some((modified, path));
+                        }
                     }
                 }
             }
         }
-    }
 
-    let jsonl_path = match latest {
-        Some((_, p)) => p,
-        None => return Ok(None),
+        match latest {
+            Some((_, p)) => p,
+            None => return Ok(None),
+        }
     };
 
-    // Read lines after `after_line` index, find last assistant message
+    // Read lines after `after_line` index, collect ALL assistant messages.
+    // Claude Code JSONL interleaves: user → assistant(tool_use) → user(tool_result) → assistant(text)
+    // Tool results are recorded as "user" type, so we simply collect all assistant messages
+    // after the baseline without clearing on user messages.
     let file = std::fs::File::open(&jsonl_path).map_err(|e| AppError::Agent(e.to_string()))?;
     let reader = std::io::BufReader::new(file);
     let skip = after_line.unwrap_or(0);
     let mut total_lines = 0usize;
-    let mut last_assistant: Option<serde_json::Value> = None;
+    // Collect both assistant messages and user messages (which contain tool_result)
+    let mut all_messages: Vec<serde_json::Value> = Vec::new();
 
     for (idx, line) in reader.lines().enumerate() {
         total_lines = idx + 1;
@@ -329,45 +371,206 @@ pub fn pty_poll_jsonl(
         let trimmed = line.trim();
         if trimmed.is_empty() { continue; }
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            if value.get("type").and_then(|t| t.as_str()) == Some("assistant") {
-                last_assistant = Some(value);
+            match value.get("type").and_then(|t| t.as_str()) {
+                Some("assistant") | Some("user") | Some("human") => {
+                    all_messages.push(value);
+                }
+                _ => {}
             }
         }
     }
 
-    match last_assistant {
-        Some(value) => {
-            let message = &value["message"];
-            let model = message["model"].as_str().map(|s| s.to_string());
+    // Filter: only keep if there are assistant messages
+    let assistant_messages: Vec<&serde_json::Value> = all_messages.iter()
+        .filter(|v| v.get("type").and_then(|t| t.as_str()) == Some("assistant"))
+        .collect();
 
-            // Extract content items
-            let mut text_parts = Vec::new();
-            let mut tool_uses = Vec::new();
+    if assistant_messages.is_empty() {
+        return Ok(None);
+    }
+
+    // Extract tool steps from all messages, matching tool_use → tool_result by ID.
+    // Messages interleave: assistant(tool_use) → user(tool_result) → assistant(tool_use) → ... → assistant(text)
+    let mut tool_steps: Vec<PtyToolStep> = Vec::new();
+    let mut final_text_parts: Vec<String> = Vec::new();
+    let mut final_tool_uses: Vec<String> = Vec::new();
+    let mut model: Option<String> = None;
+    // Map tool_use_id → index in tool_steps for attaching output later
+    let mut pending_outputs: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+    for msg_value in &all_messages {
+        let msg_type = msg_value["type"].as_str().unwrap_or("");
+        let message = &msg_value["message"];
+
+        if msg_type == "assistant" {
+            if model.is_none() {
+                model = message["model"].as_str().map(|s| s.to_string());
+            }
+
             if let Some(content) = message["content"].as_array() {
                 for item in content {
                     match item["type"].as_str() {
                         Some("text") => {
                             if let Some(t) = item["text"].as_str() {
-                                text_parts.push(t.to_string());
+                                final_text_parts.push(t.to_string());
                             }
                         }
                         Some("tool_use") => {
                             let name = item["name"].as_str().unwrap_or("unknown").to_string();
-                            tool_uses.push(name);
+                            let id = item["id"].as_str().unwrap_or("").to_string();
+                            let input_summary = summarize_tool_input(&name, &item["input"]);
+                            final_tool_uses.push(name.clone());
+                            let idx = tool_steps.len();
+                            if !id.is_empty() {
+                                pending_outputs.insert(id.clone(), idx);
+                            }
+                            tool_steps.push(PtyToolStep {
+                                step_type: "tool_use".to_string(),
+                                name,
+                                tool_use_id: if id.is_empty() { None } else { Some(id) },
+                                input: input_summary,
+                                output: None,
+                                status: "done".to_string(),
+                            });
+                        }
+                        Some("thinking") => {
+                            let thinking_text = item["thinking"].as_str().unwrap_or("");
+                            let summary = if thinking_text.len() > 120 {
+                                format!("{}...", &thinking_text[..thinking_text.floor_char_boundary(120)])
+                            } else {
+                                thinking_text.to_string()
+                            };
+                            tool_steps.push(PtyToolStep {
+                                step_type: "thinking".to_string(),
+                                name: "thinking".to_string(),
+                                tool_use_id: None,
+                                input: summary,
+                                output: None,
+                                status: "done".to_string(),
+                            });
                         }
                         _ => {}
                     }
                 }
             }
-
-            Ok(Some(PtyJsonlResult {
-                text: text_parts.join("\n\n"),
-                tool_uses,
-                model,
-                total_lines,
-            }))
+        } else if msg_type == "user" || msg_type == "human" {
+            // Attach tool_result outputs to corresponding tool_use steps
+            if let Some(content) = message["content"].as_array() {
+                for item in content {
+                    if item["type"].as_str() == Some("tool_result") {
+                        let tool_use_id = item["tool_use_id"].as_str().unwrap_or("");
+                        if let Some(&step_idx) = pending_outputs.get(tool_use_id) {
+                            let output = extract_tool_result_content(&item["content"]);
+                            if !output.is_empty() {
+                                // Truncate to 500 chars for display
+                                let truncated = if output.len() > 500 {
+                                    format!("{}…", &output[..output.floor_char_boundary(500)])
+                                } else {
+                                    output
+                                };
+                                if let Some(step) = tool_steps.get_mut(step_idx) {
+                                    step.output = Some(truncated);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
-        None => Ok(None),
+    }
+
+    // Check if the last assistant message has text content (= final response arrived)
+    let last_has_text = assistant_messages.last()
+        .and_then(|v| v["message"]["content"].as_array())
+        .map(|arr| arr.iter().any(|item| item["type"].as_str() == Some("text") && item["text"].as_str().map_or(false, |t| !t.is_empty())))
+        .unwrap_or(false);
+
+    // If only tool_use messages (no final text), mark as still running
+    let is_complete = last_has_text && !final_text_parts.is_empty();
+
+    Ok(Some(PtyJsonlResult {
+        text: final_text_parts.join("\n\n"),
+        tool_uses: final_tool_uses,
+        tool_steps,
+        model,
+        total_lines,
+        is_complete,
+    }))
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyToolStep {
+    pub step_type: String,
+    pub name: String,
+    pub tool_use_id: Option<String>,
+    pub input: String,
+    pub output: Option<String>,
+    pub status: String,
+}
+
+/// Extract a human-readable summary from tool_use input.
+fn summarize_tool_input(tool_name: &str, input: &serde_json::Value) -> String {
+    match tool_name {
+        "Read" => input["file_path"].as_str()
+            .map(|p| shorten_path(p))
+            .unwrap_or_default(),
+        "Write" => input["file_path"].as_str()
+            .map(|p| shorten_path(p))
+            .unwrap_or_default(),
+        "Edit" => input["file_path"].as_str()
+            .map(|p| shorten_path(p))
+            .unwrap_or_default(),
+        "Glob" => input["pattern"].as_str()
+            .unwrap_or("")
+            .to_string(),
+        "Grep" => {
+            let pattern = input["pattern"].as_str().unwrap_or("");
+            let path = input["path"].as_str().map(|p| shorten_path(p)).unwrap_or_default();
+            if path.is_empty() { pattern.to_string() }
+            else { format!("{} in {}", pattern, path) }
+        }
+        "Bash" => input["command"].as_str()
+            .map(|c| c.chars().take(60).collect::<String>())
+            .unwrap_or_default(),
+        _ => {
+            // Generic: try common field names
+            for key in &["file_path", "path", "command", "query", "pattern", "url"] {
+                if let Some(v) = input[*key].as_str() {
+                    return v.chars().take(80).collect();
+                }
+            }
+            String::new()
+        }
+    }
+}
+
+/// Extract text content from a tool_result content field.
+/// Content can be a string or an array of content blocks.
+fn extract_tool_result_content(content: &serde_json::Value) -> String {
+    if let Some(s) = content.as_str() {
+        return s.to_string();
+    }
+    if let Some(arr) = content.as_array() {
+        let parts: Vec<String> = arr.iter().filter_map(|item| {
+            if item["type"].as_str() == Some("text") {
+                item["text"].as_str().map(|s| s.to_string())
+            } else {
+                None
+            }
+        }).collect();
+        return parts.join("\n");
+    }
+    String::new()
+}
+
+fn shorten_path(path: &str) -> String {
+    // Show last 2-3 components: /a/b/c/d/e.ts → c/d/e.ts
+    let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.len() <= 3 {
+        parts.join("/")
+    } else {
+        parts[parts.len()-3..].join("/")
     }
 }
 
@@ -376,8 +579,10 @@ pub fn pty_poll_jsonl(
 pub struct PtyJsonlResult {
     pub text: String,
     pub tool_uses: Vec<String>,
+    pub tool_steps: Vec<PtyToolStep>,
     pub model: Option<String>,
     pub total_lines: usize,
+    pub is_complete: bool,
 }
 
 /// Kill a PTY session.

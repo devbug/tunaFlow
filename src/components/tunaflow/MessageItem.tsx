@@ -1,6 +1,7 @@
 import { memo, useMemo, useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import type { Message, Branch } from "@/types";
 
@@ -104,11 +105,23 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
     const interval = setInterval(() => setElapsed(Date.now() - startTime), 1000);
     return () => clearInterval(interval);
   }, [isStreaming, startTime]);
+  // Lazy-load progressContent when marker "…" is present (list_messages returns lightweight)
+  const [loadedProgress, setLoadedProgress] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isUser && !isStreaming && message.progressContent === "…") {
+      invoke<string | null>("get_progress_content", { messageId: message.id })
+        .then((data) => { if (data) setLoadedProgress(data); })
+        .catch(() => {});
+    }
+  }, [message.id, message.progressContent, isUser, isStreaming]);
+  const effectiveProgress = (message.progressContent && message.progressContent !== "…")
+    ? message.progressContent
+    : loadedProgress;
   const toolSteps = useMemo(() => {
     if (isStreaming && liveSteps?.length) return liveSteps;
-    if (!isStreaming && message.progressContent) return deserializeSteps(message.progressContent);
+    if (effectiveProgress) return deserializeSteps(effectiveProgress);
     return [];
-  }, [isStreaming, liveSteps, message.progressContent]);
+  }, [isStreaming, liveSteps, effectiveProgress]);
 
   return (
     <MessageContextMenu

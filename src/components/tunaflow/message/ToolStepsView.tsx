@@ -27,11 +27,9 @@ export function ToolStepsView({ steps, isStreaming, durationMs }: ToolStepsViewP
 
   if (steps.length === 0) return null;
 
-  // Completed — collapsed summary
+  // Completed — show last step, expandable
   if (!isStreaming) {
-    const doneCount = steps.filter((s) => s.status === "done").length;
-    const errorCount = steps.filter((s) => s.status === "error").length;
-    const durationStr = durationMs ? `${(durationMs / 1000).toFixed(1)}s` : "";
+    const lastStep = steps[steps.length - 1];
 
     return (
       <div className="mb-1.5">
@@ -40,16 +38,15 @@ export function ToolStepsView({ steps, isStreaming, durationMs }: ToolStepsViewP
           className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
         >
           {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-          <span>
-            {steps.length} steps
-            {errorCount > 0 && <span className="text-status-rejected ml-1">({errorCount} failed)</span>}
-            {durationStr && <span className="ml-1">· {durationStr}</span>}
-          </span>
+          {!expanded && lastStep && (
+            <span className="truncate">{stepIcon(lastStep)} {formatStep(lastStep)} <span className="ml-1 opacity-60">+{steps.length - 1}</span></span>
+          )}
+          {expanded && <span>{steps.length} steps</span>}
         </button>
         {expanded && (
-          <div className="mt-1 pl-4 space-y-0.5">
+          <div className="mt-1 pl-4 space-y-0.5 max-h-40 overflow-y-auto">
             {steps.map((step, i) => (
-              <StepLine key={i} step={step} />
+              <StepLine key={i} step={step} showOutput />
             ))}
           </div>
         )}
@@ -79,21 +76,28 @@ export function ToolStepsView({ steps, isStreaming, durationMs }: ToolStepsViewP
   );
 }
 
-function StepLine({ step }: { step: ToolStep }) {
+function StepLine({ step, showOutput }: { step: ToolStep; showOutput?: boolean }) {
   const icon = stepIcon(step);
   const text = formatStep(step);
 
   return (
-    <div
-      className={cn(
-        "flex items-center gap-1.5 text-[10px] leading-[20px] whitespace-nowrap overflow-hidden text-ellipsis",
-        step.status === "running" && "text-primary/70",
-        step.status === "done" && "text-muted-foreground/50",
-        step.status === "error" && "text-status-rejected/70",
+    <div>
+      <div
+        className={cn(
+          "flex items-center gap-1.5 text-[10px] leading-[20px] whitespace-nowrap overflow-hidden text-ellipsis",
+          step.status === "running" && "text-primary/70",
+          step.status === "done" && "text-muted-foreground/50",
+          step.status === "error" && "text-status-rejected/70",
+        )}
+      >
+        <span className="shrink-0 w-3 text-center">{icon}</span>
+        <span className="truncate">{text}</span>
+      </div>
+      {showOutput && step.output && (
+        <pre className="ml-5 mt-0.5 mb-1 text-[9px] leading-tight text-muted-foreground/40 max-h-20 overflow-y-auto whitespace-pre-wrap break-all">
+          {step.output}
+        </pre>
       )}
-    >
-      <span className="shrink-0 w-3 text-center">{icon}</span>
-      <span className="truncate">{text}</span>
     </div>
   );
 }

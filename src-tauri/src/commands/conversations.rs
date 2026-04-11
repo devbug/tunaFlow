@@ -38,13 +38,14 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Conversation> {
         total_input_tokens: row.get(14)?,
         total_output_tokens: row.get(15)?,
         total_cost_usd: row.get(16)?,
+        resume_token: row.get(17)?,
     })
 }
 
 const SELECT_COLS: &str =
     "id, project_key, label, custom_label, type, mode, parent_id, source,
      created_at, updated_at, engine, model, persona, trigger_mode,
-     total_input_tokens, total_output_tokens, total_cost_usd";
+     total_input_tokens, total_output_tokens, total_cost_usd, resume_token";
 
 #[tauri::command]
 pub fn list_conversations(
@@ -112,6 +113,7 @@ pub fn create_conversation(
         total_input_tokens: 0,
         total_output_tokens: 0,
         total_cost_usd: 0.0,
+        resume_token: None,
     })
 }
 
@@ -177,6 +179,22 @@ pub fn get_conversation(id: String, state: State<DbState>) -> Result<Conversatio
     );
     conn.query_row(&sql, [&id], map_row)
         .map_err(|_| AppError::NotFound(format!("Conversation '{}' not found", id)))
+}
+
+/// Update the resume_token (Claude session ID) for a conversation.
+/// Used by PTY mode to persist session identity for --resume on next start.
+#[tauri::command]
+pub fn update_resume_token(
+    conversation_id: String,
+    resume_token: Option<String>,
+    state: State<DbState>,
+) -> Result<(), AppError> {
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    conn.execute(
+        "UPDATE conversations SET resume_token = ?1 WHERE id = ?2",
+        params![resume_token, conversation_id],
+    )?;
+    Ok(())
 }
 
 /// Save RT config (participants + mode) as JSON in conversations.rt_config.

@@ -37,6 +37,7 @@ interface PtySession {
   sessionId: number;
   engine: PtyEngine;
   projectPath: string;
+  jsonlPath?: string; // Tracked JSONL file for this PTY session
 }
 
 interface PtyStoreState {
@@ -50,7 +51,9 @@ interface PtyStoreState {
   responseStarted: boolean;
 
   getSession: (engine: string) => number | null;
+  getJsonlPath: (engine: string) => string | undefined;
   setSession: (engine: PtyEngine, sessionId: number, projectPath: string) => void;
+  setJsonlPath: (engine: PtyEngine, jsonlPath: string) => void;
   clearSession: (engine: PtyEngine) => void;
   clearAllSessions: () => void;
 
@@ -72,9 +75,19 @@ export const usePtyStore = create<PtyStoreState>((set, get) => ({
 
   getSession: (engine) => get().sessions.get(engine as PtyEngine)?.sessionId ?? null,
 
+  getJsonlPath: (engine) => get().sessions.get(engine as PtyEngine)?.jsonlPath,
+
   setSession: (engine, sessionId, projectPath) => set((s) => {
     const next = new Map(s.sessions);
     next.set(engine, { sessionId, engine, projectPath });
+    return { sessions: next };
+  }),
+
+  setJsonlPath: (engine, jsonlPath) => set((s) => {
+    const session = s.sessions.get(engine);
+    if (!session) return {};
+    const next = new Map(s.sessions);
+    next.set(engine, { ...session, jsonlPath });
     return { sessions: next };
   }),
 

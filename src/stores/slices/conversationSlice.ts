@@ -11,6 +11,73 @@ import type {
   CreateConversationInput,
 } from "./types";
 
+// ─── PTY session management (chat = session 1:1) ─────────────────────────────
+
+let ptySpawnLock = false; // Prevent concurrent spawn calls
+
+/** Spawn a PTY Claude session for the given conversation.
+ *  If conversation has a resumeToken, resumes that exact session.
+ *  Otherwise starts a new session. */
+async function spawnPtyForConversation(conv: Conversation, projectPath: string) {
+  if (ptySpawnLock) return;
+  ptySpawnLock = true;
+  try {
+    const { usePtyStore, getPtyBinary } = await import("@/stores/ptyStore");
+    const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
+
+    const engine = "claude";
+    const binary = getPtyBinary(engine);
+    if (!binary) return;
+
+    const pty = usePtyStore.getState();
+
+    // Skip if PTY is already running for this conversation's session
+    const existingSession = pty.sessions.get("claude");
+    if (existingSession && conv.resumeToken) {
+      const existingJsonl = existingSession.jsonlPath ?? "";
+      if (existingJsonl.includes(conv.resumeToken)) {
+        console.log(`[pty] claude already running for session ${conv.resumeToken}, skipping`);
+        return;
+      }
+    }
+
+    // Kill ALL existing PTY sessions first (ensures clean state)
+    await tauriInvoke("pty_kill_all").catch(() => {});
+    pty.clearAllSessions();
+
+    const args: string[] = [];
+    if (conv.resumeToken) {
+      args.push("--resume", conv.resumeToken);
+    }
+    args.push("--permission-mode", "bypassPermissions");
+
+    const sessionId = await tauriInvoke<number>("pty_spawn", {
+      file: binary, args, cwd: projectPath, cols: 80, rows: 500,
+      env: { NO_COLOR: "1" },
+    });
+    pty.setSession(engine, sessionId, projectPath);
+
+    // If resume token exists, find JSONL by matching filename
+    if (conv.resumeToken) {
+      try {
+        const files = await tauriInvoke<string[]>("pty_list_jsonl_files", { projectPath });
+        const match = files.find((f) => f.includes(conv.resumeToken!));
+        if (match) {
+          pty.setJsonlPath("claude", match);
+          console.log(`[pty] claude resumed session ${conv.resumeToken}, JSONL: ${match}`);
+          return;
+        }
+      } catch { /* ok — will detect on first message */ }
+    }
+
+    console.log(`[pty] claude new session ${sessionId} for conv ${conv.id}`);
+  } catch (err) {
+    console.warn(`[pty] claude unavailable:`, err);
+  } finally {
+    ptySpawnLock = false;
+  }
+}
+
 export interface ConversationSlice {
   conversations: Conversation[];
   selectedConversationId: string | null;
@@ -107,6 +174,21 @@ export const createConversationSlice = (set: SetState, get: GetState): Conversat
         set({ messages, branches, memos, artifacts, error: null, _staleConversations: next });
       } else {
         set({ messages, branches, memos, artifacts, error: null });
+      }
+
+      // PTY: spawn Claude session for this conversation (chat = session 1:1)
+      const projectKey = get().selectedProjectKey;
+      if (projectKey) {
+        invoke<import("./types").Project>("get_project", { key: projectKey }).then(async (project) => {
+          if (!project.path) return;
+          // Get conversation with resume_token
+          try {
+            const conv = await invoke<Conversation>("get_conversation", { id });
+            await spawnPtyForConversation(conv, project.path!);
+          } catch (e) {
+            console.debug("[pty] spawn on selectConversation:", e);
+          }
+        }).catch((e) => console.debug("[pty]", e));
       }
     } catch (e) {
       set({ error: errorMessage(e) });

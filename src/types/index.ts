@@ -27,6 +27,7 @@ export interface Conversation {
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCostUsd: number;
+  resumeToken?: string;
 }
 
 export interface Message {
