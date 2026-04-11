@@ -510,6 +510,61 @@ pub async fn index_conversation_chunks(
     }).await.map_err(|_| AppError::Lock)?
 }
 
+/// Blocking index function — callable from HTTP API without Tauri State.
+pub fn index_chunks_blocking(db: &crate::db::DbState, conversation_id: &str) -> Result<usize, AppError> {
+    let (project_key, chunks) = {
+        let conn = db.read.lock().map_err(|_| AppError::Lock)?;
+        let pk: String = conn.query_row("SELECT project_key FROM conversations WHERE id = ?1", [conversation_id], |r| r.get(0))
+            .map_err(|_| AppError::NotFound("conversation not found".into()))?;
+        let mut stmt = conn.prepare("SELECT id, role, content, engine, persona FROM messages WHERE conversation_id = ?1 ORDER BY timestamp ASC")?;
+        let messages: Vec<(String, String, String, Option<String>, Option<String>)> = stmt
+            .query_map([conversation_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
+            .filter_map(|r| r.ok()).collect();
+        (pk, build_sliding_window_chunks(&messages))
+    };
+    if chunks.is_empty() { return Ok(0); }
+    let mut embedded: Vec<(String, String, String, Vec<u8>)> = Vec::new();
+    for (root_id, kind, text) in &chunks {
+        if let Ok(v) = crate::agents::rawq::embed_text(text, false) {
+            embedded.push((root_id.clone(), kind.clone(), text.clone(), embedding_to_blob(&v)));
+        }
+    }
+    if embedded.is_empty() { return Ok(0); }
+    let conn = db.write.lock().map_err(|_| AppError::Lock)?;
+    let rowids: Vec<i64> = conn.prepare("SELECT rowid FROM conversation_chunks WHERE conversation_id = ?1")
+        .and_then(|mut s| s.query_map([conversation_id], |r| r.get(0)).map(|rows| rows.filter_map(|r| r.ok()).collect()))
+        .unwrap_or_default();
+    for rid in &rowids { conn.execute("DELETE FROM vec_chunks WHERE rowid = ?1", [rid]).ok(); }
+    conn.execute("DELETE FROM conversation_chunks WHERE conversation_id = ?1", [conversation_id])?;
+    let now = now_epoch_ms();
+    let mut indexed = 0;
+    for (root_id, kind, text, blob) in &embedded {
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO conversation_chunks (id, project_key, conversation_id, kind, root_message_id, text_preview, embedding, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![id, project_key, conversation_id, kind, root_id, text, blob, now],
+        )?;
+        let chunk_rowid: i64 = conn.query_row("SELECT rowid FROM conversation_chunks WHERE id = ?1", [&id], |r| r.get(0)).unwrap_or(0);
+        if chunk_rowid > 0 { conn.execute("INSERT INTO vec_chunks(rowid, embedding) VALUES (?1, ?2)", rusqlite::params![chunk_rowid, blob]).ok(); }
+        indexed += 1;
+    }
+    Ok(indexed)
+}
+
+/// Blocking search — callable from HTTP API without Tauri State.
+pub fn search_chunks_blocking(db: &crate::db::DbState, conversation_id: &str, query: &str, limit: usize) -> Result<Vec<serde_json::Value>, AppError> {
+    let query_embedding = crate::agents::rawq::embed_text(query, true)
+        .map_err(|e| AppError::Agent(format!("embed failed: {:?}", e)))?;
+    let conn = db.read.lock().map_err(|_| AppError::Lock)?;
+    let project_key: String = conn.query_row("SELECT project_key FROM conversations WHERE id = ?1", [conversation_id], |r| r.get(0))
+        .map_err(|_| AppError::NotFound("conversation not found".into()))?;
+    let chunks = search_similar(&conn, &query_embedding, &project_key, conversation_id, limit);
+    Ok(chunks.into_iter().map(|c| serde_json::json!({
+        "id": c.id, "conversationId": c.conversation_id, "kind": c.kind,
+        "textPreview": c.text_preview, "score": c.score,
+    })).collect())
+}
+
 /// Search for similar chunks using a text query.
 #[tauri::command]
 pub fn search_conversation_vectors(

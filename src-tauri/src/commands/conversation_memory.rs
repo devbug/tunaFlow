@@ -534,6 +534,33 @@ fn write_topics(
     Ok(())
 }
 
+/// Blocking compress function — callable from HTTP API without Tauri State.
+pub fn compress_memory_blocking(db: &crate::db::DbState, conversation_id: &str) -> Result<bool, AppError> {
+    let transcript = {
+        let conn = db.write.lock().map_err(|_| AppError::Lock)?;
+        if !needs_compression(&conn, conversation_id) { return Ok(false); }
+        let (t, _) = build_transcript(&conn, conversation_id)?;
+        if t.is_empty() { return Ok(false); }
+        t
+    };
+    let prompt = format!("{}{}", SUMMARY_PROMPT, transcript);
+    let result = crate::agents::claude::run(crate::agents::claude::RunInput {
+        prompt, model: None, system_prompt: None, resume_token: None, project_path: None,
+    });
+    let raw_output = match result {
+        Ok(out) if !out.content.trim().is_empty() => out.content.trim().to_string(),
+        _ => { eprintln!("[memory] compression failed for {}", conversation_id); return Ok(false); }
+    };
+    let topics = parse_topics(&raw_output);
+    {
+        let conn = db.write.lock().map_err(|_| AppError::Lock)?;
+        let total: i64 = conn.query_row("SELECT COUNT(*) FROM messages WHERE conversation_id = ?1", [conversation_id], |r| r.get(0)).unwrap_or(0);
+        write_topics(&conn, conversation_id, &topics, total, "auto", "claude")?;
+        eprintln!("[memory] compressed → {} topics for {}", topics.len(), conversation_id);
+    }
+    Ok(true)
+}
+
 /// Tauri command: get memory status for a conversation.
 #[tauri::command]
 pub fn get_conversation_memory_status(

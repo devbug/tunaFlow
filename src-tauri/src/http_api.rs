@@ -153,6 +153,14 @@ fn build_router(state: ApiState) -> Router {
         // Roundtable endpoints
         .route("/api/roundtables/run", post(start_rt_run))
         .route("/api/roundtables/{id}/cancel", post(cancel_rt))
+        // Memory & search endpoints
+        .route("/api/conversations/{id}/memory/status", get(memory_status))
+        .route("/api/conversations/{id}/memory/compress", post(compress_memory))
+        .route("/api/conversations/{id}/session-links", get(list_session_links))
+        .route("/api/conversations/{id}/session-links/refresh", post(refresh_session_links))
+        .route("/api/conversations/{id}/chunks/index", post(index_chunks))
+        .route("/api/conversations/{id}/chunks/search", post(search_chunks))
+        .route("/api/conversations/{id}/traces", get(list_conv_traces))
         // WebSocket
         .route("/ws/events", get(ws_events))
         // Health
@@ -830,6 +838,110 @@ async fn cancel_rt(State(state): State<ApiState>, Path(conv_id): Path<String>) -
     let mut set = state.cancel.lock();
     set.insert(conv_id.clone());
     Json(serde_json::json!({"cancelled": true, "conversationId": conv_id})).into_response()
+}
+
+// ─── Memory & Search handlers ──────────────────────────────────────────
+
+async fn memory_status(State(state): State<ApiState>, Path(conv_id): Path<String>) -> impl IntoResponse {
+    let conn = lock_or_recover!(state.db.read);
+    let status = crate::commands::conversation_memory::get_memory_status(&conn, &conv_id);
+    Json(serde_json::json!(status)).into_response()
+}
+
+async fn compress_memory(State(state): State<ApiState>, Path(conv_id): Path<String>) -> impl IntoResponse {
+    let db = state.db.clone();
+    let cid = conv_id.clone();
+    match tokio::task::spawn_blocking(move || {
+        crate::commands::conversation_memory::compress_memory_blocking(&db, &cid)
+    }).await {
+        Ok(Ok(compressed)) => Json(serde_json::json!({"compressed": compressed, "conversationId": conv_id})).into_response(),
+        Ok(Err(e)) => db_error(e),
+        Err(e) => db_error(format!("task: {}", e)),
+    }
+}
+
+async fn list_session_links(State(state): State<ApiState>, Path(conv_id): Path<String>) -> impl IntoResponse {
+    let conn = lock_or_recover!(state.db.read);
+    let mut stmt = match conn.prepare(
+        "SELECT id, linked_conv_id, score, method, created_at FROM session_links WHERE conversation_id = ?1 ORDER BY score DESC"
+    ) { Ok(s) => s, Err(e) => return db_error(e) };
+    let rows: Vec<serde_json::Value> = stmt.query_map([&conv_id], |r| Ok(serde_json::json!({
+        "id": r.get::<_, String>(0)?, "linkedConvId": r.get::<_, String>(1)?,
+        "score": r.get::<_, f64>(2)?, "method": r.get::<_, String>(3)?,
+        "createdAt": r.get::<_, i64>(4)?,
+    }))).unwrap().filter_map(|r| r.ok()).collect();
+    Json(serde_json::json!(rows)).into_response()
+}
+
+async fn refresh_session_links(State(state): State<ApiState>, Path(conv_id): Path<String>) -> impl IntoResponse {
+    let conn = lock_or_recover!(state.db.read);
+    // Get project_key for this conversation
+    let project_key: String = match conn.query_row(
+        "SELECT project_key FROM conversations WHERE id = ?1", [&conv_id], |r| r.get(0),
+    ) {
+        Ok(pk) => pk,
+        Err(_) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "conversation not found"}))).into_response(),
+    };
+    let links = crate::commands::session_discovery::discover_related_sessions(&conn, &conv_id, &project_key, 5);
+    // Upsert links
+    drop(conn);
+    let write_conn = lock_or_recover!(state.db.write);
+    let now = crate::db::migrations::now_epoch_ms();
+    for (linked_id, score) in &links {
+        let link_id = uuid::Uuid::new_v4().to_string();
+        write_conn.execute(
+            "INSERT OR REPLACE INTO session_links (id, conversation_id, linked_conv_id, score, method, created_at) VALUES (?1, ?2, ?3, ?4, 'fts5', ?5)",
+            rusqlite::params![link_id, conv_id, linked_id, score, now],
+        ).ok();
+    }
+    Json(serde_json::json!({"refreshed": links.len(), "links": links.iter().map(|(id, score)| serde_json::json!({"conversationId": id, "score": score})).collect::<Vec<_>>()})).into_response()
+}
+
+async fn index_chunks(State(state): State<ApiState>, Path(conv_id): Path<String>) -> impl IntoResponse {
+    let db = state.db.clone();
+    let cid = conv_id.clone();
+    match tokio::task::spawn_blocking(move || {
+        crate::commands::vector_search::index_chunks_blocking(&db, &cid)
+    }).await {
+        Ok(Ok(count)) => Json(serde_json::json!({"indexed": count, "conversationId": conv_id})).into_response(),
+        Ok(Err(e)) => db_error(e),
+        Err(e) => db_error(format!("task: {}", e)),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchChunksInput {
+    query: String,
+    limit: Option<usize>,
+}
+
+async fn search_chunks(State(state): State<ApiState>, Path(conv_id): Path<String>, Json(input): Json<SearchChunksInput>) -> impl IntoResponse {
+    let db = state.db.clone();
+    let query = input.query;
+    let limit = input.limit.unwrap_or(5);
+    match tokio::task::spawn_blocking(move || {
+        crate::commands::vector_search::search_chunks_blocking(&db, &conv_id, &query, limit)
+    }).await {
+        Ok(Ok(results)) => Json(serde_json::json!(results)).into_response(),
+        Ok(Err(e)) => db_error(e),
+        Err(e) => db_error(format!("task: {}", e)),
+    }
+}
+
+async fn list_conv_traces(State(state): State<ApiState>, Path(conv_id): Path<String>) -> impl IntoResponse {
+    let conn = lock_or_recover!(state.db.read);
+    let mut stmt = match conn.prepare(
+        "SELECT id, trace_id, span_id, engine, context_mode, context_length, input_tokens, output_tokens, cost_usd, created_at FROM trace_log WHERE conversation_id = ?1 ORDER BY created_at DESC LIMIT 20"
+    ) { Ok(s) => s, Err(e) => return db_error(e) };
+    let rows: Vec<serde_json::Value> = stmt.query_map([&conv_id], |r| Ok(serde_json::json!({
+        "id": r.get::<_, String>(0)?, "traceId": r.get::<_, Option<String>>(1)?,
+        "engine": r.get::<_, Option<String>>(3)?, "contextMode": r.get::<_, Option<String>>(4)?,
+        "contextLength": r.get::<_, i64>(5)?, "inputTokens": r.get::<_, i64>(6)?,
+        "outputTokens": r.get::<_, i64>(7)?, "costUsd": r.get::<_, f64>(8)?,
+        "createdAt": r.get::<_, i64>(9)?,
+    }))).unwrap().filter_map(|r| r.ok()).collect();
+    Json(serde_json::json!(rows)).into_response()
 }
 
 // ─── WebSocket events ───────────────────────────────────────────────────
