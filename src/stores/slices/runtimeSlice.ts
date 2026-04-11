@@ -560,9 +560,34 @@ async function sendViaPty(
     } catch { /* ok */ }
   }
 
+  // Inject ContextPack for new sessions (no tracked JSONL = first message in this session)
+  let enrichedPrompt = prompt;
+  if (!trackedJsonl) {
+    try {
+      const { activeSkills, crossSessionIds } = get();
+      const contextResult = await invoke<{ assembledPrompt: string; sections: string[] }>(
+        "pty_build_context", {
+          conversationId,
+          prompt,
+          projectPath: projectPath || null,
+          activeSkills: activeSkills ?? [],
+          crossSessionIds: crossSessionIds ?? [],
+          personaFragment: null,
+          contextMode: null,
+        }
+      );
+      if (contextResult.assembledPrompt) {
+        enrichedPrompt = contextResult.assembledPrompt;
+        console.log(`[pty] injected ContextPack (${contextResult.sections.length} sections, ${contextResult.assembledPrompt.length} chars)`);
+      }
+    } catch (e) {
+      console.warn("[pty] ContextPack build failed, sending raw prompt:", e);
+    }
+  }
+
   // Send prompt via bracket paste + Enter
   try {
-    await invoke("pty_write", { sessionId, data: `\x1b[200~${prompt}\x1b[201~` });
+    await invoke("pty_write", { sessionId, data: `\x1b[200~${enrichedPrompt}\x1b[201~` });
     await new Promise((r) => setTimeout(r, 150));
     await invoke("pty_write", { sessionId, data: "\r" });
 

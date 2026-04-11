@@ -71,10 +71,42 @@ export async function spawnPtyForConversation(conv: Conversation, projectPath: s
     }
 
     console.log(`[pty] claude new session ${sessionId} for conv ${conv.id}`);
+
+    // Update CLAUDE.md with current context (plan, identity) — fire-and-forget
+    updateClaudeMdContext(conv.id, projectPath, tauriInvoke).catch(() => {});
   } catch (err) {
     console.warn(`[pty] claude unavailable:`, err);
   } finally {
     ptySpawnLock = false;
+  }
+}
+
+/** Build a lightweight context summary and write to CLAUDE.md ## tunaFlow Context section */
+async function updateClaudeMdContext(
+  conversationId: string,
+  projectPath: string,
+  invokeCmd: typeof import("@tauri-apps/api/core").invoke,
+) {
+  try {
+    const contextResult = await invokeCmd<{ assembledPrompt: string; sections: string[] }>(
+      "pty_build_context", {
+        conversationId,
+        prompt: "",
+        projectPath,
+        activeSkills: [],
+        crossSessionIds: [],
+        personaFragment: null,
+        contextMode: "lite", // Lightweight for CLAUDE.md — just identity + plan
+      }
+    );
+    if (contextResult.assembledPrompt) {
+      await invokeCmd("pty_update_claude_md", {
+        projectPath,
+        contextSection: contextResult.assembledPrompt,
+      });
+    }
+  } catch (e) {
+    console.debug("[pty] updateClaudeMdContext:", e);
   }
 }
 
