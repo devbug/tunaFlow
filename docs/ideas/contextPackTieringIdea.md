@@ -435,16 +435,16 @@ messages:
 
 > Insight 워크플로우 고도화는 별도 문서: `docs/ideas/insightWorkflowIdea.md`
 
-| 순서 | 항목 | 효과 | 난이도 |
-|------|------|------|--------|
-| 1 | ~~**RT minimal ContextPack** (Tier 0+1만)~~ | ✅ 완료 (세션 16, `feature/context-tiering`) | — |
-| 2 | **Chunk 품질: 슬라이딩 윈도우 + 화자 prefix** | 검색 recall +10-15% | 낮 |
-| 3 | **Chunk 품질: Parent retriever 연결** | 원본 반환으로 정보 손실 제거 | 낮 (인프라 있음) |
-| 4 | **sqlite-vec 도입** | 검색 O(n)→O(log n), 전수 로드 제거 | 중 |
-| 5 | **RT 벡터 맥락 공유** | transcript 복제 83% 절감 | 중 |
-| 6 | **Tier 2 tool-request 5종 추가** | 메인 채팅 50% 절감 | 중 (인프라 있음) |
-| 7 | **RT resume_token 확장** (Claude) | 추가 ~17% 절감 (Tiering 위에) | 중 |
-| 8 | **메인 채팅 Tiering 적용** | 전체 ContextPack 경량화 | 높 (휴리스틱 설계) |
+| 순서 | 항목 | 효과 | 상태 |
+|------|------|------|------|
+| 1 | ~~RT minimal ContextPack (Tier 0+1만)~~ | ~70% 절감 | ✅ 세션 16 |
+| 2 | ~~Chunk 품질: 슬라이딩 윈도우 + 화자 prefix~~ | recall +10-15% | ✅ 세션 18 |
+| 3 | ~~Chunk 품질: Parent retriever 연결~~ | 정보 손실 제거 | ✅ 세션 18 |
+| 4 | ~~sqlite-vec 도입~~ | 검색 18x 빠름 (O(n)→O(log n)) | ✅ 세션 18 |
+| 5 | ~~RT 벡터 맥락 공유~~ | transcript 복제 ~80% 절감 | ✅ 세션 18 |
+| 6 | ~~Tier 2 tool-request 9종~~ | 메인 채팅 50% 절감 (on-demand Pull) | ✅ 세션 18 |
+| 7 | ~~RT resume_token~~ | 전 엔진 세션 이어가기 | ✅ 세션 18 |
+| 8 | ~~메인 채팅 Tiering 적용~~ | cross-session/skills Pull 전환 | ✅ 세션 18 |
 
 ---
 

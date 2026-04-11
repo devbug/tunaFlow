@@ -85,6 +85,7 @@
 | [workflowDocumentV2Plan](./workflowDocumentV2Plan.md) | Architect 직접 작성 + semantic versioning 문서 모델 | 구현 미착수 |
 | [longTermMemoryRoadmapPlan_2026-03-30](./longTermMemoryRoadmapPlan_2026-03-30.md) | Phase 1 compressed memory 완료 (세션 7) | Phase 2-4 (structured/retrieval/unified) 미착수 |
 | [compressedMemoryOperationalPolishPlan_2026-03-30](./compressedMemoryOperationalPolishPlan_2026-03-30.md) | provenance/model_used/force_recompress 구현 (세션 7) | UI 가시화 미확인 |
+| [structuredMemorySourceStrengtheningPlan_2026-03-30](./structuredMemorySourceStrengtheningPlan_2026-03-30.md) | budget weight 재조정 (structured > conversational, 세션 18) | 역할 분리 Trace 표시 |
 
 ### 보류
 
@@ -108,7 +109,6 @@
 
 | 문서 | 우선순위 |
 |------|---------|
-| [structuredMemorySourceStrengtheningPlan_2026-03-30](./structuredMemorySourceStrengtheningPlan_2026-03-30.md) | P0 — plan/findings/artifacts/memo를 structured memory source로 강화 |
 | [geminiSdkIntegrationPlan](./geminiSdkIntegrationPlan.md) | P1 — Google AI SDK 직접 통합 (CLI 대체, SSE/token/function calling) |
 | [toolCallHandlerPlan](./toolCallHandlerPlan.md) | P1 — function calling으로 마커 대체 |
 | [contextPackAlgorithmPhase1Plan_2026-03-30](./contextPackAlgorithmPhase1Plan_2026-03-30.md) | P1 — Jaccard dedup, markdown 경량화, import collapse, rawq 다해상도 |
