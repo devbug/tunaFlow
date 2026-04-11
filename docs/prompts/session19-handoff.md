@@ -26,9 +26,10 @@ tunaFlow는 **다중 에이전트 오케스트레이션 클라이언트(AOC)**. 
 
 1. **코드를 수정하지 마세요.** 이 세션은 테스트 전용입니다.
 2. **tunaFlow 프로젝트의 소스코드를 건드리지 마세요.** 테스트 대상은 HTTP API 엔드포인트입니다.
-3. **테스트용 프로젝트 키는 `tunaInsight`를 사용하세요.** tunaFlow 자체를 테스트 데이터로 오염시키지 마세요.
-4. **에이전트 실행 시 `dryRun: true`를 먼저 사용하세요.** 실제 에이전트 호출은 비용이 발생합니다.
-5. **결과만 보고하세요.** 버그를 발견하면 기록만 하고 수정하지 마세요.
+3. **테스트용 대화는 `tunaFlow` 프로젝트 키로 생성하세요.** tunaFlow 자체를 테스트하는 것이니까.
+4. **테스트용 대화 label에 `[E2E]` 접두사를 붙이세요.** 나중에 식별/정리 용이.
+5. **에이전트 실행 시 `dryRun: true`를 먼저 사용하세요.** 실제 에이전트 호출은 비용이 발생합니다.
+6. **결과만 보고하세요.** 버그를 발견하면 기록만 하고 수정하지 마세요.
 
 ## HTTP API 구조
 
@@ -88,7 +89,7 @@ curl -s http://127.0.0.1:19840/api/projects -H "Authorization: Bearer $TOKEN"
 # 기대: JSON 배열 (프로젝트 목록)
 
 # 4. 프로젝트별 대화 목록
-curl -s "http://127.0.0.1:19840/api/conversations?projectKey=tunaInsight" \
+curl -s "http://127.0.0.1:19840/api/conversations?projectKey=tunaFlow" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -99,7 +100,7 @@ curl -s "http://127.0.0.1:19840/api/conversations?projectKey=tunaInsight" \
 CONV=$(curl -s -X POST http://127.0.0.1:19840/api/conversations \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"projectKey":"tunaInsight","label":"E2E Test Session 19"}' | jq -r '.id')
+  -d '{"projectKey":"tunaFlow","label":"[E2E] Test Session 19"}' | jq -r '.id')
 echo "Created conversation: $CONV"
 
 # 6. dry_run 메시지 전송 (에이전트 실행 안 함)
