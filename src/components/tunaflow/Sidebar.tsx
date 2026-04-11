@@ -19,14 +19,19 @@ import { getSetting, setSetting } from "@/lib/appStore";
 const MIN_SECTION_HEIGHT = 60;
 
 function CollapsibleSection({
-  title, count, expanded, onToggle, children, action, height,
+  title, count, expanded, onToggle, children, action, height, fillRemaining,
 }: {
   title: string; count?: number; expanded: boolean;
   onToggle: () => void; children: React.ReactNode;
-  action?: React.ReactNode; height?: number;
+  action?: React.ReactNode; height?: number; fillRemaining?: boolean;
 }) {
+  const style = expanded
+    ? fillRemaining
+      ? { flex: 1, minHeight: MIN_SECTION_HEIGHT }
+      : { height, flexShrink: 0 }
+    : undefined;
   return (
-    <div className="flex flex-col shrink-0" style={expanded ? { height } : undefined}>
+    <div className="flex flex-col overflow-hidden" style={style}>
       <div className="shrink-0 flex items-center px-3 py-1">
         <button
           onClick={onToggle}
@@ -133,6 +138,10 @@ export function Sidebar() {
       [key]: Math.max(MIN_SECTION_HEIGHT, prev[key] + delta),
     }));
   }, []);
+
+  // Determine which section fills remaining vertical space (last expanded one)
+  const SECTION_ORDER = ["branches", "docs", "archive"] as const;
+  const lastExpanded = [...SECTION_ORDER].reverse().find((k) => sectionState[k]) ?? null;
 
   // Project dropdown state
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
@@ -315,125 +324,129 @@ export function Sidebar() {
       {/* 3-tier collapsible workspace */}
       {selectedProjectKey ? (
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-          {/* Tier 1a: Branches */}
-          <CollapsibleSection
-            title="Branches"
-            count={activeChatBranches.length}
-            expanded={sectionState.branches}
-            onToggle={() => toggleSection("branches")}
-            height={sectionHeights.branches}
-          >
-            {activeChatBranches.length === 0 ? (
-              <p className="text-[10px] text-sidebar-foreground/25 italic py-1">No active branches</p>
-            ) : (
-              activeChatBranches.map((b) => (
-                <button key={b.id} onClick={() => openThread(b.id)}
-                  className={cn(
-                    "w-full flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded transition-colors group",
-                    b.id === threadBranchId
-                      ? "bg-sidebar-accent text-sidebar-foreground"
-                      : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/40"
-                  )}
-                >
-                  <GitBranch className="w-3 h-3 shrink-0" />
-                  <span className="truncate flex-1 text-left">{b.customLabel ?? b.label}</span>
-                  {runningThreadIds.includes(b.conversationId) && (
-                    <Loader2 className="w-3 h-3 animate-spin text-primary/70 shrink-0" />
-                  )}
-                </button>
-              ))
-            )}
-          </CollapsibleSection>
 
-          {/* Resize: Branches ↕ Roundtables (shared tier) */}
-          {sectionState.branches && (
+          {/* ── Tier 1: Branches + Roundtables + Scratchpad (single resizable block) ── */}
+          <div
+            className="flex flex-col overflow-hidden shrink-0"
+            style={sectionState.branches
+              ? lastExpanded === "branches"
+                ? { flex: 1, minHeight: MIN_SECTION_HEIGHT }
+                : { height: sectionHeights.branches, flexShrink: 0 }
+              : undefined
+            }
+          >
+            {/* Branches list */}
+            <div className="shrink-0 flex items-center px-3 py-1">
+              <button
+                onClick={() => toggleSection("branches")}
+                className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 hover:text-sidebar-foreground/60 transition-colors flex-1"
+              >
+                <ChevronRight className={cn("w-3 h-3 transition-transform", sectionState.branches && "rotate-90")} />
+                <span>Branches</span>
+                {!sectionState.branches && activeChatBranches.length > 0 && (
+                  <span className="text-[9px] text-sidebar-foreground/25 font-normal ml-1">({activeChatBranches.length})</span>
+                )}
+              </button>
+            </div>
+            {sectionState.branches && (
+              <div className="flex-1 overflow-y-auto px-3 pb-1 min-h-0">
+                {/* Branches */}
+                {activeChatBranches.length === 0 ? (
+                  <p className="text-[10px] text-sidebar-foreground/25 italic py-1">No active branches</p>
+                ) : (
+                  activeChatBranches.map((b) => (
+                    <button key={b.id} onClick={() => openThread(b.id)}
+                      className={cn(
+                        "w-full flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded transition-colors group",
+                        b.id === threadBranchId
+                          ? "bg-sidebar-accent text-sidebar-foreground"
+                          : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/40"
+                      )}
+                    >
+                      <GitBranch className="w-3 h-3 shrink-0" />
+                      <span className="truncate flex-1 text-left">{b.customLabel ?? b.label}</span>
+                      {runningThreadIds.includes(b.conversationId) && (
+                        <Loader2 className="w-3 h-3 animate-spin text-primary/70 shrink-0" />
+                      )}
+                    </button>
+                  ))
+                )}
+                {/* Roundtables */}
+                {(activeRTBranches.length > 0 || true) && (
+                  <div className="mt-2">
+                    <div className="flex items-center mb-0.5">
+                      <span className="text-[9px] uppercase tracking-wider text-sidebar-foreground/25 flex-1">Roundtables</span>
+                      <button onClick={() => setShowCreateRT(true)}
+                        className="p-0.5 rounded text-sidebar-foreground/25 hover:text-agent-gemini transition-colors"
+                        title="New roundtable">
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {activeRTBranches.length === 0 ? (
+                      <p className="text-[10px] text-sidebar-foreground/25 italic py-0.5">No roundtables</p>
+                    ) : (
+                      activeRTBranches.map((b) => (
+                        <button key={b.id} onClick={() => openThread(b.id)}
+                          className={cn(
+                            "w-full flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded transition-colors",
+                            b.id === threadBranchId
+                              ? "bg-sidebar-accent text-sidebar-foreground"
+                              : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/40"
+                          )}
+                        >
+                          <Users className="w-3 h-3 shrink-0 text-agent-gemini/50" />
+                          <span className="truncate flex-1 text-left">{b.customLabel ?? b.label}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+                {/* Scratchpad */}
+                <ScratchpadSection
+                  scratchpads={scratchpads}
+                  selectedConversationId={selectedConversationId}
+                  selectConversation={selectConversation}
+                  renameConversation={renameConversation}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Resize: Tier 1 ↕ Tier 2 */}
+          {sectionState.branches && sectionState.docs && lastExpanded !== "branches" && (
             <SectionResizeHandle
               onDrag={(d) => adjustHeight("branches", d)}
               onDragEnd={persistHeights}
             />
           )}
 
-          {/* Tier 1b: Roundtables */}
-          <CollapsibleSection
-            title="Roundtables"
-            count={activeRTBranches.length}
-            expanded={sectionState.branches}
-            onToggle={() => toggleSection("branches")}
-            height={sectionHeights.branches}
-            action={
-              <button onClick={() => setShowCreateRT(true)}
-                className="p-0.5 rounded text-sidebar-foreground/25 hover:text-agent-gemini transition-colors"
-                title="New roundtable">
-                <Plus className="w-3 h-3" />
-              </button>
-            }
-          >
-            {activeRTBranches.length === 0 ? (
-              <p className="text-[10px] text-sidebar-foreground/25 italic py-1">No roundtables</p>
-            ) : (
-              activeRTBranches.map((b) => (
-                <button key={b.id} onClick={() => openThread(b.id)}
-                  className={cn(
-                    "w-full flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded transition-colors",
-                    b.id === threadBranchId
-                      ? "bg-sidebar-accent text-sidebar-foreground"
-                      : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/40"
-                  )}
-                >
-                  <Users className="w-3 h-3 shrink-0 text-agent-gemini/50" />
-                  <span className="truncate flex-1 text-left">{b.customLabel ?? b.label}</span>
-                </button>
-              ))
-            )}
-          </CollapsibleSection>
-
-          {/* Tier 1c: Scratchpad */}
-          <ScratchpadSection
-            scratchpads={scratchpads}
-            selectedConversationId={selectedConversationId}
-            selectConversation={selectConversation}
-            renameConversation={renameConversation}
-          />
-
-          {/* Resize: between RT/Branches and Docs */}
-          {(sectionState.branches || sectionState.docs) && (
-            <SectionResizeHandle
-              onDrag={(d) => {
-                if (sectionState.branches) adjustHeight("branches", d);
-                else adjustHeight("docs", -d);
-              }}
-              onDragEnd={persistHeights}
-            />
-          )}
-
-          {/* Tier 2: Docs */}
+          {/* ── Tier 2: Docs ── */}
           <CollapsibleSection
             title="Docs"
             expanded={sectionState.docs}
             onToggle={() => toggleSection("docs")}
             height={sectionHeights.docs}
+            fillRemaining={lastExpanded === "docs"}
           >
             <DocsSection projectPath={currentProject?.path} />
           </CollapsibleSection>
 
-          {/* Resize: between Docs and Archive */}
-          {(sectionState.docs || sectionState.archive) && (
+          {/* Resize: Tier 2 ↕ Tier 3 */}
+          {sectionState.docs && sectionState.archive && lastExpanded !== "docs" && (
             <SectionResizeHandle
-              onDrag={(d) => {
-                if (sectionState.docs) adjustHeight("docs", d);
-                else adjustHeight("archive", -d);
-              }}
+              onDrag={(d) => adjustHeight("docs", d)}
               onDragEnd={persistHeights}
             />
           )}
 
-          {/* Tier 3: Archive (archived/adopted branches) */}
+          {/* ── Tier 3: Archive ── */}
           <CollapsibleSection
             title="Archive"
             count={archivedBranches.length}
             expanded={sectionState.archive}
             onToggle={() => toggleSection("archive")}
             height={sectionHeights.archive}
+            fillRemaining={lastExpanded === "archive"}
           >
             {storeBranches
               .filter((b) => b.status === "archived" || b.status === "adopted")
