@@ -113,12 +113,23 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     const { selectedProjectKey, selectedConversationId, runningThreadIds } = get();
     if (!selectedProjectKey || !selectedConversationId) return;
 
-    // PTY shortcut: if a PTY session is active for this engine, route through it
-    if (isPtyEngine(engine)) {
+    // PTY shortcut: if enabled and a PTY session is active, route through it
+    // Falls back to -p mode on PTY failure
+    const { getSetting: getAppSetting } = await import("@/lib/appStore");
+    const ptyEnabled = await getAppSetting<boolean>("ptyEnabled", true);
+    if (ptyEnabled && isPtyEngine(engine)) {
       const ptySession = usePtyStore.getState().getSession(engine);
       if (ptySession !== null) {
-        await sendViaPty(set, get, prompt, ptySession, selectedConversationId, engine);
-        return;
+        try {
+          await sendViaPty(set, get, prompt, ptySession, selectedConversationId, engine);
+          return;
+        } catch (ptyErr) {
+          console.error("[pty] sendViaPty failed, falling back to -p mode:", ptyErr);
+          // Clear broken PTY session
+          usePtyStore.getState().clearSession(engine as import("@/stores/ptyStore").PtyEngine);
+          import("sonner").then(({ toast }) => toast.warning("PTY 오류 — CLI 모드로 전환")).catch(() => {});
+          // Fall through to -p mode below
+        }
       }
     }
 

@@ -520,6 +520,58 @@ function ContextHubPanel({ hubHealth }: { hubHealth: HubHealth | null }) {
 
 // ─── Runtime Section (main export) ───────────────────────────────────────────
 
+// ─── PTY Mode Toggle ────────────────────────────────────────────────────────
+
+function PtyModeToggle() {
+  const [ptyEnabled, setPtyEnabled] = useState(true);
+
+  useEffect(() => {
+    getSetting<boolean>("ptyEnabled", true).then(setPtyEnabled);
+  }, []);
+
+  const toggle = async () => {
+    const next = !ptyEnabled;
+    setPtyEnabled(next);
+    await setSetting("ptyEnabled", next);
+    if (!next) {
+      // Kill active PTY sessions when disabling
+      try {
+        await invoke("pty_kill_all");
+        const { usePtyStore } = await import("@/stores/ptyStore");
+        usePtyStore.getState().clearAllSessions();
+      } catch { /* ok */ }
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-border/30 bg-background/50 p-4 space-y-2">
+      <div className="flex items-center gap-2">
+        <h3 className="text-[13px] font-medium text-foreground flex-1">PTY Interactive Mode</h3>
+        <button
+          onClick={toggle}
+          className={cn(
+            "text-[11px] px-2.5 py-1 rounded-md font-medium transition-colors",
+            ptyEnabled
+              ? "bg-status-approved/10 text-status-approved hover:bg-status-approved/20"
+              : "bg-muted text-muted-foreground hover:bg-muted/80"
+          )}
+        >
+          {ptyEnabled ? "Enabled" : "Disabled"}
+        </button>
+      </div>
+      <div className="space-y-1 text-[12px]">
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground w-[80px]">Mode</span>
+          <span className="text-foreground/80">{ptyEnabled ? "PTY (stateful, multi-turn)" : "CLI -p (stateless, per-message)"}</span>
+        </div>
+        <p className="text-[11px] text-muted-foreground/50 mt-1">
+          PTY 비활성화 시 모든 메시지가 -p 모드로 전송됩니다. /clear로 세션 초기화 가능.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function RuntimeSection() {
   const rawqStatus = useChatStore((s) => s.rawqStatus);
   const engineModels = useChatStore((s) => s.engineModels);
@@ -575,6 +627,7 @@ export function RuntimeSection() {
         </div>
       </div>
 
+      <PtyModeToggle />
       <ContextBudgetControl />
       <WorkflowSkillsConfig />
       <InsightAgentConfig />

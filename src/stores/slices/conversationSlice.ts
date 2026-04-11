@@ -18,7 +18,7 @@ let ptySpawnLock = false; // Prevent concurrent spawn calls
 /** Spawn a PTY Claude session for the given conversation.
  *  If conversation has a resumeToken, resumes that exact session.
  *  Otherwise starts a new session. */
-async function spawnPtyForConversation(conv: Conversation, projectPath: string) {
+export async function spawnPtyForConversation(conv: Conversation, projectPath: string) {
   if (ptySpawnLock) return;
   ptySpawnLock = true;
   try {

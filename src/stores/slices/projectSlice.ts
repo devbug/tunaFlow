@@ -205,7 +205,23 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
           const sid = store.getSession(engine);
           if (sid === e.payload.sessionId) {
             store.clearSession(engine);
-            console.warn(`[pty] ${engine} session ${sid} exited`);
+            console.warn(`[pty] ${engine} session ${sid} exited — attempting auto-restart`);
+            // Auto-restart: respawn PTY for current conversation
+            const chatState = get();
+            const convId = chatState.selectedConversationId;
+            const projKey = chatState.selectedProjectKey;
+            if (convId && projKey) {
+              Promise.all([
+                import("@tauri-apps/api/core").then(m => m.invoke),
+                import("@/stores/slices/conversationSlice").then(m => m.spawnPtyForConversation),
+              ]).then(async ([invokeCmd, spawnPty]) => {
+                const project = await invokeCmd<{ path?: string }>("get_project", { key: projKey });
+                if (!project.path) return;
+                const conv = await invokeCmd<import("@/types").Conversation>("get_conversation", { id: convId });
+                await spawnPty(conv, project.path!);
+                console.log(`[pty] ${engine} auto-restarted for conv ${convId}`);
+              }).catch((err) => console.warn("[pty] auto-restart failed:", err));
+            }
             break;
           }
         }
