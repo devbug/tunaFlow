@@ -3,6 +3,9 @@
 > Status: idea (참고: 세션 7에서 tokio async RT 전환 완료 — 동기 실행 전제가 일부 해소됨)
 > Created: 2026-04-01
 > 출처: 6개 논문/프레임워크 분석 + AutoBe/Typia harness 패턴 교차 검토
+> 대상: RT 알고리즘 강화용 논문/프레임워크 묶음
+> 분석 기준 시점: 2026-04-01
+> source detail: 문서 하단 reference 목록 참조
 
 ---
 

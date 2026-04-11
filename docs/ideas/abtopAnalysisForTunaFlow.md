@@ -2,7 +2,9 @@
 
 > Status: idea
 > Created: 2026-04-01
+> 출처: 로컬 분석 `/Users/d9ng/privateProject/_research/_util/abtop`
 > 대상: `/Users/d9ng/privateProject/_research/_util/abtop`
+> 분석 기준 시점: 2026-04-01 로컬 코드 기준
 > 관점: tunaFlow에 직접 이식할 가치가 있는 패턴만 추출
 
 ---

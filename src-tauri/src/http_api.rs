@@ -161,6 +161,12 @@ fn build_router(state: ApiState) -> Router {
         .route("/api/conversations/{id}/chunks/index", post(index_chunks))
         .route("/api/conversations/{id}/chunks/search", post(search_chunks))
         .route("/api/conversations/{id}/traces", get(list_conv_traces))
+        // Document RAG endpoints
+        .route("/api/projects/{key}/documents/index", post(index_project_documents))
+        .route("/api/projects/{key}/documents/search", post(search_project_documents))
+        .route("/api/projects/{key}/documents/graph", get(get_document_graph))
+        .route("/api/projects/{key}/documents/orphans", get(get_orphan_documents))
+        .route("/api/projects/{key}/documents/status", get(get_document_index_status))
         // WebSocket
         .route("/ws/events", get(ws_events))
         // Health
@@ -453,6 +459,7 @@ async fn send_message(
 
     // Execute agent in background (same pattern as Tauri commands)
     let db = state.db.clone();
+    let db_post = state.db.clone();
     let conv_id_clone = conv_id.clone();
     let prompt = input.prompt.clone();
     let model = input.model.clone();
@@ -511,11 +518,16 @@ async fn send_message(
                         rusqlite::params![msg_id, conv_id_clone, out.content, engine_for_db, out.session_id, now],
                     ).ok();
                 }
+                drop(conn);
                 let _ = event_tx.send(serde_json::json!({
                     "type": "agent:completed",
                     "conversationId": conv_id_clone,
                     "messageId": msg_id,
                 }).to_string());
+                // Fire-and-forget: memory compression, session discovery, vector indexing
+                crate::commands::agents_helpers::send_common::spawn_post_completion_tasks(
+                    db_post, conv_id_clone,
+                );
             }
             Ok(Err(e)) => {
                 eprintln!("[http-api] agent error: {}", e);
@@ -1008,5 +1020,120 @@ fn bridge_tauri_events(app: tauri::AppHandle, tx: broadcast::Sender<String>) {
             }).to_string();
             let _ = tx.send(msg);
         });
+    }
+}
+
+// ─── Document RAG endpoints ───────────────────────────────────────────
+
+async fn index_project_documents(
+    State(state): State<ApiState>,
+    Path(project_key): Path<String>,
+) -> impl IntoResponse {
+    let db = state.db.clone();
+    let pk = project_key.clone();
+
+    let project_path = match with_read_db(&state, move |conn| {
+        conn.query_row("SELECT path FROM projects WHERE key = ?1", [&pk], |r| r.get::<_, Option<String>>(0))
+            .map_err(|e| format!("project lookup: {}", e))?
+            .ok_or_else(|| "project has no path".to_string())
+    }).await {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
+
+    // Run indexing in background — return immediately with status
+    let event_tx = state.event_tx.clone();
+    let pk2 = project_key.clone();
+    std::thread::spawn(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::commands::document_index::index_project_documents(&db, &project_key, &project_path)
+        }));
+        match result {
+            Ok(Ok(r)) => {
+                eprintln!("[doc-index] completed: files={}, chunks={}, edges={}, errors={}",
+                    r.files_indexed, r.chunks_created, r.edges_created, r.errors.len());
+                if !r.errors.is_empty() {
+                    for e in &r.errors[..r.errors.len().min(5)] { eprintln!("[doc-index]   error: {}", e); }
+                }
+                let _ = event_tx.send(serde_json::json!({
+                    "type": "document:indexed", "projectKey": pk2, "result": r,
+                }).to_string());
+            }
+            Ok(Err(e)) => {
+                eprintln!("[doc-index] failed: {}", e);
+                let _ = event_tx.send(serde_json::json!({
+                    "type": "document:error", "projectKey": pk2, "error": e.to_string(),
+                }).to_string());
+            }
+            Err(panic_err) => {
+                let msg = panic_err.downcast_ref::<String>()
+                    .map(|s| s.as_str())
+                    .or_else(|| panic_err.downcast_ref::<&str>().copied())
+                    .unwrap_or("unknown panic");
+                eprintln!("[doc-index] PANIC: {}", msg);
+            }
+        }
+    });
+
+    (StatusCode::ACCEPTED, Json(serde_json::json!({
+        "status": "indexing",
+        "info": "Document indexing started in background. Listen on /ws/events for document:indexed event.",
+    }))).into_response()
+}
+
+#[derive(Deserialize)]
+struct DocumentSearchInput {
+    query: String,
+    limit: Option<usize>,
+}
+
+async fn search_project_documents(
+    State(state): State<ApiState>,
+    Path(project_key): Path<String>,
+    Json(input): Json<DocumentSearchInput>,
+) -> impl IntoResponse {
+    let db = state.db.clone();
+    match tokio::task::spawn_blocking(move || {
+        crate::commands::document_index::search_documents(&db, &project_key, &input.query, input.limit.unwrap_or(10))
+    }).await {
+        Ok(Ok(results)) => (StatusCode::OK, Json(serde_json::json!(results))).into_response(),
+        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(e) => db_error(format!("task join: {}", e)),
+    }
+}
+
+async fn get_document_graph(
+    State(state): State<ApiState>,
+    Path(project_key): Path<String>,
+) -> impl IntoResponse {
+    match with_read_db(&state, move |conn| {
+        Ok(crate::commands::document_index::get_document_graph(conn, &project_key))
+    }).await {
+        Ok(edges) => (StatusCode::OK, Json(serde_json::json!(edges))).into_response(),
+        Err(resp) => resp,
+    }
+}
+
+async fn get_orphan_documents(
+    State(state): State<ApiState>,
+    Path(project_key): Path<String>,
+) -> impl IntoResponse {
+    match with_read_db(&state, move |conn| {
+        Ok(crate::commands::document_index::find_orphan_documents(conn, &project_key))
+    }).await {
+        Ok(orphans) => (StatusCode::OK, Json(serde_json::json!(orphans))).into_response(),
+        Err(resp) => resp,
+    }
+}
+
+async fn get_document_index_status(
+    State(state): State<ApiState>,
+    Path(project_key): Path<String>,
+) -> impl IntoResponse {
+    match with_read_db(&state, move |conn| {
+        Ok(crate::commands::document_index::get_index_status(conn, &project_key))
+    }).await {
+        Ok(status) => (StatusCode::OK, Json(serde_json::json!(status))).into_response(),
+        Err(resp) => resp,
     }
 }

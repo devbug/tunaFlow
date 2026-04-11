@@ -320,6 +320,29 @@ pub fn assemble_prompt(
         }
     }
 
+    // Layer 3b: Project document context — relevant docs/plans/ideas sections
+    if ctx_mode >= ContextMode::Standard && !data.document_chunks.is_empty() {
+        let current_size: usize = sections.iter().map(|s| s.len()).sum();
+        let remaining = total_budget.saturating_sub(current_size);
+        if remaining > 2_000 {
+            let doc_cap = match ctx_mode {
+                ContextMode::Lite => 1_500,
+                ContextMode::Standard => 3_000,
+                ContextMode::Full => 5_000,
+            };
+            let mut section = String::from("## Related project documentation\n\nRelevant sections from project documents (plans, ideas, references).\n");
+            for (file_path, section_title, text_preview, score) in &data.document_chunks {
+                let title = section_title.as_deref().unwrap_or("(intro)");
+                section.push_str(&format!("\n--- {} > {} (relevance: {:.0}%) ---\n{}\n",
+                    file_path, title, score * 100.0, text_preview));
+            }
+            if let Some(s) = guardrail::truncate_section(Some(section), doc_cap) {
+                sections.push(s);
+                included_sections.push("document-rag".into());
+            }
+        }
+    }
+
     // Layer 4: Compressed conversation memory — continuity layer
     {
         let current_size: usize = sections.iter().map(|s| s.len()).sum();

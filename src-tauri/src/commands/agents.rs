@@ -7,7 +7,7 @@ use crate::errors::AppError;
 use crate::guardrail;
 
 use super::agents_helpers::context_pack::assemble_system_prompt;
-use super::agents_helpers::send_common::{prepare_engine_run, finalize_engine_run, PreparedRun};
+use super::agents_helpers::send_common::{prepare_engine_run, finalize_engine_run, spawn_post_completion_tasks, PreparedRun};
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +77,7 @@ pub async fn start_claude_stream(
     state: State<'_, DbState>, cancel: State<'_, crate::CancelRegistry>,
 ) -> Result<StartRunResult, AppError> {
     let db = state.inner().clone();
+    let db_post = state.inner().clone();
     let id_frag = identity_fragment(&input, "claude-code");
     let cancel_arc = std::sync::Arc::clone(&cancel.0);
     let write_arc = db_write_arc(&state);
@@ -123,6 +124,7 @@ pub async fn start_claude_stream(
     if use_sdk {
         let sp = system_prompt;
         let cid2 = cid.clone();
+        let db_p = db_post.clone();
         tokio::spawn(async move {
             let pa = app.clone(); let pi = msg_id.clone(); let pc = cid2.clone();
             let c2 = app.clone(); let ci = msg_id.clone(); let cc = cid2.clone();
@@ -137,6 +139,7 @@ pub async fn start_claude_stream(
             if let Ok(conn) = write_arc.lock() {
                 finalize_engine_run(&conn, "claude-code", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
             }
+            if rr.is_ok() { spawn_post_completion_tasks(db_p, cid); }
         });
     } else {
         // CLI path — full Claude Code features
@@ -155,6 +158,7 @@ pub async fn start_claude_stream(
             if let Ok(conn) = write_arc.lock() {
                 finalize_engine_run(&conn, "claude-code", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
             }
+            if rr.is_ok() { spawn_post_completion_tasks(db_post, cid); }
         });
     }
     Ok(StartRunResult { message_id: ret })
@@ -167,6 +171,7 @@ pub async fn start_gemini_stream(
     state: State<'_, DbState>, cancel: State<'_, crate::CancelRegistry>,
 ) -> Result<StartRunResult, AppError> {
     let db = state.inner().clone();
+    let db_post = state.inner().clone();
     let id_frag = identity_fragment(&input, "gemini");
     let cancel_arc = std::sync::Arc::clone(&cancel.0);
     let write_arc = db_write_arc(&state);
@@ -184,6 +189,7 @@ pub async fn start_gemini_stream(
         // SDK path — async, native streaming, accurate token tracking
         let system_prompt = prep.system_context;
         let cid2 = cid.clone();
+        let db_p = db_post.clone();
         tokio::spawn(async move {
             let pa = app.clone(); let pi = msg_id.clone(); let pc = cid2.clone();
             let c2 = app.clone(); let ci = msg_id.clone(); let cc = cid2.clone();
@@ -197,6 +203,7 @@ pub async fn start_gemini_stream(
             if let Ok(conn) = write_arc.lock() {
                 finalize_engine_run(&conn, "gemini", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
             }
+            if rr.is_ok() { spawn_post_completion_tasks(db_p, cid); }
         });
     } else {
         // CLI fallback
@@ -214,6 +221,7 @@ pub async fn start_gemini_stream(
             if let Ok(conn) = write_arc.lock() {
                 finalize_engine_run(&conn, "gemini", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
             }
+            if rr.is_ok() { spawn_post_completion_tasks(db_post, cid); }
         });
     }
     Ok(StartRunResult { message_id: ret })
@@ -225,6 +233,7 @@ pub async fn start_codex_run(
     input: SendWithClaudeInput, app: AppHandle, state: State<'_, DbState>,
 ) -> Result<StartRunResult, AppError> {
     let db = state.inner().clone();
+    let db_post = state.inner().clone();
     let id_frag = identity_fragment(&input, "codex");
     let write_arc = db_write_arc(&state);
     let cid = input.conversation_id.clone();
@@ -241,6 +250,7 @@ pub async fn start_codex_run(
         // SDK path — OpenAI Chat Completions API
         let system_prompt = prep.system_context;
         let cid2 = cid.clone();
+        let db_p = db_post.clone();
         tokio::spawn(async move {
             let pa = app.clone(); let pi = msg_id.clone(); let pc = cid2.clone();
             let c2 = app.clone(); let ci = msg_id.clone(); let cc = cid2.clone();
@@ -254,6 +264,7 @@ pub async fn start_codex_run(
             if let Ok(conn) = write_arc.lock() {
                 finalize_engine_run(&conn, "codex", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
             }
+            if rr.is_ok() { spawn_post_completion_tasks(db_p, cid); }
         });
     } else {
         // Codex CLI fallback
@@ -270,6 +281,7 @@ pub async fn start_codex_run(
             if let Ok(conn) = write_arc.lock() {
                 finalize_engine_run(&conn, "codex", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
             }
+            if rr.is_ok() { spawn_post_completion_tasks(db_post, cid); }
         });
     }
     Ok(StartRunResult { message_id: ret })
@@ -281,6 +293,7 @@ pub async fn start_opencode_run(
     input: SendWithClaudeInput, app: AppHandle, state: State<'_, DbState>,
 ) -> Result<StartRunResult, AppError> {
     let db = state.inner().clone();
+    let db_post = state.inner().clone();
     let id_frag = identity_fragment(&input, "opencode");
     let write_arc = db_write_arc(&state);
     let cid = input.conversation_id.clone();
@@ -303,6 +316,7 @@ pub async fn start_opencode_run(
         if let Ok(conn) = write_arc.lock() {
             finalize_engine_run(&conn, "opencode", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
         }
+        if rr.is_ok() { spawn_post_completion_tasks(db_post, cid); }
     });
     Ok(StartRunResult { message_id: ret })
 }
@@ -313,6 +327,7 @@ pub async fn start_openai_compat_stream(
     input: SendWithClaudeInput, app: AppHandle, state: State<'_, DbState>,
 ) -> Result<StartRunResult, AppError> {
     let db = state.inner().clone();
+    let db_post = state.inner().clone();
     let id_frag = identity_fragment(&input, "ollama");
     let write_arc = db_write_arc(&state);
     let cid = input.conversation_id.clone();
@@ -341,6 +356,7 @@ pub async fn start_openai_compat_stream(
         if let Ok(conn) = write_arc.lock() {
             finalize_engine_run(&conn, "ollama", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
         }
+        if rr.is_ok() { spawn_post_completion_tasks(db_post, cid); }
     });
     Ok(StartRunResult { message_id: ret })
 }

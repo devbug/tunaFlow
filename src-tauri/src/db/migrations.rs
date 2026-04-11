@@ -115,6 +115,9 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     if current < 30 {
         apply_v30(conn)?;
     }
+    if current < 31 {
+        apply_v31(conn)?;
+    }
     Ok(())
 }
 
@@ -710,6 +713,48 @@ fn apply_v30(conn: &Connection) -> Result<(), AppError> {
     }
 
     conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (30, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+fn apply_v31(conn: &Connection) -> Result<(), AppError> {
+    // Project Document RAG: extend conversation_chunks for document/artifact sources,
+    // add document_edges for inter-document relationship graph,
+    // add document_index_status for SHA-256 change detection.
+
+    // 1. conversation_chunks: add source_type, file_path, section_title
+    add_column_if_missing(conn, "conversation_chunks", "source_type", "TEXT NOT NULL DEFAULT 'conversation'")?;
+    add_column_if_missing(conn, "conversation_chunks", "file_path", "TEXT")?;
+    add_column_if_missing(conn, "conversation_chunks", "section_title", "TEXT")?;
+
+    // 2. document_edges: inter-document link graph (extracted from markdown links)
+    conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS document_edges (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_key   TEXT NOT NULL,
+            source_path   TEXT NOT NULL,
+            target_path   TEXT NOT NULL,
+            relation      TEXT NOT NULL DEFAULT 'link',
+            context       TEXT,
+            created_at    INTEGER NOT NULL,
+            UNIQUE(project_key, source_path, target_path, relation)
+        );
+        CREATE INDEX IF NOT EXISTS idx_document_edges_source ON document_edges(project_key, source_path);
+        CREATE INDEX IF NOT EXISTS idx_document_edges_target ON document_edges(project_key, target_path);
+    ")?;
+
+    // 3. document_index_status: SHA-256 change detection for incremental re-indexing
+    conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS document_index_status (
+            project_key   TEXT NOT NULL,
+            file_path     TEXT NOT NULL,
+            content_hash  TEXT NOT NULL,
+            chunk_count   INTEGER NOT NULL DEFAULT 0,
+            indexed_at    INTEGER NOT NULL,
+            PRIMARY KEY (project_key, file_path)
+        );
+    ")?;
+
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (31, ?1)", [now_epoch()])?;
     Ok(())
 }
 

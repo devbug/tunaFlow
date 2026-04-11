@@ -209,12 +209,30 @@ pub fn ensure_daemon() {
 /// Use before embed_text() to avoid cold-start delays.
 pub fn is_daemon_ready() -> bool {
     let Ok(bin) = resolve_rawq_bin() else { return false; };
-    let status = Command::new(&bin)
+    let mut child = match Command::new(&bin)
         .args(["daemon", "status"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status();
-    matches!(status, Ok(s) if s.success())
+        .spawn() {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let t0 = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(3);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) => {
+                if t0.elapsed() > timeout {
+                    let _ = child.kill();
+                    eprintln!("[rawq] is_daemon_ready timed out (3s)");
+                    return false;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(_) => return false,
+        }
+    }
 }
 
 /// Stop the rawq daemon if running.

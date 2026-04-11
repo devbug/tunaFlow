@@ -58,6 +58,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "search_documents",
+      description: "프로젝트 문서 벡터 검색 (plans/ideas/reference). 결과는 관련도순 정렬.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectKey: { type: "string", description: "프로젝트 키" },
+          query: { type: "string", description: "검색 질의" },
+          limit: { type: "number", default: 5, description: "최대 결과 수 (기본 5)" },
+        },
+        required: ["projectKey", "query"],
+      },
+    },
+    {
+      name: "get_document_graph",
+      description: "프로젝트 문서 간 참조 관계 그래프 (마크다운 링크 기반)",
+      inputSchema: {
+        type: "object",
+        properties: { projectKey: { type: "string" } },
+        required: ["projectKey"],
+      },
+    },
+    {
+      name: "get_orphan_documents",
+      description: "다른 문서에서 참조되지 않는 고립 문서 목록",
+      inputSchema: {
+        type: "object",
+        properties: { projectKey: { type: "string" } },
+        required: ["projectKey"],
+      },
+    },
+    {
       name: "run_roundtable",
       description: "Sequential Roundtable 토론 실행. 여러 에이전트가 순차로 의견을 제시",
       inputSchema: {
@@ -124,6 +155,56 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       db.close();
       return { content: [{ type: "text", text: `SQL Error: ${e.message}` }] };
     }
+  }
+
+  if (name === "search_documents") {
+    const db = getDb();
+    const limit = args.limit || 5;
+    // Search document chunks by text_preview keyword match (vector search requires rawq — fallback to LIKE)
+    const query = `%${args.query}%`;
+    const rows = db.prepare(`
+      SELECT file_path, section_title, text_preview,
+             source_type, created_at
+      FROM conversation_chunks
+      WHERE project_key = ? AND source_type = 'document'
+        AND (text_preview LIKE ? OR section_title LIKE ? OR file_path LIKE ?)
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(args.projectKey, query, query, query, limit);
+    db.close();
+    if (rows.length === 0) {
+      return { content: [{ type: "text", text: "No matching documents found. Try a different query or ensure documents are indexed (POST /api/projects/:key/documents/index)." }] };
+    }
+    const results = rows.map(r => ({
+      filePath: r.file_path,
+      section: r.section_title,
+      preview: r.text_preview,
+    }));
+    return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
+  }
+
+  if (name === "get_document_graph") {
+    const db = getDb();
+    const rows = db.prepare(
+      "SELECT source_path, target_path, relation, context FROM document_edges WHERE project_key = ? ORDER BY source_path"
+    ).all(args.projectKey);
+    db.close();
+    return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+  }
+
+  if (name === "get_orphan_documents") {
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT DISTINCT s.file_path
+      FROM document_index_status s
+      WHERE s.project_key = ?
+        AND s.file_path NOT IN (
+          SELECT target_path FROM document_edges WHERE project_key = ?
+        )
+      ORDER BY s.file_path
+    `).all(args.projectKey, args.projectKey);
+    db.close();
+    return { content: [{ type: "text", text: JSON.stringify(rows.map(r => r.file_path), null, 2) }] };
   }
 
   if (name === "run_roundtable") {

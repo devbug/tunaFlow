@@ -548,3 +548,144 @@ fn http_api_message_send_pattern() {
     assert_eq!(msgs[1].0, "assistant");
     assert_eq!(msgs[1].1, "Four.");
 }
+
+// ─── Document RAG tests ─────────────────────────────────────────────────────
+
+#[test]
+fn v31_document_rag_tables_exist() {
+    let conn = setup_db();
+
+    // Setup: create project (FK target)
+    let now = now_epoch_ms();
+    conn.execute("INSERT INTO projects (key, name, type, source, updated_at) VALUES ('proj1', 'Test', 'local', 'manual', ?1)", params![now]).unwrap();
+
+    // conversation_chunks should have new columns (conversation_id='' for document chunks, disable FK for this)
+    conn.execute_batch("PRAGMA foreign_keys = OFF;").unwrap();
+    conn.execute(
+        "INSERT INTO conversation_chunks (id, project_key, conversation_id, kind, root_message_id, text_preview, created_at, source_type, file_path, section_title)
+         VALUES ('dc1', 'proj1', '', 'document', '', 'test preview', 0, 'document', 'docs/plans/foo.md', '## Section 1')",
+        [],
+    ).unwrap();
+    conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+
+    let source_type: String = conn.query_row(
+        "SELECT source_type FROM conversation_chunks WHERE id = 'dc1'", [], |r| r.get(0)
+    ).unwrap();
+    assert_eq!(source_type, "document");
+
+    // document_edges table should exist
+    conn.execute(
+        "INSERT INTO document_edges (project_key, source_path, target_path, relation, created_at)
+         VALUES ('proj1', 'docs/plans/a.md', 'docs/plans/b.md', 'link', 0)",
+        [],
+    ).unwrap();
+
+    // document_index_status table should exist
+    conn.execute(
+        "INSERT INTO document_index_status (project_key, file_path, content_hash, chunk_count, indexed_at)
+         VALUES ('proj1', 'docs/plans/foo.md', 'abc123', 3, 0)",
+        [],
+    ).unwrap();
+}
+
+#[test]
+fn document_edge_unique_constraint() {
+    let conn = setup_db();
+    conn.execute(
+        "INSERT INTO document_edges (project_key, source_path, target_path, relation, created_at)
+         VALUES ('p1', 'a.md', 'b.md', 'link', 0)", [],
+    ).unwrap();
+    // Same edge again should replace (OR REPLACE from the app code, but raw INSERT should fail)
+    let result = conn.execute(
+        "INSERT INTO document_edges (project_key, source_path, target_path, relation, created_at)
+         VALUES ('p1', 'a.md', 'b.md', 'link', 1)", [],
+    );
+    assert!(result.is_err(), "duplicate edge should violate UNIQUE constraint");
+}
+
+#[test]
+fn document_graph_query() {
+    let conn = setup_db();
+    conn.execute("INSERT INTO document_edges (project_key, source_path, target_path, relation, created_at) VALUES ('p1', 'a.md', 'b.md', 'link', 0)", []).unwrap();
+    conn.execute("INSERT INTO document_edges (project_key, source_path, target_path, relation, created_at) VALUES ('p1', 'b.md', 'c.md', 'link', 0)", []).unwrap();
+    conn.execute("INSERT INTO document_edges (project_key, source_path, target_path, relation, created_at) VALUES ('p2', 'x.md', 'y.md', 'link', 0)", []).unwrap();
+
+    let edges = tuna_flow_lib::commands::document_index::get_document_graph(&conn, "p1");
+    assert_eq!(edges.len(), 2, "should only return edges for project p1");
+    assert_eq!(edges[0].source_path, "a.md");
+    assert_eq!(edges[1].source_path, "b.md");
+}
+
+#[test]
+fn document_orphan_detection() {
+    let conn = setup_db();
+    // Index status: 3 files exist
+    conn.execute("INSERT INTO document_index_status (project_key, file_path, content_hash, chunk_count, indexed_at) VALUES ('p1', 'a.md', 'h1', 1, 0)", []).unwrap();
+    conn.execute("INSERT INTO document_index_status (project_key, file_path, content_hash, chunk_count, indexed_at) VALUES ('p1', 'b.md', 'h2', 1, 0)", []).unwrap();
+    conn.execute("INSERT INTO document_index_status (project_key, file_path, content_hash, chunk_count, indexed_at) VALUES ('p1', 'c.md', 'h3', 1, 0)", []).unwrap();
+    // Edge: a.md → b.md (so b.md is referenced, a.md and c.md are orphans)
+    conn.execute("INSERT INTO document_edges (project_key, source_path, target_path, relation, created_at) VALUES ('p1', 'a.md', 'b.md', 'link', 0)", []).unwrap();
+
+    let orphans = tuna_flow_lib::commands::document_index::find_orphan_documents(&conn, "p1");
+    assert_eq!(orphans.len(), 2, "a.md and c.md should be orphans (not referenced by any other doc)");
+    assert!(orphans.contains(&"a.md".to_string()));
+    assert!(orphans.contains(&"c.md".to_string()));
+}
+
+#[test]
+fn document_index_status_query() {
+    let conn = setup_db();
+    conn.execute("INSERT INTO document_index_status (project_key, file_path, content_hash, chunk_count, indexed_at) VALUES ('p1', 'docs/a.md', 'hash1', 5, 1000)", []).unwrap();
+    conn.execute("INSERT INTO document_index_status (project_key, file_path, content_hash, chunk_count, indexed_at) VALUES ('p1', 'docs/b.md', 'hash2', 3, 2000)", []).unwrap();
+
+    let status = tuna_flow_lib::commands::document_index::get_index_status(&conn, "p1");
+    assert_eq!(status.len(), 2);
+    assert_eq!(status[0]["filePath"], "docs/a.md");
+    assert_eq!(status[0]["chunkCount"], 5);
+    assert_eq!(status[1]["filePath"], "docs/b.md");
+}
+
+#[test]
+fn markdown_parser_integration() {
+    use tuna_flow_lib::commands::document_index::{split_by_headings, extract_markdown_links, sha256_hex};
+
+    // Test realistic plan document
+    let content = r#"# Authentication Migration Plan
+
+## 1. Overview
+
+This plan covers migrating from JWT to OAuth2 PKCE.
+The migration affects 14 files across 3 modules.
+
+## 2. Implementation Steps
+
+1. Install oauth2 crate
+2. Create token exchange endpoint
+3. Update middleware
+
+See [auth design](./authDesignDoc.md) for details.
+Also references [session management](../ideas/sessionManagementIdea.md).
+
+## 3. Risks
+
+- Token invalidation race condition
+- Backward compatibility with existing sessions
+"#;
+
+    let sections = split_by_headings(content);
+    assert!(sections.len() >= 3, "should have at least 3 sections, got {}", sections.len());
+    assert!(sections.iter().any(|s| s.title.contains("Overview")));
+    assert!(sections.iter().any(|s| s.title.contains("Implementation")));
+    assert!(sections.iter().any(|s| s.title.contains("Risks")));
+
+    let links = extract_markdown_links(content);
+    assert_eq!(links.len(), 2);
+    assert_eq!(links[0].target, "./authDesignDoc.md");
+    assert_eq!(links[1].target, "../ideas/sessionManagementIdea.md");
+
+    // SHA-256 change detection
+    let hash1 = sha256_hex(content);
+    let hash2 = sha256_hex(&format!("{}\n\n## New Section\n\nAdded content.", content));
+    assert_ne!(hash1, hash2, "different content should produce different hashes");
+    assert_eq!(sha256_hex(content), hash1, "same content should produce same hash");
+}

@@ -2,7 +2,7 @@
 
 실행 계획, 로드맵, 리팩토링 계획, 테스트 계획 문서.
 
-## 진행 현황 (2026-04-11 기준)
+## 진행 현황 (2026-04-11 기준, 세션 20 재분류 반영)
 
 ### 완료
 
@@ -56,6 +56,22 @@
 | [orchestratedWorkflowPipelinePlan](./orchestratedWorkflowPipelinePlan.md) | V1 Phase A-E 전체 구현 완료 (세션 5). superseded by V2 |
 | [dependencyAdoptionPlan](./dependencyAdoptionPlan.md) | Phase 1-4.2 완료 — clipboard/shell/opener/fs/chrono/tokio/virtuoso/cmdk/sonner (세션 4b) |
 | [documentationIaGovernancePlan_2026-03-30](./documentationIaGovernancePlan_2026-03-30.md) | 문서 IA/거버넌스 규칙 수립 완료 (세션 2) |
+| [contextPackAlgorithmPhase1Plan_2026-03-30](./contextPackAlgorithmPhase1Plan_2026-03-30.md) | Jaccard dedup, markdown 경량화, import collapse, rawq 다해상도 구현 완료 (세션 2-4) |
+| [conversationRetrievalPhase1Plan_2026-03-30](./conversationRetrievalPhase1Plan_2026-03-30.md) | FTS5 retrieval + pair/anchor/brief 재조립 구현 완료 (세션 4-7) |
+| [conversationRetrievalChunkingPlan_2026-03-30](./conversationRetrievalChunkingPlan_2026-03-30.md) | chunk 단위 retrieval 구현 완료 (세션 4-7) |
+| [conversationRetrievalRankingPolishPlan_2026-03-30](./conversationRetrievalRankingPolishPlan_2026-03-30.md) | scoring, dedup, overlap suppression 구현 완료 (세션 4) |
+| [unifiedMemoryPolicyPhase1Plan_2026-03-30](./unifiedMemoryPolicyPhase1Plan_2026-03-30.md) | working/structured/compressed/retrieval 통합 selection policy 구현 완료 (세션 4-18) |
+| [unifiedMemoryPolicyThresholdTuningPlan_2026-03-30](./unifiedMemoryPolicyThresholdTuningPlan_2026-03-30.md) | retrieval/compressed memory 임계값 튜닝 구현 완료 (세션 3-4) |
+| [memoryPolicyTraceSurfacePlan_2026-03-30](./memoryPolicyTraceSurfacePlan_2026-03-30.md) | memory layer active/skipped + auto reason + trace surface 구현 완료 (세션 2-3) |
+| [memorySectionBudgetBreakdownPlan_2026-03-30](./memorySectionBudgetBreakdownPlan_2026-03-30.md) | section별 budget 소비량 observability 구현 완료 (세션 2) |
+| [topHeavySectionTuningPlan_2026-03-30](./topHeavySectionTuningPlan_2026-03-30.md) | heavy section cap 조정 구현 완료 (세션 2-3) |
+| [modeSpecificSectionHeuristicsPlan_2026-03-30](./modeSpecificSectionHeuristicsPlan_2026-03-30.md) | Lite/Std/Full 차등 cap 구현 완료 (세션 2-3) |
+| [autoModeHeuristicPolishPlan_2026-03-30](./autoModeHeuristicPolishPlan_2026-03-30.md) | auto scoring/profile 선택 구현 완료 (세션 2-3) |
+| [projectFirstStartupUxPlan_2026-03-30](./projectFirstStartupUxPlan_2026-03-30.md) | project-first startup flow 구현 완료 (세션 1-4) |
+| [roundtableCompletionOrderPlan_2026-03-30](./roundtableCompletionOrderPlan_2026-03-30.md) | Deliberative RT completion-order collection 구현 완료 (세션 8-9) |
+| [roundtableBlindVerifierPhasePlan_2026-03-30](./roundtableBlindVerifierPhasePlan_2026-03-30.md) | blind verifier RT 확장 구현 완료 (세션 8-9) |
+| [roundtableParticipantRoleBlindUiPlan_2026-03-30](./roundtableParticipantRoleBlindUiPlan_2026-03-30.md) | RT participant role/blind 설정 UI 구현 완료 (세션 8-9) |
+| [roundtableParticipantSurfaceVisibilityPlan_2026-03-30](./roundtableParticipantSurfaceVisibilityPlan_2026-03-30.md) | RT role/blind badge 가시화 구현 완료 (세션 8-9) |
 
 ### 부분 완료
 
@@ -76,14 +92,14 @@
 | [engineFeatureParityClassificationPlan](./engineFeatureParityClassificationPlan.md) | 4-engine parity 분류 기준 + Claude parity fix 완료 | 기능별 개별 parity 실행 |
 | [chatUiParityWithTunaChatPlan](./chatUiParityWithTunaChatPlan.md) | Pretendard 3-tier 폰트, max-w-4xl, 아바타 인라인 (세션 14) | message density 고도화 |
 | [agentProfileUsagePolishPlan_2026-03-29](./agentProfileUsagePolishPlan_2026-03-29.md) | profile summary 기본 표시 | custom 규칙 가시화, RT 표시 polish |
-| [contextHubSearchGetUiPlan_2026-03-30](./contextHubSearchGetUiPlan_2026-03-30.md) | context-hub search/get 사용자 UI | 구현 진행 중 |
+| [contextHubSearchGetUiPlan_2026-03-30](./contextHubSearchGetUiPlan_2026-03-30.md) | Settings UI + chops ContextPack 자동 주입 (세션 7) | 수동 UI polish |
 | [contextPackAlgorithmImprovementsPlan](./contextPackAlgorithmImprovementsPlan.md) | P2 동적 예산 배분(allocate_budgets) 구현 | P1 Jaccard dedup, P3-P5 미착수 |
 | [agentDaemonRoadmapPlan](./agentDaemonRoadmapPlan.md) | Phase 1-2 완료 (background worker + job registry) | Phase 3 daemon extraction |
 | [planBasedFollowupPlan](./planBasedFollowupPlan.md) | PlansPanel Forward 버튼 구현 | subtask 단위 자동 dispatch |
 | [workflowPipelineV2Plan](./workflowPipelineV2Plan.md) | V2 6-stage 설계 + Phase 1 진행 (subtask_review, DevProgress) | 세부 UX 미완성 |
 | [workflowStabilizationPlan](./workflowStabilizationPlan.md) | Phase 1 프롬프트 양식 부분 구현, Phase 3-1 idle timeout | Phase 2, 3-2~3-3 미구현 |
 | [workflowDocumentV2Plan](./workflowDocumentV2Plan.md) | Architect 직접 작성 + semantic versioning 문서 모델 | 구현 미착수 |
-| [longTermMemoryRoadmapPlan_2026-03-30](./longTermMemoryRoadmapPlan_2026-03-30.md) | Phase 1 compressed memory 완료 (세션 7) | Phase 2-4 (structured/retrieval/unified) 미착수 |
+| [longTermMemoryRoadmapPlan_2026-03-30](./longTermMemoryRoadmapPlan_2026-03-30.md) | Phase 1 compressed + Phase 2 retrieval/vector + Phase 3 session discovery 완료 (세션 7-18) + 자동 트리거 배선 완료 (세션 20) | Phase 4 cross-project recall |
 | [compressedMemoryOperationalPolishPlan_2026-03-30](./compressedMemoryOperationalPolishPlan_2026-03-30.md) | provenance/model_used/force_recompress 구현 (세션 7) | UI 가시화 미확인 |
 | [structuredMemorySourceStrengtheningPlan_2026-03-30](./structuredMemorySourceStrengtheningPlan_2026-03-30.md) | budget weight 재조정 (structured > conversational, 세션 18) | 역할 분리 Trace 표시 |
 
@@ -111,22 +127,6 @@
 |------|---------|
 | [geminiSdkIntegrationPlan](./geminiSdkIntegrationPlan.md) | P1 — Google AI SDK 직접 통합 (CLI 대체, SSE/token/function calling) |
 | [toolCallHandlerPlan](./toolCallHandlerPlan.md) | P1 — function calling으로 마커 대체 |
-| [contextPackAlgorithmPhase1Plan_2026-03-30](./contextPackAlgorithmPhase1Plan_2026-03-30.md) | P1 — Jaccard dedup, markdown 경량화, import collapse, rawq 다해상도 |
-| [conversationRetrievalPhase1Plan_2026-03-30](./conversationRetrievalPhase1Plan_2026-03-30.md) | P1 — 프로젝트 범위 과거 대화 chunk 회수 최소 실험 |
-| [conversationRetrievalChunkingPlan_2026-03-30](./conversationRetrievalChunkingPlan_2026-03-30.md) | P1 — retrieval pair/chunk 단위 2차 개선 |
-| [conversationRetrievalRankingPolishPlan_2026-03-30](./conversationRetrievalRankingPolishPlan_2026-03-30.md) | P1 — ranking/dedup/overlap suppression 3차 개선 |
-| [unifiedMemoryPolicyPhase1Plan_2026-03-30](./unifiedMemoryPolicyPhase1Plan_2026-03-30.md) | P1 — working/structured/compressed/retrieval 통합 selection policy |
-| [unifiedMemoryPolicyThresholdTuningPlan_2026-03-30](./unifiedMemoryPolicyThresholdTuningPlan_2026-03-30.md) | P1 — retrieval/compressed memory 임계값 튜닝 |
-| [memoryPolicyTraceSurfacePlan_2026-03-30](./memoryPolicyTraceSurfacePlan_2026-03-30.md) | P1 — memory layer 결과를 Trace/Runtime surface에 노출 |
-| [memorySectionBudgetBreakdownPlan_2026-03-30](./memorySectionBudgetBreakdownPlan_2026-03-30.md) | P1 — section별 budget 소비량 observability |
-| [topHeavySectionTuningPlan_2026-03-30](./topHeavySectionTuningPlan_2026-03-30.md) | P1 — top budget consumer 최적화 |
-| [modeSpecificSectionHeuristicsPlan_2026-03-30](./modeSpecificSectionHeuristicsPlan_2026-03-30.md) | P1 — Lite/Std/Full/Auto section-level profile 정교화 |
-| [autoModeHeuristicPolishPlan_2026-03-30](./autoModeHeuristicPolishPlan_2026-03-30.md) | P1 — Auto profile 선택 다듬기 |
-| [projectFirstStartupUxPlan_2026-03-30](./projectFirstStartupUxPlan_2026-03-30.md) | P1 — 프로젝트 선택 최종 startup flow |
-| [roundtableCompletionOrderPlan_2026-03-30](./roundtableCompletionOrderPlan_2026-03-30.md) | P1 — Deliberative RT completion-order collection |
-| [roundtableBlindVerifierPhasePlan_2026-03-30](./roundtableBlindVerifierPhasePlan_2026-03-30.md) | P1 — sycophancy 방지 blind verifier RT 확장 |
-| [roundtableParticipantRoleBlindUiPlan_2026-03-30](./roundtableParticipantRoleBlindUiPlan_2026-03-30.md) | P1 — RT participant role/blind UI |
-| [roundtableParticipantSurfaceVisibilityPlan_2026-03-30](./roundtableParticipantSurfaceVisibilityPlan_2026-03-30.md) | P1 — RT participant role/blind 가시화 |
 | [roundtableRoleTerminologySeparationPlan_2026-03-30](./roundtableRoleTerminologySeparationPlan_2026-03-30.md) | P1 — 프로필 역할 vs RT 토론 역할 분리 |
 | [runtimeFeatureValidationPlan_2026-03-30](./runtimeFeatureValidationPlan_2026-03-30.md) | P1 — memory/retrieval/auto/budget/RT 실시나리오 검증 |
 | [postParityRuntimeValidationSweepPlan_2026-03-30](./postParityRuntimeValidationSweepPlan_2026-03-30.md) | P1 — parity fix 효과 재검증 |

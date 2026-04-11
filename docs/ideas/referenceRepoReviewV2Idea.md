@@ -3,6 +3,9 @@
 > Status: idea
 > Created: 2026-04-04
 > 이전: 세션 5에서 최초 분석, 이번 세션에서 상세 재검토
+> 출처: 복수 레포 재검토 (`code-review-graph`, `claw-code`, `agentscope` 등)
+> 대상: `code-review-graph`, `claw-code`, `agentscope`
+> 분석 기준 시점: 2026-04-04
 
 ---
 

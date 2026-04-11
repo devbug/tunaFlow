@@ -8,7 +8,7 @@ pub use context_loading::{ContextData, load_context_data, load_project_path, bui
 #[allow(unused_imports)]
 pub use prompt_assembly::{assemble_prompt, build_normalized_prompt, build_normalized_prompt_with_budget};
 #[allow(unused_imports)]
-pub use persistence::{persist_user_message, PreparedRun, prepare_engine_run, finalize_engine_run, AgentRunResult, persist_assistant_message, persist_assistant_message_with_id};
+pub use persistence::{persist_user_message, PreparedRun, prepare_engine_run, finalize_engine_run, spawn_post_completion_tasks, AgentRunResult, persist_assistant_message, persist_assistant_message_with_id};
 
 pub use super::identity::*;
 #[allow(unused_imports)]
@@ -34,6 +34,7 @@ mod tests {
             findings_section: None,
             artifacts_section: None,
             retrieval_chunks: vec![],
+            document_chunks: vec![],
             compressed_memory: None,
             cross_session_data: vec![],
             thread_inheritance: None,

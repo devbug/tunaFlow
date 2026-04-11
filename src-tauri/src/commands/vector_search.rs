@@ -381,7 +381,7 @@ fn is_workflow_prompt(content: &str) -> bool {
         || content.contains("<!-- tunaflow:impl-complete -->")
 }
 
-fn truncate_str(s: &str, max_chars: usize) -> String {
+pub fn truncate_str(s: &str, max_chars: usize) -> String {
     if s.len() <= max_chars {
         return s.to_string();
     }
@@ -393,7 +393,7 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
     format!("{}…", &s[..end])
 }
 
-fn embedding_to_blob(embedding: &[f32]) -> Vec<u8> {
+pub fn embedding_to_blob(embedding: &[f32]) -> Vec<u8> {
     let mut blob = Vec::with_capacity(embedding.len() * 4);
     for &val in embedding {
         blob.extend_from_slice(&val.to_le_bytes());

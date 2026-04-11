@@ -536,8 +536,9 @@ fn write_topics(
 
 /// Blocking compress function — callable from HTTP API without Tauri State.
 pub fn compress_memory_blocking(db: &crate::db::DbState, conversation_id: &str) -> Result<bool, AppError> {
+    // Phase 1: Read transcript with READ lock (never blocks writers)
     let transcript = {
-        let conn = db.write.lock().map_err(|_| AppError::Lock)?;
+        let conn = db.read.lock().map_err(|_| AppError::Lock)?;
         if !needs_compression(&conn, conversation_id) { return Ok(false); }
         let (t, _) = build_transcript(&conn, conversation_id)?;
         if t.is_empty() { return Ok(false); }

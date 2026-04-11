@@ -1,7 +1,9 @@
 # larksuite/cli 아키텍처 레퍼런스 검토
 
 - 작성: 2026-04-06
+- 출처: `https://github.com/larksuite/cli`
 - 대상 레포: `https://github.com/larksuite/cli`
+- 분석 기준 시점: 2026-04-06 검토 기준
 - 목적: `tunaFlow AOC`의 인터페이스/능력 계층 설계에 참고할 가치가 있는지 평가
 - 결론: **전체 아키텍처 레퍼런스로는 부적합, 일부 패턴은 참고 가치 높음**
 

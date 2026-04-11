@@ -59,6 +59,9 @@ pub struct ContextData {
     // Retrieval
     pub retrieval_chunks: Vec<crate::commands::context_queries::RetrievedChunk>,
 
+    // Project document search results (file_path, section_title, text_preview, score)
+    pub document_chunks: Vec<(String, Option<String>, String, f32)>,
+
     // Compressed memory
     pub compressed_memory: Option<String>,
 
@@ -331,6 +334,43 @@ pub fn load_context_data(
         Vec::new()
     };
 
+    // Query 10b: project document search (vector, Standard+ only)
+    let document_chunks: Vec<(String, Option<String>, String, f32)> = if let Some(pk) = &project_key {
+        if prompt.chars().count() >= 15 && crate::agents::rawq::is_daemon_ready() {
+            if let Ok(query_emb) = crate::agents::rawq::embed_text(prompt, true) {
+                let query_blob = crate::commands::vector_search::embedding_to_blob(&query_emb);
+                // Search document chunks via vec0 KNN
+                let sql = "
+                    SELECT c.file_path, c.section_title, c.text_preview, v.distance
+                    FROM vec_chunks v
+                    JOIN conversation_chunks c ON c.rowid = v.rowid
+                    WHERE v.embedding MATCH ?1
+                      AND k = 15
+                      AND c.project_key = ?2
+                      AND c.source_type = 'document'
+                    ORDER BY v.distance ASC
+                ";
+                conn.prepare(sql).ok().map(|mut stmt| {
+                    stmt.query_map(rusqlite::params![query_blob, pk], |row| {
+                        Ok((
+                            row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, String>(2)?,
+                            1.0_f32 - row.get::<_, f32>(3)?, // distance → similarity
+                        ))
+                    }).map(|rows| rows.filter_map(|r| r.ok()).filter(|r| r.3 > 0.5).take(5).collect())
+                        .unwrap_or_default()
+                }).unwrap_or_default()
+            } else { Vec::new() }
+        } else { Vec::new() }
+    } else { Vec::new() };
+    if !document_chunks.is_empty() {
+        eprintln!("[retrieval] Document chunks: {} results", document_chunks.len());
+        for (i, (fp, st, _, score)) in document_chunks.iter().enumerate() {
+            eprintln!("[retrieval]   doc[{}] score={:.3} file={} section={}", i, score, fp, st.as_deref().unwrap_or("-"));
+        }
+    }
+
     // Query 10: compressed memory (scratchpad: also check main chat memory)
     let compressed_memory = load_compressed_memory(conn, conversation_id)
         .or_else(|| {
@@ -402,6 +442,7 @@ pub fn load_context_data(
         findings_section,
         artifacts_section,
         retrieval_chunks,
+        document_chunks,
         compressed_memory,
         cross_session_data,
         thread_inheritance,

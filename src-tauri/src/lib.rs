@@ -1,5 +1,6 @@
 mod agents;
-mod commands;
+#[cfg_attr(test, allow(dead_code))]
+pub mod commands;
 pub mod db;
 mod errors;
 mod guardrail;
@@ -296,6 +297,12 @@ pub fn run() {
             commands::pty::pty_list_codex_files,
             commands::pty::pty_list_gemini_files,
             commands::pty::pty_kill_all,
+
+            commands::document_index::index_project_docs,
+            commands::document_index::search_project_docs,
+            commands::document_index::get_project_document_graph,
+            commands::document_index::get_orphan_documents,
+            commands::document_index::get_document_index_status,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

@@ -2,6 +2,9 @@
 
 > Status: reference (Phase 1 구현 완료 — 세션 7)
 > Created: 2026-04-01
+> 출처: 복수 논문/블로그/레포 (`sqlite-vec`, `qdrant`, Weaviate, PremAI, MMTEB 등)
+> 대상: vector DB / hybrid retrieval / reranking / conversational memory 레퍼런스 묶음
+> 분석 기준 시점: 2026-04-01
 > 구현: conversation_chunks (v22) + rawq embed (384-dim) + brute-force cosine + FTS5+Vector hybrid
 > 목적: tunaFlow Vector DB 구현 시점에 참고할 알고리즘, 논문, 벤치마크 모음
 > 관련 계획: `docs/plans/conversationVectorSearchPlan.md`, `docs/plans/longTermMemoryRoadmapPlan_2026-03-30.md`

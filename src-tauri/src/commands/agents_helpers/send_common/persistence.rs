@@ -170,6 +170,70 @@ pub fn finalize_engine_run(
     }
 }
 
+/// Fire-and-forget: spawn post-completion tasks after a successful agent run.
+/// Triggers memory compression, session link discovery, and vector indexing.
+/// All errors are logged and swallowed — never affects the main response.
+pub fn spawn_post_completion_tasks(db: crate::db::DbState, conversation_id: String) {
+    std::thread::spawn(move || {
+        let cid_short = if conversation_id.len() >= 8 { &conversation_id[..8] } else { &conversation_id };
+
+        // 1. Memory compression (conditional — needs_compression check is inside)
+        match crate::commands::conversation_memory::compress_memory_blocking(&db, &conversation_id) {
+            Ok(true) => eprintln!("[post-completion] memory compressed for {}", cid_short),
+            Ok(false) => {} // threshold not reached yet
+            Err(e) => eprintln!("[post-completion] memory compression error: {}", e),
+        }
+
+        // 2. Session link discovery — read lock for discovery, write lock only for save
+        let project_key: Option<String> = {
+            if let Ok(conn) = db.read.lock() {
+                conn.query_row(
+                    "SELECT project_key FROM conversations WHERE id = ?1",
+                    [&conversation_id], |r| r.get(0),
+                ).ok()
+            } else { None }
+        };
+        if let Some(ref pk) = project_key {
+            // Discover with read lock (FTS5 search + rawq embed — can be slow)
+            let discovered = {
+                if let Ok(conn) = db.read.lock() {
+                    crate::commands::session_discovery::discover_related_sessions(
+                        &conn, &conversation_id, pk, 5,
+                    )
+                } else { Vec::new() }
+            };
+            // Save with short write lock (fast — just INSERTs)
+            if !discovered.is_empty() {
+                if let Ok(conn) = db.write.lock() {
+                    let now = crate::db::migrations::now_epoch_ms();
+                    for (linked_id, score) in &discovered {
+                        let id = uuid::Uuid::new_v4().to_string();
+                        let _ = conn.execute(
+                            "INSERT INTO session_links (id, conversation_id, linked_conv_id, score, method, created_at)
+                             VALUES (?1, ?2, ?3, ?4, 'fts5', ?5)
+                             ON CONFLICT(conversation_id, linked_conv_id) DO UPDATE SET score = ?4, created_at = ?5
+                             WHERE method = 'fts5'",
+                            rusqlite::params![id, conversation_id, linked_id, score, now],
+                        );
+                    }
+                }
+            }
+        }
+
+        // 3. Vector indexing (rawq embed — skip if daemon not ready)
+        if crate::agents::rawq::is_daemon_ready() {
+            match crate::commands::vector_search::index_chunks_blocking(&db, &conversation_id) {
+                Ok(n) if n > 0 => eprintln!("[post-completion] indexed {} chunks for {}", n, cid_short),
+                Ok(_) => {}
+                Err(e) => eprintln!("[post-completion] vector indexing error: {}", e),
+            }
+        }
+
+        // 4. Document re-indexing is NOT triggered here — too expensive for every agent completion.
+        //    Triggered by: project selection (1x) + fs watcher (on file change) + manual API call.
+    });
+}
+
 /// Result from an agent run, before DB persistence.
 #[allow(dead_code)]
 pub struct AgentRunResult {
