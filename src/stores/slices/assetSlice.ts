@@ -16,10 +16,10 @@ import type {
 } from "./types";
 
 const DEFAULT_PROFILES: AgentProfile[] = [
-  { id: "architect-claude", label: "Architect Claude", engine: "claude", defaultSkills: [] },
-  { id: "reviewer-codex", label: "Reviewer Codex", engine: "codex", defaultSkills: [] },
-  { id: "tester-gemini", label: "Tester Gemini", engine: "gemini", defaultSkills: [] },
-  { id: "general-opencode", label: "General OpenCode", engine: "opencode", defaultSkills: [] },
+  { id: "architect-claude", label: "Architect Claude", engine: "claude", defaultSkills: [], personaId: "persona_architect" },
+  { id: "reviewer-codex", label: "Reviewer Codex", engine: "codex", defaultSkills: [], personaId: "persona_reviewer" },
+  { id: "tester-gemini", label: "Tester Gemini", engine: "gemini", defaultSkills: [], personaId: "persona_tester" },
+  { id: "general-opencode", label: "General OpenCode", engine: "opencode", defaultSkills: [], personaId: "persona_implementer" },
 ];
 
 /** Per-conversation engine/profile snapshot */

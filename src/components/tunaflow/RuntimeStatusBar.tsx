@@ -3,12 +3,35 @@ import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { usePtyStore } from "@/stores/ptyStore";
-import { Activity, Loader2, Zap, Terminal, Settings } from "lucide-react";
+import { Activity, Loader2, Zap, Terminal, Settings, Moon, Sun } from "lucide-react";
 import { SettingsPanel } from "./SettingsPanel";
 import { TraceModal } from "./TraceModal";
 import type { Message } from "@/types";
 import { lazy, Suspense } from "react";
+import { getSetting, setSetting } from "@/lib/appStore";
 const TerminalPanel = lazy(() => import("./TerminalPanel").then((m) => ({ default: m.TerminalPanel })));
+
+function ThemeToggleButton() {
+  const [themeMode, setThemeMode] = useState<"dark" | "light">("dark");
+  useEffect(() => {
+    getSetting<string>("themeMode", "dark").then((m) => setThemeMode(m === "light" ? "light" : "dark"));
+  }, []);
+  const toggle = () => {
+    const next = themeMode === "dark" ? "light" : "dark";
+    setThemeMode(next);
+    setSetting("themeMode", next);
+    document.documentElement.classList.toggle("light", next === "light");
+  };
+  return (
+    <button
+      onClick={toggle}
+      title={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      className="flex items-center px-2 h-full text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+    >
+      {themeMode === "dark" ? <Moon className="w-3.5 h-3.5" /> : <Sun className="w-3.5 h-3.5" />}
+    </button>
+  );
+}
 
 function SkillsBadge() {
   const activeSkills = useChatStore((s) => s.activeSkills);
@@ -223,7 +246,7 @@ export function RuntimeStatusBar() {
   return (
     <>
       <div className="flex items-center h-7 shrink-0 text-tf-xs text-prose-muted select-none">
-        {/* Settings button — far left of footer */}
+        {/* Settings + theme toggle — far left of footer */}
         <button
           onClick={() => setSettingsOpen(true)}
           className="flex items-center px-2.5 h-full text-muted-foreground/50 hover:text-muted-foreground transition-colors"
@@ -231,6 +254,7 @@ export function RuntimeStatusBar() {
         >
           <Settings className="w-3.5 h-3.5" />
         </button>
+        <ThemeToggleButton />
         <span className="flex-1" />
 
         {/* Trace area — clickable, opens modal */}

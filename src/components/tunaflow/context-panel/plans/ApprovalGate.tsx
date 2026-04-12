@@ -22,7 +22,9 @@ export function ApprovalGate({
   const { openThread, loadBranches, sendThreadMessage, saveConversationEngine } = useChatStore();
   const profiles = useChatStore((s) => s.agentProfiles);
   const [mode, setMode] = useState<"idle" | "agent-select" | "busy">("idle");
-  const [selectedProfileId, setSelectedProfileId] = useState(profiles[0]?.id ?? "");
+  // Developer = profile linked to implementer persona; fallback to first profile
+  const defaultDeveloper = profiles.find((p) => p.personaId === "persona_implementer") ?? profiles[0];
+  const [selectedProfileId, setSelectedProfileId] = useState(defaultDeveloper?.id ?? "");
 
   const selectedProfile = profiles.find((p) => p.id === selectedProfileId);
 

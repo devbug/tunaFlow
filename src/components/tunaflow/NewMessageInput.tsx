@@ -5,12 +5,13 @@ import { useChatStore } from "@/stores/chatStore";
 import { getSetting, setSetting } from "@/lib/appStore";
 import { DEFAULT_PERSONAS } from "@/lib/defaultPersonas";
 import { ROUNDTABLE_PARTICIPANTS } from "@/lib/constants";
-import { SendHorizonal, Users } from "lucide-react";
+import { SendHorizonal, Users, Loader2 } from "lucide-react";
 import type { RtMode, RoundtableParticipant, AgentProfile } from "@/types";
 
 import { EngineSelector, type Engine } from "./input/EngineSelector";
 import { ModelSelector } from "./input/ModelSelector";
 import { ProfileSelector } from "./input/ProfileSelector";
+import { isPtyEngine } from "@/stores/ptyStore";
 import { RoundtableControls } from "./input/RoundtableControls";
 import { ContextBadges } from "./input/ContextBadges";
 import { useSendActions } from "./input/useSendActions";
@@ -36,6 +37,7 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
   const [engine, setEngine] = useState<Engine>("claude");
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [rtMode, setRtMode] = useState<RtMode>("sequential");
+  const [ptyRespawning, setPtyRespawning] = useState(false);
 
   // Agent Profile state — from Zustand store (shared with Settings)
   const profiles = useChatStore((s) => s.agentProfiles);
@@ -101,10 +103,17 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
     const saveTarget = threadMode ? threadBranchConvIdForRestore : selectedConversationId;
     if (saveTarget) {
       const profile = profileId ? profiles.find((p) => p.id === profileId) : null;
+      const targetEngine = profile?.engine ?? engine;
+      // If profile has no explicit model, pick the recommended model for the engine
+      // (do NOT inherit stale selectedModel — that causes wrong model persistence)
+      const targetModel = profile?.model
+        ?? engineModels.find((m) => m.engine === targetEngine && m.recommended)?.id
+        ?? engineModels.find((m) => m.engine === targetEngine)?.id
+        ?? undefined;
       saveConversationEngine(saveTarget, {
         profileId,
-        engine: profile?.engine ?? engine,
-        model: profile?.model ?? (selectedModel || undefined),
+        engine: targetEngine,
+        model: targetModel,
       });
     }
   };
@@ -278,15 +287,34 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
                       saveConversationEngine(target, { profileId: null, engine: e, model: selectedModel || undefined });
                     }
                   }} />
+                  {ptyRespawning && isPtyEngine(engine) && (
+                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground/50">
+                      <Loader2 className="w-3 h-3 animate-spin" />PTY 로딩 중
+                    </span>
+                  )}
                   <ModelSelector
                     currentModels={currentModels}
                     selectedModel={selectedModel}
-                    setSelectedModel={(m) => {
+                    setSelectedModel={async (m) => {
                       setSelectedModel(m);
                       // Persist model change to convEngineMap
                       const target = threadMode ? threadBranchConvIdForRestore : selectedConversationId;
                       if (target) {
                         saveConversationEngine(target, { profileId: selectedProfileId, engine, model: m || undefined });
+                      }
+                      // Respawn PTY session so the model change takes effect immediately
+                      if (!threadMode && isPtyEngine(engine) && selectedConversationId) {
+                        const conv = useChatStore.getState().conversations.find((c) => c.id === selectedConversationId);
+                        const project = useChatStore.getState().projects.find((p) => p.key === useChatStore.getState().selectedProjectKey);
+                        if (conv && project?.path) {
+                          const { spawnPtyForConversation, isPtySpawning } = await import("@/stores/slices/conversationSlice");
+                          if (!isPtySpawning(conv.id)) {
+                            setPtyRespawning(true);
+                            spawnPtyForConversation(conv, project.path)
+                              .catch((e) => console.warn("[pty] respawn failed:", e))
+                              .finally(() => setPtyRespawning(false));
+                          }
+                        }
                       }
                     }}
                   />

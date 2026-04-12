@@ -97,6 +97,26 @@ export function CenterPanel() {
 
   const reviewCount = artifacts.filter((a) => a.type === "review-findings" || a.type === "architect-decision").length;
 
+  const [planCount, setPlanCount] = useState(0);
+  const [insightCount, setInsightCount] = useState(0);
+
+  // Fetch plan count (active, non-done) for badge
+  useEffect(() => {
+    const convId = canonicalConvId;
+    if (!convId) { setPlanCount(0); return; }
+    invoke<{ status: string }[]>("list_plans_by_conversation", { conversationId: convId })
+      .then((plans) => setPlanCount(plans.filter((p) => p.status !== "done" && p.status !== "abandoned").length))
+      .catch(() => setPlanCount(0));
+  }, [canonicalConvId, planRefreshKey]);
+
+  // Fetch insight session count (completed sessions) for badge
+  useEffect(() => {
+    if (!selectedProjectKey) { setInsightCount(0); return; }
+    invoke<{ status: string }[]>("list_insight_sessions", { projectKey: selectedProjectKey })
+      .then((sessions) => setInsightCount(sessions.filter((s) => s.status === "completed").length))
+      .catch(() => setInsightCount(0));
+  }, [selectedProjectKey]);
+
   // Memo popover
   const [memoOpen, setMemoOpen] = useState(false);
   const memoRef = useRef<HTMLDivElement>(null);
@@ -127,6 +147,11 @@ export function CenterPanel() {
               )}
             >
               {tab.label}
+              {tab.id === "plan" && planCount > 0 && (
+                <span className="text-[8px] bg-primary/10 text-primary/70 px-1 rounded">
+                  {planCount}
+                </span>
+              )}
               {tab.id === "artifacts" && artifacts.length > 0 && (
                 <span className="text-[8px] bg-primary/10 text-primary/70 px-1 rounded">
                   {artifacts.length}
@@ -135,6 +160,11 @@ export function CenterPanel() {
               {tab.id === "review" && reviewCount > 0 && (
                 <span className="text-[8px] bg-status-draft/10 text-status-draft/70 px-1 rounded">
                   {reviewCount}
+                </span>
+              )}
+              {tab.id === "insight" && insightCount > 0 && (
+                <span className="text-[8px] bg-amber-400/20 text-amber-400/80 px-1 rounded">
+                  {insightCount}
                 </span>
               )}
             </button>
@@ -278,6 +308,11 @@ export function CenterPanel() {
                   const target = PHASE_TO_STAGE[phase];
                   if (target) setActiveStage(target);
                   setPlanRefreshKey((k) => k + 1);
+                }}
+                onStatusChanged={() => {
+                  // Refresh badge count + switch to "plan" stage so un-abandoned plans become visible
+                  setPlanRefreshKey((k) => k + 1);
+                  setActiveStage("plan");
                 }}
                 onSwitchToChat={() => setActiveTab("chat")}
               />

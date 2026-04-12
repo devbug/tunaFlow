@@ -62,9 +62,7 @@ export function MessageMeta({ message, isCompact = false, threadBranches, onOpen
         </button>
       ))}
       {isStreaming && (
-        <span className="text-primary/50 font-mono text-tf-micro animate-pulse">
-          {message.id.startsWith("pty-") ? "pty-streaming" : "streaming"}
-        </span>
+        <span className="text-primary/50 font-mono text-tf-micro animate-pulse">streaming</span>
       )}
       {message.status === "error" && (
         <span className="text-destructive/60 font-mono text-tf-micro">error</span>

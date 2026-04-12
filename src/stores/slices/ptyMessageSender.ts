@@ -8,27 +8,10 @@ import { usePtyStore } from "@/stores/ptyStore";
 import type { PtyEngine } from "@/stores/ptyStore";
 import { ENGINE_CONFIGS } from "@/lib/engineConfig";
 import type { SetState, GetState, Message } from "./types";
-
-/** Engine-specific JSONL poll/list commands */
-export function getPtyPollConfig(engine: string) {
-  switch (engine) {
-    case "codex": return { pollCmd: "pty_poll_codex", listCmd: "pty_list_codex_files" };
-    case "gemini": return { pollCmd: "pty_poll_gemini", listCmd: "pty_list_gemini_files" };
-    default: return { pollCmd: "pty_poll_jsonl", listCmd: "pty_list_jsonl_files" };
-  }
-}
-
-export interface PtySendOptions {
-  /** Which message array to update in the store */
-  messageTarget: "messages" | "threadMessages";
-  /** Guard: only update UI when this returns true */
-  isActiveCheck: () => boolean;
-  /**
-   * Called after successful DB save, before _endRun.
-   * Return true if you handle _endRun yourself (e.g. for tool-request follow-ups).
-   */
-  onCompleted?: (savedMsg: Message, text: string) => Promise<boolean>;
-}
+export type { PtySendOptions } from "./ptyTypes";
+export { getPtyPollConfig } from "./ptyTypes";
+import type { PtySendOptions } from "./ptyTypes";
+import { getPtyPollConfig } from "./ptyTypes";
 
 /**
  * Send a message through the active PTY session.
@@ -67,7 +50,7 @@ export async function sendMessageViaPty(
     [mt]: [
       ...(state[mt] as Message[]),
       { id: userMsgId, conversationId, role: "user" as const, content: prompt, timestamp: now, status: "done" as const },
-      { id: asstMsgId, conversationId, role: "assistant" as const, content: "", timestamp: now, status: "streaming" as const, engine: engineKey },
+      { id: asstMsgId, conversationId, role: "assistant" as const, content: "", timestamp: now, status: "streaming" as const, engine: engineKey, persona: opts.personaLabel },
     ],
   }));
 
@@ -318,7 +301,7 @@ export async function sendMessageViaPty(
             const durationMs = Date.now() - now;
             try {
               const savedMsg = await invoke<Message>("append_assistant_message", {
-                input: { conversationId, content: result.text, engine: engineKey, model: result.model, status: "done" },
+                input: { conversationId, content: result.text, engine: engineKey, model: result.model, status: "done", personaLabel: opts.personaLabel },
               });
               if (progressContent) {
                 invoke("save_progress_content", { messageId: savedMsg.id, progressContent }).catch(() => {});
@@ -327,13 +310,29 @@ export async function sendMessageViaPty(
                 input: { messageId: savedMsg.id, status: "done", durationMs },
               }).catch(() => {});
               if (opts.isActiveCheck()) {
-                set((state: any) => ({
-                  [mt]: (state[mt] as Message[]).map((m: Message) =>
-                    m.id === asstMsgId
-                      ? { ...savedMsg, content: result.text, progressContent, durationMs }
-                      : m
-                  ),
-                }));
+                const currentMsgs = (get() as any)[mt] as Message[];
+                const stillPresent = currentMsgs.some((m: Message) => m.id === asstMsgId);
+                if (stillPresent) {
+                  set((state: any) => ({
+                    [mt]: (state[mt] as Message[]).map((m: Message) =>
+                      m.id === asstMsgId
+                        ? { ...savedMsg, content: result.text, progressContent, durationMs }
+                        : m
+                    ),
+                  }));
+                } else {
+                  // asstMsgId was removed (e.g. by adoptBranch reload) — reload from DB to surface completed result
+                  console.log("[pty] asstMsgId not found in store, reloading from DB after completion");
+                  try {
+                    const refreshed = await invoke<Message[]>("list_messages", { conversationId });
+                    const withMeta = refreshed.map((m: Message) =>
+                      m.id === savedMsg.id ? { ...m, durationMs, progressContent } : m
+                    );
+                    set((state: any) => ({ [mt]: withMeta }));
+                  } catch (refreshErr) {
+                    console.warn("[pty] DB reload after adoption failed:", refreshErr);
+                  }
+                }
               }
 
               // Post-completion handling

@@ -35,10 +35,72 @@ description: 세션별 전체 작업 이력. 새 세션 시작 시 또는 과거
 | 20 | 2026-04-11 | 문서 RAG, 장기기억 자동 트리거, write lock 5건, 검색 품질 문제(bge-m3 필요), PTY 안정화 필요 |
 | 21 | 2026-04-11 | (메모리 기록 참조) |
 | 22 | 2026-04-12 | CPU 수정(bge-m3 증분), PTY 터미널 표시 수정, 사이드바 리사이즈 재설계 (5섹션 분리), ArtifactsPanel/ReviewPanel 마스터-디테일 전환, InsightPanel 재검토+Architect검토+summary strip, -p 모드 resume_token 제거 (PTY 충돌 수정), CLAUDE.md 경량화 |
+| 25 | 2026-04-12 | 버그 9건 수정 + UI 개선 4건 (MarkdownComponents h-tags/empty span/relative link, PTY persona+duration+label, PlanProposalCard reload, branch stale closure, Insight 이전분석 우측 패널, adopt 중 스트리밍 보존+결과 복원, 드로어 라운딩, 사이드바 가독성, 알림배지 오버랩) |
+| 26 | 2026-04-13 | 코드베이스 리팩토링 v3 Tier 1(부분)+Tier 2 — conversation_memory 3분리, vector_search 4분리, workflowOrchestration 5분리, InsightPanel 4분리, ptyTypes 추출. Rust/TS 테스트 전원 통과. |
 
 ---
 
 ## 세션별 상세 이력
+
+### ✅ 세션 25 (2026-04-12): 버그 수정 + UI 가독성
+
+**버그 수정 (9건)**
+- `MarkdownComponents`: h1/h2/h3/h4 커스텀 컴포넌트 추가 (Tailwind reset 대응), 빈 InlineCode 억제 (`!text.trim() → null`), SafeLink 상대 경로 → `FileViewerContext.openFile()`
+- PTY 페르소나 미저장: `personaLabel` → `append_assistant_message` Rust command, `persona` 컬럼 저장
+- PTY duration 0 표시: `list_messages` SQL → `COALESCE(t.duration_ms, m.duration_ms)`
+- `"pty-streaming"` 레이블 제거: `MessageMeta` 스트리밍 표시 단순화
+- `PlanProposalCard` 리로드 후 승격 버튼 재표시: 전체 plans 배열에서 title 매칭 (done/abandoned 포함)
+- Branch stale closure: `ChatPanel` `handleCreateBranchRef` ref 패턴으로 수정
+- Insight "이전 분석" 클릭 시 메인 뷰 교체 → 우측 패널 미리보기로 변경
+- `adoptBranch` 중 스트리밍 메시지 소멸: DB reload 시 in-memory streaming 메시지 보존 (merge)
+- PTY 완료 후 결과 미표시: `asstMsgId` store에서 제거된 경우 `list_messages` fallback reload
+
+**UI 개선 (4건)**
+- 드로어 고정 시 `rounded-l-xl`, 플로팅 시 `rounded-l-xl right-0` (오른쪽 엣지 딱 붙음)
+- 사이드바 가독성: 섹션 헤더 `/40→/55`, 비활성 항목 `/60→/68`, 활성 항목 primary accent bar (`border-l-2 border-primary bg-primary/12`)
+- 알림 배지: `-top-1 -right-1 border-2 border-background`로 아이콘 오버랩
+
+**수정 파일**
+- `src/components/tunaflow/chat/MarkdownComponents.tsx`
+- `src/components/tunaflow/message/MessageMeta.tsx`
+- `src/components/tunaflow/chat/PlanProposalCard.tsx`
+- `src/components/tunaflow/ChatPanel.tsx`
+- `src/components/tunaflow/context-panel/InsightPanel.tsx`
+- `src/components/tunaflow/AppShell.tsx`
+- `src/components/tunaflow/Sidebar.tsx`
+- `src/components/tunaflow/sidebar/TreeRow.tsx`
+- `src/components/tunaflow/NotificationBell.tsx`
+- `src/stores/slices/branchSlice.ts`
+- `src/stores/slices/ptyMessageSender.ts`
+- `src/stores/slices/runtimeSlice.ts` / `threadSlice.ts`
+- `src-tauri/src/commands/messages.rs`
+
+---
+
+### ✅ 세션 26 (2026-04-13): 코드베이스 리팩토링 v3 Tier 1(부분) + Tier 2
+
+**리팩토링 완료 항목 (5개 god-file → 18개 모듈)**
+
+| 원본 | 결과 | 줄 수 |
+|------|------|-------|
+| `conversation_memory.rs` (984줄) | `memory_topics.rs` + `memory_compression.rs` + 기존 파일 축소 | Tier 1 2.4 ✅ |
+| `vector_search.rs` (907줄) | `vector_search/` 모듈: mod.rs + helpers.rs + index.rs + query.rs | Tier 1 2.5 ✅ |
+| `ptyMessageSender.ts` | `ptyTypes.ts` 분리 (PtySendOptions, getPtyPollConfig 추출) | Tier 1.5 ✅ |
+| `workflowOrchestration.ts` (701줄) | `lib/workflow/`: index.ts + helpers.ts + reportSync.ts + implementWorkflow.ts + reviewWorkflow.ts | Tier 2 2.6 ✅ |
+| `InsightPanel.tsx` (726줄) | `context-panel/insight/`: insightConstants.tsx + InsightFindingCards.tsx + InsightQuadrant.tsx + InsightPanel.tsx(thin) | Tier 2 2.8 ✅ |
+
+**부가 수정**
+- `planProposalParser.test.ts`: unclosed marker 처리 변경(이전 세션 행동 변경)에 맞게 테스트 기대값 수정 (pre-existing bug)
+- Rust `commands/mod.rs`: `pub mod memory_topics; pub mod memory_compression;` 추가
+- 분할 전후 전체 검증: `cargo check` + `cargo test --lib` (230 tests) + `npx tsc --noEmit` (0 errors) + `npx vitest run` (176 tests)
+
+**미완료 — 다음 세션 Tier 1 잔여**
+- `http_api.rs` (1,162줄) → http_api/ 모듈 (Tier 1 2.1) ⬜
+- `pty.rs` (1,076줄) → commands/pty/ 모듈 (Tier 1 2.2) ⬜
+- `executor.rs` (968줄) → sequential/deliberative 분리 (Tier 1 2.3) ⬜
+- `threadSlice.ts` (609줄) → streamingUtils.ts 추출 (Tier 2 2.7) ⬜
+
+---
 
 ### ✅ 세션 1-2 (2026-03-28~30)
 - 드로어 RT 기능, 사이드바 계층 구조, Linear UI 리팩토링, rawq 안정화, 프로젝트 soft-delete, Agent Profile/Persona, Branch/RT 고도화, Artifacts 워크플로, Settings, 문서 IA 거버넌스

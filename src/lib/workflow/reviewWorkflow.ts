@@ -1,0 +1,248 @@
+/**
+ * Review workflow — RT review creation, verdict processing, marker scanning.
+ * Phases: D→E (start review RT), E (process verdict).
+ */
+import { invoke } from "@tauri-apps/api/core";
+import type { Message, Plan, RoundtableParticipant } from "@/types";
+import * as planApi from "../api/plans";
+import * as failureLessonsApi from "../api/failureLessons";
+import {
+  buildPlanContext,
+  createAndLinkBranch,
+  saveFailureLessons,
+  createVerdictArtifact,
+  createTestReportArtifact,
+  getPlanSlug,
+} from "./helpers";
+import type { CreateBranchResult } from "./helpers";
+import { syncResultReport, syncReviewReport } from "./reportSync";
+import {
+  extractImplPlan, hasImplComplete, hasReviewVerdict, extractReviewVerdict,
+} from "../planProposalParser";
+import type { ParsedImplPlan, ParsedReviewVerdict } from "../planProposalParser";
+
+export type { CreateBranchResult };
+
+// ─── Phase D→E: impl-complete → Start Review RT ───────────────────────────
+
+export async function startReviewRT(
+  plan: Plan,
+  implMessages: Message[],
+  testOutput?: string,
+  reviewerEngines?: string[],
+): Promise<CreateBranchResult> {
+  await planApi.updatePlanPhase(plan.id, "review");
+  await planApi.createPlanEvent(plan.id, "impl_completed", "developer");
+
+  syncResultReport(plan.id, implMessages, plan.developerEngine ?? undefined,
+    plan.implementationBranchId ? `dev: ${plan.title}` : undefined);
+
+  if (testOutput) {
+    createTestReportArtifact(plan, testOutput);
+  }
+
+  const engines = reviewerEngines ?? ["claude", "gemini"];
+
+  const { branch, shadowConvId } = await createAndLinkBranch(
+    plan, "review", `Review RT: ${plan.title}`, "roundtable",
+  );
+
+  const planContext = await buildPlanContext(plan);
+  const implSummary = implMessages
+    .filter((m) => m.role === "assistant")
+    .map((m) => m.content.slice(0, 2000))
+    .join("\n---\n");
+
+  const prompt = [
+    `당신은 코드 리뷰어입니다. **코드를 읽어서** 검증하세요. 빌드/테스트 명령을 직접 실행하지 마세요.`,
+    "",
+    `## Plan (원래 요구사항)`,
+    planContext,
+    "",
+    `## Implementation (Developer 구현 결과)`,
+    implSummary.slice(0, 6000),
+    "",
+    testOutput ? `## 테스트 결과\n${testOutput.slice(0, 3000)}\n` : "",
+    `## 리뷰 절차`,
+    ``,
+    `각 subtask의 task 파일(컨텍스트에 포함됨, 또는 \`docs/plans/${getPlanSlug(plan)}-task-*.md\`에서 Read 도구로 열 수 있음)을 참고하여 아래 3가지를 확인하세요:`,
+    ``,
+    `1. **Changed files 확인**: task 파일에 명시된 파일이 실제로 수정/생성되었는가? 변경 내용이 Change description과 일치하는가?`,
+    `2. **Verification 결과 확인**: Developer가 보고한 검증 결과를 확인하세요. 모든 Verification 명령이 통과했는가?`,
+    `3. **결함 검사**: 변경된 코드에 런타임 에러, 논리 버그, 보안 취약점이 있는가? (코드를 읽어서 판단)`,
+    ``,
+    `### Pass 조건`,
+    `위 3가지가 모두 충족되면 **pass**입니다.`,
+    ``,
+    `### Fail 사유가 되지 않는 것`,
+    `- 코드 스타일/구조가 task 파일과 다르지만 결과가 올바른 경우`,
+    `- task 파일에 명시되지 않은 테스트 커버리지 부족`,
+    `- Changed files 밖 파일의 기존 품질 문제`,
+    `- "더 나은 방법이 있다"는 의견 → recommendations에 작성`,
+    ``,
+    `### 판정 형식`,
+    `- verdict: pass / fail / conditional`,
+    `- fail 시 반드시 **파일:줄번호 + 구체적 결함 설명**을 findings에 포함`,
+    `- fail 시 \`failed_subtask_ids: [N, M]\` 형식으로 해당 subtask 번호 명시`,
+    `- 개선 제안은 findings가 아닌 **recommendations**에 분리`,
+  ].filter(Boolean).join("\n");
+
+  const participants: RoundtableParticipant[] = engines.map((eng, i) => ({
+    name: `Reviewer-${String.fromCharCode(65 + i)}`,
+    engine: eng,
+    role: "reviewer" as const,
+  }));
+
+  const rtConfig = JSON.stringify({ participants, mode: "sequential" });
+  await invoke("save_rt_config", { conversationId: shadowConvId, config: rtConfig });
+
+  await invoke("create_user_message", { input: { conversationId: shadowConvId, content: prompt } });
+
+  return { branch, shadowConvId };
+}
+
+// ─── Phase E: Process review verdict ──────────────────────────────────────
+
+export async function processReviewVerdict(
+  plan: Plan,
+  verdict: ParsedReviewVerdict,
+): Promise<void> {
+  const verdictEventType = verdict.verdict === "pass" ? "review_passed"
+    : verdict.verdict === "fail" ? "review_failed" : "review_conditional";
+  const events = await planApi.listPlanEvents(plan.id);
+  const lastReviewStart = [...events].reverse().find((e) => e.eventType === "review_started");
+  if (lastReviewStart) {
+    const alreadyProcessed = events.some(
+      (e) => e.eventType === verdictEventType && e.createdAt > lastReviewStart.createdAt,
+    );
+    if (alreadyProcessed) {
+      console.debug("[verdict] already processed for this review round, skipping");
+      return;
+    }
+  }
+
+  const detail = JSON.stringify({
+    verdict: verdict.verdict,
+    findings: verdict.findings,
+    recommendations: verdict.recommendations,
+  });
+
+  if (verdict.verdict === "pass") {
+    await planApi.updatePlanPhase(plan.id, "done");
+    await planApi.updatePlanStatus(plan.id, "done");
+    await planApi.createPlanEvent(plan.id, "review_passed", "reviewer", detail);
+    try {
+      await failureLessonsApi.resolveFailureLessonsByPlan(
+        plan.id,
+        `Review passed — ${verdict.recommendations?.[0] ?? "resolved"}`,
+      );
+    } catch (e) { console.warn("[failure-learning] resolve failed:", e); }
+    await createVerdictArtifact(plan, verdict);
+    if (plan.implementationBranchId) {
+      await invoke("archive_branch", { id: plan.implementationBranchId }).catch((e) => console.debug("[archive]", e));
+    }
+    if (plan.reviewBranchId) {
+      await invoke("archive_branch", { id: plan.reviewBranchId }).catch((e) => console.debug("[archive]", e));
+    }
+  } else if (verdict.verdict === "fail") {
+    await planApi.updatePlanPhase(plan.id, "rework");
+    await planApi.createPlanEvent(plan.id, "review_failed", "reviewer", detail);
+    await saveFailureLessons(plan, verdict.findings);
+    await createVerdictArtifact(plan, verdict);
+
+    // Doom loop detection: count review_failed events SINCE last escalation
+    const freshEvents = await planApi.listPlanEvents(plan.id);
+    let lastEscalationIdx = -1;
+    for (let i = freshEvents.length - 1; i >= 0; i--) {
+      if (freshEvents[i].eventType === "doom_loop_escalated" || freshEvents[i].eventType === "architect_redesign_requested") { lastEscalationIdx = i; break; }
+    }
+    const eventsSinceReset = lastEscalationIdx >= 0 ? freshEvents.slice(lastEscalationIdx + 1) : freshEvents;
+    const failEvents = eventsSinceReset.filter((e) => e.eventType === "review_failed");
+    const failCount = failEvents.length;
+
+    if (failCount >= 2) {
+      try {
+        const prevFailEvent = failEvents[failEvents.length - 2];
+        const prevDetail = JSON.parse(prevFailEvent?.detail ?? "{}");
+        const prevFiles = new Set((prevDetail.findings as string[] ?? [])
+          .map((f: string) => f.match(/([a-zA-Z0-9_./-]+\.[a-zA-Z]+)/)?.[1])
+          .filter(Boolean));
+        const currFiles = new Set(verdict.findings
+          .map((f: string) => f.match(/([a-zA-Z0-9_./-]+\.[a-zA-Z]+)/)?.[1])
+          .filter(Boolean));
+        const overlap = [...currFiles].filter((f) => prevFiles.has(f)).length;
+        const overlapRatio = currFiles.size > 0 ? overlap / currFiles.size : 0;
+        if (overlapRatio > 0.4) {
+          await planApi.createPlanEvent(
+            plan.id, "design_review_suggested", "system",
+            `동일 파일에서 연속 실패 (겹침 ${Math.round(overlapRatio * 100)}%) — 설계 재검토 권장`,
+          );
+        }
+        const prevFindingTexts = (prevDetail.findings as string[] ?? []).map((f: string) => f.slice(0, 60).toLowerCase());
+        const currFindingTexts = verdict.findings.map((f: string) => f.slice(0, 60).toLowerCase());
+        const textOverlap = currFindingTexts.filter((cf) => prevFindingTexts.some((pf) => cf.includes(pf.slice(0, 30)) || pf.includes(cf.slice(0, 30)))).length;
+        const textOverlapRatio = currFindingTexts.length > 0 ? textOverlap / currFindingTexts.length : 0;
+        if (textOverlapRatio > 0.5 && failCount >= 2) {
+          await planApi.createPlanEvent(
+            plan.id, "design_review_suggested", "system",
+            `동일 유형 findings 반복 (${Math.round(textOverlapRatio * 100)}% 일치) — 구현이 아닌 설계 문제 가능성`,
+          );
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
+    if (failCount >= 5) {
+      await planApi.updatePlanPhase(plan.id, "subtask_review");
+      await planApi.createPlanEvent(
+        plan.id,
+        "doom_loop_escalated",
+        "system",
+        `Review 실패 ${failCount}회 — Architect 재설계로 강제 에스컬레이션`,
+      );
+    } else if (failCount >= 3) {
+      await planApi.createPlanEvent(
+        plan.id,
+        "doom_loop_warning",
+        "system",
+        `Review 실패 ${failCount}회 — 설계 재검토를 권장합니다. Architect 재설계 또는 Developer 계속 rework 중 선택하세요.`,
+      );
+    }
+  } else {
+    await planApi.createPlanEvent(plan.id, "review_conditional", "reviewer", detail);
+  }
+
+  syncReviewReport(plan.id, verdict);
+}
+
+// ─── Message scanning ──────────────────────────────────────────────────────
+
+/**
+ * Scan branch messages for workflow markers and return detected signals.
+ */
+export function scanMessagesForMarkers(messages: Message[]): {
+  implPlan: ParsedImplPlan | null;
+  implComplete: boolean;
+  reviewVerdict: ParsedReviewVerdict | null;
+} {
+  let implPlan: ParsedImplPlan | null = null;
+  let implComplete = false;
+  let reviewVerdict: ParsedReviewVerdict | null = null;
+
+  for (const msg of messages) {
+    if (msg.role !== "assistant") continue;
+    if (!implPlan) {
+      const plan = extractImplPlan(msg.content);
+      if (plan) implPlan = plan;
+    }
+    if (!implComplete && hasImplComplete(msg.content)) {
+      implComplete = true;
+    }
+    // Use LAST verdict — followup reviews supersede earlier ones
+    if (hasReviewVerdict(msg.content)) {
+      const v = extractReviewVerdict(msg.content);
+      if (v) reviewVerdict = v;
+    }
+  }
+
+  return { implPlan, implComplete, reviewVerdict };
+}

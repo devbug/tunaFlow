@@ -61,8 +61,10 @@ export function splitPlanProposals(content: string): ContentSegment[] {
     const bodyStart = openIdx + MARKER_OPEN.length;
     const closeIdx = content.indexOf(MARKER_CLOSE, bodyStart);
     if (closeIdx === -1) {
-      // Unclosed marker — treat rest as markdown
-      segments.push({ type: "markdown", content: content.slice(openIdx) });
+      // Unclosed marker — agent omitted closing tag, treat rest as plan-proposal
+      const raw = content.slice(bodyStart).trim();
+      const proposal = parseProposalBody(raw);
+      segments.push({ type: "plan-proposal", proposal, raw });
       break;
     }
 
@@ -411,11 +413,11 @@ export function extractReviewVerdict(content: string): ParsedReviewVerdict | nul
 // ─── Tool request markers ──────────────────────────────────────────────────
 
 export interface ToolRequest {
-  type: "docs" | "rawq" | "graph" | "plans" | "memory" | "sessions" | "skills" | "artifacts" | "lessons";
+  type: "docs" | "rawq" | "graph" | "plans" | "memory" | "sessions" | "skills" | "artifacts" | "lessons" | "insight-update";
   query: string;
 }
 
-const TOOL_REQUEST_RE = /<!--\s*tunaflow:tool-request:(\w+):(.+?)\s*-->/g;
+const TOOL_REQUEST_RE = /<!--\s*tunaflow:tool-request:([\w-]+):(.+?)\s*-->/g;
 
 /** Extract all tool-request markers from a message. */
 export function extractToolRequests(content: string): ToolRequest[] {
@@ -424,7 +426,7 @@ export function extractToolRequests(content: string): ToolRequest[] {
   while ((match = TOOL_REQUEST_RE.exec(content)) !== null) {
     const type = match[1] as ToolRequest["type"];
     const query = match[2].trim();
-    if (["docs", "rawq", "graph", "plans", "memory", "sessions", "skills", "artifacts", "lessons"].includes(type) && query) {
+    if (["docs", "rawq", "graph", "plans", "memory", "sessions", "skills", "artifacts", "lessons", "insight-update"].includes(type) && query) {
       requests.push({ type, query });
     }
   }

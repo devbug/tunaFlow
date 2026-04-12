@@ -135,6 +135,21 @@ function parseFilePath(text: string): { path: string; line?: number } | null {
   return { path: filePart, line: m[2] ? parseInt(m[2], 10) : undefined };
 }
 
+// ─── Headings ────────────────────────────────────────────────────────────────
+
+function H1({ children, ...rest }: ComponentPropsWithoutRef<"h1">) {
+  return <h1 {...rest} className="text-[18px] font-semibold text-foreground mt-4 mb-2 leading-tight">{children}</h1>;
+}
+function H2({ children, ...rest }: ComponentPropsWithoutRef<"h2">) {
+  return <h2 {...rest} className="text-[15px] font-semibold text-foreground mt-3 mb-1.5 leading-tight">{children}</h2>;
+}
+function H3({ children, ...rest }: ComponentPropsWithoutRef<"h3">) {
+  return <h3 {...rest} className="text-[13px] font-semibold text-foreground/90 mt-2.5 mb-1 leading-tight">{children}</h3>;
+}
+function H4({ children, ...rest }: ComponentPropsWithoutRef<"h4">) {
+  return <h4 {...rest} className="text-[12px] font-semibold text-foreground/80 mt-2 mb-1 leading-tight">{children}</h4>;
+}
+
 // ─── Inline code / syntax highlighted code ──────────────────────────────────
 
 function InlineCode({ children, className, ...rest }: ComponentPropsWithoutRef<"code">) {
@@ -164,8 +179,11 @@ function InlineCode({ children, className, ...rest }: ComponentPropsWithoutRef<"
     );
   }
 
-  // Check if inline code is a file path
+  // Suppress empty code spans (e.g. stripped workflow markers left inside backticks)
   const text = String(children);
+  if (!text.trim()) return null;
+
+  // Check if inline code is a file path
   const fileParsed = parseFilePath(text);
 
   if (fileParsed && fileViewer) {
@@ -206,7 +224,24 @@ function ScrollTable({ children, ...rest }: ComponentPropsWithoutRef<"table">) {
 // ─── Links ──────────────────────────────────────────────────────────────────
 
 function SafeLink({ href, children, ...rest }: ComponentPropsWithoutRef<"a">) {
+  const fileViewer = useContext(FileViewerContext);
   const isExternal = href && (href.startsWith("http://") || href.startsWith("https://"));
+  const isRelative = href && !isExternal && !href.startsWith("#") && !href.startsWith("mailto:");
+
+  if (isRelative && fileViewer) {
+    // Strip leading ./ for cleaner path
+    const path = href.replace(/^\.\//, "");
+    return (
+      <button
+        type="button"
+        onClick={() => fileViewer.openFile(path)}
+        className="text-primary hover:text-primary hover:underline transition-colors inline cursor-pointer"
+      >
+        {children}
+      </button>
+    );
+  }
+
   return (
     <a {...rest} href={href}
       {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
@@ -236,4 +271,8 @@ export const markdownComponents: Partial<Components> = {
   table: ScrollTable as Components["table"],
   a: SafeLink as Components["a"],
   blockquote: Quote as Components["blockquote"],
+  h1: H1 as Components["h1"],
+  h2: H2 as Components["h2"],
+  h3: H3 as Components["h3"],
+  h4: H4 as Components["h4"],
 };

@@ -13,17 +13,37 @@ import type {
 
 // ─── PTY session management (chat = session 1:1) ─────────────────────────────
 
-let ptySpawnLock = false; // Prevent concurrent spawn calls
+/** Per-conversation spawn locks — prevents concurrent spawns for the same conversation.
+ *  Map<conversationId, Promise<void>> — presence indicates spawn in progress. */
+const ptySpawnLocks = new Map<string, Promise<void>>();
 
-/** Returns true if PTY is currently being spawned (lock held). */
-export function isPtySpawning() { return ptySpawnLock; }
+/** Returns true if PTY is currently being spawned for the given conversation (or any, if no id given). */
+export function isPtySpawning(convId?: string) {
+  if (convId) return ptySpawnLocks.has(convId);
+  return ptySpawnLocks.size > 0;
+}
+
+/** Wait for the PTY spawn of the given conversation to complete (or until timeout).
+ *  Resolves immediately if no spawn is in progress.
+ *  On timeout, resolves silently — caller checks session state after. */
+export async function waitForPtyReady(convId: string, timeoutMs = 20_000): Promise<void> {
+  const spawnPromise = ptySpawnLocks.get(convId);
+  if (!spawnPromise) return;
+  await Promise.race([
+    spawnPromise,
+    new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
+}
 
 /** Spawn a PTY Claude session for the given conversation.
  *  If conversation has a resumeToken, resumes that exact session.
  *  Otherwise starts a new session. */
 export async function spawnPtyForConversation(conv: Conversation, projectPath: string) {
-  if (ptySpawnLock) return;
-  ptySpawnLock = true;
+  if (ptySpawnLocks.has(conv.id)) return;
+
+  let resolveSpawn!: () => void;
+  const spawnPromise = new Promise<void>((res) => { resolveSpawn = res; });
+  ptySpawnLocks.set(conv.id, spawnPromise);
   try {
     const { usePtyStore, getPtyBinary, isPtyEngine } = await import("@/stores/ptyStore");
     const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
@@ -51,10 +71,15 @@ export async function spawnPtyForConversation(conv: Conversation, projectPath: s
     await tauriInvoke("pty_kill_all").catch(() => {});
     pty.clearAllSessions();
 
+    // Resolve model for this conversation from per-conversation engine map
+    const { useChatStore } = await import("@/stores/chatStore");
+    const savedModel = useChatStore.getState().getConversationEngine(conv.id)?.model;
+
     // Build engine-specific args (including resume)
     const args: string[] = [];
     if (engine === "claude") {
       if (conv.resumeToken) args.push("--resume", conv.resumeToken);
+      if (savedModel) args.push("--model", savedModel);
       args.push("--permission-mode", "bypassPermissions");
     } else if (engine === "codex") {
       if (conv.resumeToken) {
@@ -117,7 +142,8 @@ export async function spawnPtyForConversation(conv: Conversation, projectPath: s
   } catch (err) {
     console.warn(`[pty] unavailable:`, err);
   } finally {
-    ptySpawnLock = false;
+    ptySpawnLocks.delete(conv.id);
+    resolveSpawn();
   }
 }
 

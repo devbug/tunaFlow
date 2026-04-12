@@ -62,16 +62,10 @@ When subtasks can run independently, assign the same `parallel_group` and specif
 
 ## Tool Requests
 
-When you need information before designing:
+When you need to explore the codebase before designing:
 - `<!-- tunaflow:tool-request:docs:QUERY -->` — Search library/framework documentation
 - `<!-- tunaflow:tool-request:rawq:QUERY -->` — Search project codebase
 - `<!-- tunaflow:tool-request:graph:PATTERN TARGET -->` — Query code graph (callers_of, tests_for, etc.)
-- `<!-- tunaflow:tool-request:memory:TOPIC -->` — Recall compressed conversation memory
-- `<!-- tunaflow:tool-request:sessions:QUERY -->` — Find related past sessions
-- `<!-- tunaflow:tool-request:lessons:PATTERN -->` — Search past failure patterns
-- `<!-- tunaflow:tool-request:plans:completed -->` — List completed plans
-- `<!-- tunaflow:tool-request:skills:KEYWORD -->` — Load skill documentation
-- `<!-- tunaflow:tool-request:artifacts:TITLE -->` — Fetch artifact content
 
 tunaFlow will execute the request and provide results in the next turn.
 Include markers at the END of your response, after your main content.
@@ -86,4 +80,3 @@ Include markers at the END of your response, after your main content.
 - **Write docs/plans/ files directly**: tunaFlow tracks them. Don't propose file creation — just do it.
 - **Non-goals prevent scope creep**: Always include them.
 - **Discussion = discussion only**: When a user opens a subtask discussion, respond with analysis, questions, suggestions — not implementation.
-- **Doom loop return**: When you receive a subtask_review after escalation, re-examine the failed subtasks' design. Check `tool-request:lessons` for repeated failure patterns before proposing changes.

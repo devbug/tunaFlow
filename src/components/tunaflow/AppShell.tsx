@@ -13,6 +13,7 @@ import { FileViewerContext } from "./chat/fileViewerContext";
 import { Toaster } from "sonner";
 import { CommandPalette } from "./CommandPalette";
 import { TitleBar } from "./TitleBar";
+import { MetaFloatingChat } from "./MetaFloatingChat";
 
 // ─── Panel width constraints ─────────────────────────────────────────────────
 const SIDEBAR_MIN = 220;
@@ -32,13 +33,19 @@ export function AppShell() {
   const [sidebarW, setSidebarW] = useState(SIDEBAR_DEFAULT);
   const [drawerW, setDrawerW] = useState(DRAWER_DEFAULT);
   const [loaded, setLoaded] = useState(false);
+  const [themeMode, setThemeMode] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
     const init = async () => {
-      const [sw, dw] = await Promise.all([
+      const [sw, dw, themeMode] = await Promise.all([
         getSetting<number>("sidebarWidth", SIDEBAR_DEFAULT),
         getSetting<number>("drawerWidth", DRAWER_DEFAULT),
+        getSetting<string>("themeMode", "dark"),
       ]);
+      // Apply theme class to <html> — light mode uses CSS variable overrides
+      const mode = themeMode === "light" ? "light" : "dark";
+      document.documentElement.classList.toggle("light", mode === "light");
+      setThemeMode(mode as "dark" | "light");
       setSidebarW(clamp(sw, SIDEBAR_MIN, SIDEBAR_MAX));
       setDrawerW(Math.max(dw, DRAWER_MIN));
       setLoaded(true);
@@ -113,8 +120,8 @@ export function AppShell() {
 
   return (
     <FileViewerContext.Provider value={fileViewerCtx}>
-    <Toaster position="bottom-right" theme="dark" richColors closeButton />
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-sidebar text-foreground font-sans">
+    <Toaster position="bottom-right" theme={themeMode} richColors closeButton />
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-sidebar text-foreground font-sans relative">
       {/* ── Title bar (macOS overlay) ── */}
       <TitleBar />
 
@@ -152,6 +159,11 @@ export function AppShell() {
 
         {/* Main area */}
         <div className="flex-1 min-w-0 h-full relative flex">
+          {/* Meta floating chat — anchored to top-left of main area */}
+          {selectedProjectKey && (
+            <MetaFloatingChat projectKey={selectedProjectKey} />
+          )}
+
           {/* CenterPanel — full width when no drawer, or flex-1 when pinned */}
           <div className={drawerOpen && drawerPinned ? "flex-1 min-w-0 h-full" : "flex-1 min-w-0 h-full"}>
             <CenterPanel />
@@ -162,7 +174,7 @@ export function AppShell() {
             /* Pinned mode — side-by-side with CenterPanel, edge-grab resize */
             <div
               style={{ width: drawerW }}
-              className="shrink-0 h-full bg-background overflow-hidden relative"
+              className="shrink-0 h-full bg-background rounded-l-xl overflow-hidden relative"
             >
               {/* Left edge resize handle — invisible, cursor changes on hover */}
               <div
@@ -204,7 +216,7 @@ export function AppShell() {
               {/* Drawer — anchored to right edge, slide in from right */}
               <div
                 style={{ width: drawerW, animation: "slide-in-from-right 200ms ease-out" }}
-                className="absolute top-1.5 right-1.5 bottom-1.5 z-50"
+                className="absolute top-1.5 right-0 bottom-1.5 z-50"
               >
                 {/* Left edge resize handle — invisible, overlays drawer left edge */}
                 <div
@@ -234,7 +246,7 @@ export function AppShell() {
                 />
 
                 {/* Drawer content */}
-                <div className="h-full bg-background shadow-[-4px_0_16px_-2px_rgba(0,0,0,0.2)] rounded-l-md overflow-hidden">
+                <div className="h-full bg-background shadow-[-4px_0_16px_-2px_rgba(0,0,0,0.2)] rounded-l-xl overflow-hidden">
                   <BranchThreadPanel />
                 </div>
               </div>

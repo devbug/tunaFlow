@@ -118,12 +118,13 @@ Details extracted
     expect(segments[0].type).toBe("markdown");
   });
 
-  it("handles unclosed marker gracefully", () => {
+  it("handles unclosed marker as plan-proposal (agent omitted closing tag)", () => {
     const content = "before\n<!-- tunaflow:plan-proposal -->\nsome stuff";
     const segments = splitPlanProposals(content);
     expect(segments).toHaveLength(2);
     expect(segments[0].type).toBe("markdown");
-    expect(segments[1].type).toBe("markdown");
+    // New behavior: unclosed marker treated as plan-proposal (agents sometimes omit closing tag)
+    expect(segments[1].type).toBe("plan-proposal");
   });
 });
 

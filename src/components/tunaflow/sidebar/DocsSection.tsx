@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { FileText, ChevronRight, ChevronDown, Folder, FolderOpen, X } from "lucide-react";
+import { FileText, ChevronRight, ChevronDown, Folder, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useFileViewer } from "../chat/fileViewerContext";
 
 interface DocEntry {
   name: string;
@@ -60,42 +61,6 @@ async function scanDocsDir(dirPath: string, depth: number): Promise<DocEntry[]> 
   }
 }
 
-// ─── Doc Viewer Popup ────────────────────────────────────────────────────────
-
-function DocViewer({ path, onClose }: { path: string; onClose: () => void }) {
-  const [content, setContent] = useState<string | null>(null);
-  const filename = path.split("/").pop() ?? path;
-
-  useEffect(() => {
-    invoke<string>("read_file_content", { path })
-      .then(setContent)
-      .catch(() => setContent("(파일을 읽을 수 없습니다)"));
-  }, [path]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div
-        className="bg-popover border border-border/40 rounded-xl shadow-2xl w-[700px] max-w-[90vw] max-h-[80vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
-          <span className="text-sm font-medium text-foreground truncate">{filename}</span>
-          <button onClick={onClose} className="p-1 rounded hover:bg-accent transition-colors">
-            <X className="w-4 h-4 text-muted-foreground" />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-4">
-          {content === null ? (
-            <p className="text-muted-foreground text-sm">Loading...</p>
-          ) : (
-            <pre className="text-xs text-foreground/80 whitespace-pre-wrap font-mono leading-relaxed">{content}</pre>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── DocsSection ─────────────────────────────────────────────────────────────
 
 interface DocsSectionProps {
@@ -105,7 +70,7 @@ interface DocsSectionProps {
 export function DocsSection({ projectPath }: DocsSectionProps) {
   const [docs, setDocs] = useState<DocEntry[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [viewerPath, setViewerPath] = useState<string | null>(null);
+  const fileViewer = useFileViewer();
 
   useEffect(() => {
     if (!projectPath) { setDocs([]); return; }
@@ -142,7 +107,7 @@ export function DocsSection({ projectPath }: DocsSectionProps) {
     return (
       <button
         key={entry.path}
-        onClick={() => setViewerPath(entry.path)}
+        onClick={() => fileViewer?.openFile(entry.path)}
         className="w-full flex items-center gap-1.5 px-2 py-0.5 text-[11px] text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/40 rounded transition-colors"
         style={{ paddingLeft: `${8 + depth * 12}px` }}
         title={entry.path}
@@ -156,15 +121,12 @@ export function DocsSection({ projectPath }: DocsSectionProps) {
   if (!projectPath) return null;
 
   return (
-    <>
-      <div className="py-1">
-        {docs.length === 0 ? (
-          <p className="px-3 text-[10px] text-sidebar-foreground/25 italic">No docs found</p>
-        ) : (
-          docs.map((entry) => renderEntry(entry, 0))
-        )}
-      </div>
-      {viewerPath && <DocViewer path={viewerPath} onClose={() => setViewerPath(null)} />}
-    </>
+    <div className="py-1">
+      {docs.length === 0 ? (
+        <p className="px-3 text-[10px] text-sidebar-foreground/25 italic">No docs found</p>
+      ) : (
+        docs.map((entry) => renderEntry(entry, 0))
+      )}
+    </div>
   );
 }

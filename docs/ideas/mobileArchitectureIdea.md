@@ -2,6 +2,7 @@
 
 > Status: idea
 > Created: 2026-04-03
+> Updated: 2026-04-12 (CF Tunnel 확정 + 모바일 UI 구체화 + 세션 연속성)
 
 ---
 
@@ -538,11 +539,212 @@ MVP에 없는 것:
 
 ---
 
+## 8. 터널 확정: Cloudflare Named Tunnel (2026-04-12)
+
+### 왜 Named Tunnel인가
+
+| 방법 | URL | 계정 | 판단 |
+|------|-----|------|------|
+| `trycloudflare.com` | 매번 랜덤 | 불필요 | ❌ 매번 QR 재스캔 |
+| **Named Tunnel** | **고정** (`tunaflow-abc.cfargotunnel.com`) | 무료 계정 | ✅ 한번 설정 → 영구 |
+| 사용자 도메인 | 고정 (커스텀) | 도메인 소유 필요 | ❌ 대부분 탈락 |
+
+### 자동 설정 흐름
+
+```
+사용자: Settings > Remote Access > "터널 생성"
+  ↓
+tunaFlow가 자동 실행:
+  1. cloudflared tunnel create tunaflow-{random-suffix}
+  2. cloudflared tunnel route dns tunaflow-{random-suffix} tunaflow-{suffix}.cfargotunnel.com
+  3. 고정 URL 생성 완료
+  ↓
+이후 앱 시작 시:
+  cloudflared tunnel run tunaflow-{suffix} --url http://localhost:19840
+  → 자동 연결 (사용자 조작 없음)
+  ↓
+모바일: 같은 URL로 항상 접근 가능
+```
+
+**전제**: `cloudflared` CLI 설치 + Cloudflare 무료 계정 + 1회 `cloudflared login` (브라우저 인증)
+
+---
+
+## 9. 모바일 UI 설계 (2026-04-12)
+
+### 설계 원칙
+
+```
+모바일의 본질: "이어서 하기"
+  ✅ 아키텍트와 대화 (설계 논의, 방향 결정)
+  ✅ 진행 상황 확인 (Plan, 에이전트)
+  ✅ 승인/거부 (Plan, Review verdict)
+  ✅ Branch/RT 채팅 확인
+
+  ❌ 코드 리뷰 (화면 작음)
+  ❌ Settings 세부 조정
+  ❌ Artifacts/Trace 상세 분석
+```
+
+### 현재 사이드바 구조 (PC)
+
+```
+사이드바 5섹션:
+  1. Branches — 활성 Branch 목록 (→ 드로어로 열림)
+  2. Roundtables — 활성 RT 목록 (→ 드로어로 열림)
+  3. Scratchpad — 메모 대화 목록
+  4. Docs — 프로젝트 문서
+  5. Archive — 아카이브된 Branch
+
+CenterPanel 5탭:
+  Chat | Workflow | Artifacts | Review | Insight
+
+메인 채팅은 항상 하나 (프로젝트 = 메인 대화 1:1)
+Branch/RT는 사이드바에서 선택 → 드로어/고정 패널
+```
+
+### 모바일 3탭 구성
+
+```
+┌─────────────────────────┐
+│ 🐟 myProject  🌿main    │ ← 프로젝트명 + git branch
+├─────────────────────────┤
+│                         │
+│   (탭별 컨텐츠)          │
+│                         │
+├─────────────────────────┤
+│ 💬 Chat  📋 Status  ≡   │ ← 바텀 3탭
+└─────────────────────────┘
+```
+
+**💬 Chat**: 메인 채팅 (또는 Branch/RT 채팅)
+
+```
+기본: 메인 채팅 표시
+Branch/RT 선택 시: 해당 채팅으로 전환 + 뒤로가기 버튼
+
+┌─────────────────────────┐
+│ ← impl-auth (Branch)    │ ← 뒤로가기 → 메인 채팅
+├─────────────────────────┤
+│ Branch 채팅 내용...      │
+├─────────────────────────┤
+│ [메시지 입력...]    [▶]  │
+└─────────────────────────┘
+```
+
+**📋 Status**: Plan + Branch/RT 목록 + 에이전트 상태
+
+```
+┌─────────────────────────┐
+│ 📋 Plans                │
+│  ● Auth Migration       │
+│    review 단계 [승인][거부]│
+│  ✅ DB Schema v2 (done)  │
+│                         │
+│ 🔀 Branches (3)         │
+│  impl-auth ● (실행 중)   │ ← 터치 → Chat 탭으로 전환
+│  impl-db-migration      │
+│  review-auth            │
+│                         │
+│ 👥 Roundtables (1)      │
+│  auth-discussion        │ ← 터치 → Chat 탭으로 전환
+│                         │
+│ 🤖 Agent: Claude 실행 중 │
+│ 💰 $0.42 | Ctx 62%     │
+└─────────────────────────┘
+```
+
+**≡ Menu**: 프로젝트 전환 + 연결 + Scratchpad
+
+```
+┌─────────────────────────┐
+│ 프로젝트: [myProject ▾]  │
+│ 연결: ● PC 연결됨        │
+│ 📝 Scratchpad (2)       │
+│  메모 1 / 아이디어 정리   │
+└─────────────────────────┘
+```
+
+---
+
+## 10. 세션 연속성 (2026-04-12)
+
+### 핵심: DB가 SSOT이므로 동기화 로직 불필요
+
+```
+PC (항상 켜져있음)
+  └── SQLite DB ← 모든 상태의 단일 진실 원천
+  └── axum HTTP API
+  └── cloudflared tunnel
+
+모바일 접속:
+  GET /api/state/current → { projectKey, conversationId, agentRunning, pendingApprovals }
+  GET /api/conversations/:id/messages?limit=20 → 최근 메시지
+  → 동기화 로직 0줄. DB에서 바로 읽기.
+```
+
+### 트리거 1개: `/api/state/current`
+
+```rust
+#[derive(Serialize)]
+struct CurrentState {
+    project_key: String,
+    project_name: String,
+    conversation_id: String,
+    last_message_id: Option<String>,
+    agent_running: bool,
+    running_engines: Vec<String>,        // ["claude", "gemini"]
+    pending_approvals: Vec<PlanSummary>, // 승인 대기 Plan
+    branch_count: usize,
+    rt_count: usize,
+    session_cost_usd: f64,
+}
+```
+
+모바일이 접속할 때 **이것 하나만 호출**하면 전체 상태 파악. 이후는 개별 API로 상세 데이터 로드.
+
+### PC ↔ 모바일 흐름
+
+```
+PC에서 작업 중 → 자리 비움
+  ↓
+모바일에서 터널 URL 접속 (PWA 또는 브라우저)
+  ↓
+GET /api/state/current → 현재 프로젝트 + 대화 상태 로드
+  ↓
+메인 채팅 즉시 표시 (최근 20개 메시지)
+  ↓
+모바일에서 "OAuth 방향으로 가자" 메시지 전송
+  POST /api/conversations/:id/send
+  ↓
+PC의 DB에 바로 기록됨
+  ↓
+PC로 돌아오면 모바일에서 보낸 메시지가 이미 표시
+(DB를 공유하므로 별도 동기화 없음)
+```
+
+### PC 꺼졌을 때
+
+```
+PC 꺼짐 → axum 없음 → 터널 끊김
+  ↓
+모바일: 연결 실패 → "PC에 연결할 수 없습니다" 표시
+  ↓
+PWA IndexedDB에 캐싱된 마지막 상태는 읽기 전용으로 표시 가능
+  (선택적 구현)
+```
+
+**이건 의도된 동작**. tunaFlow는 로컬 퍼스트. PC가 서버.
+
+---
+
 ## 참고
 
 - Tauri 2 Mobile: https://v2.tauri.app/start/prerequisites/#mobile
-- bore: https://github.com/ekzhang/bore
-- Cloudflare Tunnel: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+- Cloudflare Tunnel (Named): https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+- cloudflared CLI: `brew install cloudflared`
 - axum: https://github.com/tokio-rs/axum
-- 현재 daemon 로드맵: `docs/plans/agentDaemonRoadmapPlan.md`
+- HTTP API + 테스트 인프라: `docs/ideas/httpApiTestInfraIdea.md`
+- 현재 사이드바 구조: `src/components/tunaflow/Sidebar.tsx` (5섹션)
+- 현재 CenterPanel: `src/components/tunaflow/CenterPanel.tsx` (5탭)
 - 현재 Tauri 설정: `src-tauri/tauri.conf.json`

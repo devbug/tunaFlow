@@ -1,0 +1,268 @@
+//! Vector similarity search — KNN via sqlite-vec and brute-force cosine fallback.
+
+use rusqlite::Connection;
+
+use crate::agents::{embedder, rawq};
+use crate::errors::AppError;
+
+use super::{VectorChunk, helpers::{embedding_to_blob, blob_to_embedding, truncate_str}};
+
+/// Search for similar chunks across a project using sqlite-vec KNN.
+/// Falls back to brute-force cosine if vec0 table is unavailable.
+pub fn search_similar(
+    conn: &Connection,
+    query_embedding: &[f32],
+    project_key: &str,
+    exclude_conv_id: &str,
+    limit: usize,
+) -> Vec<VectorChunk> {
+    let query_blob = embedding_to_blob(query_embedding);
+
+    // Try sqlite-vec KNN first (O(log n) with HNSW index)
+    let results = search_via_vec0(conn, &query_blob, project_key, exclude_conv_id, limit);
+    if !results.is_empty() {
+        return results;
+    }
+
+    // Fallback: brute-force cosine (for pre-migration databases)
+    search_brute_force(conn, query_embedding, project_key, exclude_conv_id, limit)
+}
+
+/// KNN search via sqlite-vec vec0 virtual table.
+fn search_via_vec0(
+    conn: &Connection,
+    query_blob: &[u8],
+    project_key: &str,
+    exclude_conv_id: &str,
+    limit: usize,
+) -> Vec<VectorChunk> {
+    let sql = "
+        SELECT cc.id, cc.conversation_id, cc.kind, cc.text_preview, cc.root_message_id, vc.distance
+        FROM vec_chunks vc
+        JOIN conversation_chunks cc ON cc.rowid = vc.rowid
+        WHERE vc.embedding MATCH ?1
+          AND cc.project_key = ?2
+          AND cc.conversation_id != ?3
+          AND vc.k = ?4
+        ORDER BY vc.distance
+    ";
+    let mut stmt = match conn.prepare(sql) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[vector] vec0 query failed (falling back to brute-force): {}", e);
+            return Vec::new();
+        }
+    };
+
+    let fetch_limit = limit * 3; // Over-fetch to account for filtered rows
+    let rows: Vec<(String, String, String, String, String, f64)> = stmt
+        .query_map(rusqlite::params![query_blob, project_key, exclude_conv_id, fetch_limit as i64], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+        })
+        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default();
+
+    // Convert distance to similarity score (cosine distance: 0=identical, 2=opposite)
+    let mut chunks: Vec<VectorChunk> = Vec::with_capacity(limit);
+    for (id, conv_id, kind, text, root_msg_id, distance) in rows.into_iter().take(limit) {
+        let score = 1.0 - (distance as f32 / 2.0);
+
+        // Parent Document Retriever: resolve full text
+        let full_text = conn.query_row(
+            "SELECT content FROM messages WHERE id = ?1",
+            [&root_msg_id],
+            |row| row.get::<_, String>(0),
+        ).ok().map(|c| truncate_str(&c, 600));
+
+        chunks.push(VectorChunk { id, conversation_id: conv_id, kind, text_preview: text, score, full_text });
+    }
+    chunks
+}
+
+/// Brute-force cosine similarity search (fallback for pre-v30 databases).
+fn search_brute_force(
+    conn: &Connection,
+    query_embedding: &[f32],
+    project_key: &str,
+    exclude_conv_id: &str,
+    limit: usize,
+) -> Vec<VectorChunk> {
+    let mut stmt = match conn.prepare(
+        "SELECT id, conversation_id, kind, text_preview, embedding, root_message_id
+         FROM conversation_chunks
+         WHERE project_key = ?1 AND conversation_id != ?2 AND embedding IS NOT NULL",
+    ) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut results: Vec<(VectorChunk, String)> = stmt
+        .query_map(rusqlite::params![project_key, exclude_conv_id], |row| {
+            let id: String = row.get(0)?;
+            let conv_id: String = row.get(1)?;
+            let kind: String = row.get(2)?;
+            let text: String = row.get(3)?;
+            let blob: Vec<u8> = row.get(4)?;
+            let root_msg_id: String = row.get(5)?;
+            Ok((id, conv_id, kind, text, blob, root_msg_id))
+        })
+        .map(|rows| {
+            rows.filter_map(|r| r.ok())
+                .filter_map(|(id, conv_id, kind, text, blob, root_msg_id)| {
+                    let embedding = blob_to_embedding(&blob)?;
+                    let score = rawq::cosine_similarity(query_embedding, &embedding);
+                    Some((VectorChunk { id, conversation_id: conv_id, kind, text_preview: text, score, full_text: None }, root_msg_id))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    results.sort_by(|a, b| b.0.score.partial_cmp(&a.0.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.truncate(limit);
+
+    let mut chunks: Vec<VectorChunk> = Vec::with_capacity(results.len());
+    for (mut chunk, root_msg_id) in results {
+        if let Ok(content) = conn.query_row(
+            "SELECT content FROM messages WHERE id = ?1", [&root_msg_id], |row| row.get::<_, String>(0),
+        ) {
+            chunk.full_text = Some(truncate_str(&content, 600));
+        }
+        chunks.push(chunk);
+    }
+    chunks
+}
+
+/// Blocking search — callable from HTTP API without Tauri State.
+pub fn search_chunks_blocking(db: &crate::db::DbState, conversation_id: &str, query: &str, limit: usize) -> Result<Vec<serde_json::Value>, AppError> {
+    let query_embedding = embedder::embed_text(query, true)?;
+    let conn = db.read.lock().map_err(|_| AppError::Lock)?;
+    let project_key: String = conn.query_row("SELECT project_key FROM conversations WHERE id = ?1", [conversation_id], |r| r.get(0))
+        .map_err(|_| AppError::NotFound("conversation not found".into()))?;
+    let chunks = search_similar(&conn, &query_embedding, &project_key, conversation_id, limit);
+    Ok(chunks.into_iter().map(|c| serde_json::json!({
+        "id": c.id, "conversationId": c.conversation_id, "kind": c.kind,
+        "textPreview": c.text_preview, "score": c.score,
+    })).collect())
+}
+
+/// Search for similar chunks using a text query.
+#[tauri::command]
+pub fn search_conversation_vectors(
+    query: String,
+    project_key: String,
+    exclude_conversation_id: String,
+    limit: usize,
+    state: tauri::State<crate::db::DbState>,
+) -> Result<Vec<VectorChunk>, AppError> {
+    let query_embedding = embedder::embed_text(&query, true)?;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
+    Ok(search_similar(
+        &conn,
+        &query_embedding,
+        &project_key,
+        &exclude_conversation_id,
+        limit,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::helpers::embedding_to_blob;
+
+    const TEST_DIM: usize = 1024;
+
+    fn fake_embedding(seed: usize) -> Vec<f32> {
+        (0..TEST_DIM).map(|i| {
+            let x = ((seed * 7919 + i * 104729) % 100000) as f32 / 100000.0;
+            x * 2.0 - 1.0
+        }).collect()
+    }
+
+    #[test]
+    fn benchmark_brute_force_vs_vec0() {
+        use std::time::Instant;
+        use rusqlite::Connection;
+
+        unsafe {
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )));
+        }
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA journal_mode = WAL;").unwrap();
+
+        conn.execute_batch("
+            CREATE TABLE conversation_chunks (
+                id TEXT PRIMARY KEY,
+                project_key TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'pair',
+                root_message_id TEXT NOT NULL,
+                text_preview TEXT NOT NULL,
+                embedding BLOB,
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE messages (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT,
+                role TEXT,
+                content TEXT,
+                timestamp INTEGER
+            );
+            CREATE VIRTUAL TABLE vec_chunks USING vec0(
+                embedding float[1024] distance_metric=cosine
+            );
+        ").unwrap();
+
+        let n = 11_000;
+        let t_insert = Instant::now();
+        for i in 0..n {
+            let id = format!("chunk-{}", i);
+            let conv_id = format!("conv-{}", i % 100);
+            let emb = fake_embedding(i);
+            let blob = embedding_to_blob(&emb);
+            conn.execute(
+                "INSERT INTO conversation_chunks (id, project_key, conversation_id, kind, root_message_id, text_preview, embedding, created_at)
+                 VALUES (?1, 'proj1', ?2, 'window', ?3, ?4, ?5, 0)",
+                rusqlite::params![id, conv_id, format!("msg-{}", i), format!("text preview {}", i), blob],
+            ).unwrap();
+            let rowid: i64 = conn.last_insert_rowid();
+            conn.execute(
+                "INSERT INTO vec_chunks(rowid, embedding) VALUES (?1, ?2)",
+                rusqlite::params![rowid, blob],
+            ).unwrap();
+        }
+        let insert_ms = t_insert.elapsed().as_millis();
+        eprintln!("[bench] inserted {} chunks in {}ms", n, insert_ms);
+
+        for i in 0..n {
+            conn.execute(
+                "INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?1, ?2, 'assistant', ?3, 0)",
+                rusqlite::params![format!("msg-{}", i), format!("conv-{}", i % 100), format!("Full message content for chunk {}", i)],
+            ).unwrap();
+        }
+
+        let query = fake_embedding(42);
+        let query_blob = embedding_to_blob(&query);
+
+        let t_brute = Instant::now();
+        let brute_results = search_brute_force(&conn, &query, "proj1", "conv-999", 10);
+        let brute_ms = t_brute.elapsed().as_micros();
+
+        let t_vec0 = Instant::now();
+        let vec0_results = search_via_vec0(&conn, &query_blob, "proj1", "conv-999", 10);
+        let vec0_ms = t_vec0.elapsed().as_micros();
+
+        eprintln!("[bench] {} chunks:", n);
+        eprintln!("  brute-force: {}μs ({} results)", brute_ms, brute_results.len());
+        eprintln!("  vec0 KNN:    {}μs ({} results)", vec0_ms, vec0_results.len());
+        eprintln!("  speedup:     {:.1}x", brute_ms as f64 / vec0_ms.max(1) as f64);
+
+        assert!(!brute_results.is_empty());
+        assert!(!vec0_results.is_empty());
+        assert!(brute_results[0].full_text.is_some());
+        assert!(vec0_results[0].full_text.is_some());
+    }
+}

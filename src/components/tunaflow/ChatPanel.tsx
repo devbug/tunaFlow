@@ -33,6 +33,8 @@ export function ChatPanel() {
   messagesRef.current = messages;
   const branchesRef = useRef(branches);
   branchesRef.current = branches;
+  // Ref to always call the latest handleCreateBranch (avoids stale closure in memoized renderMessage)
+  const handleCreateBranchRef = useRef<(checkpointId: string) => void>(() => {});
   const [view, setView] = useState<"stream" | "roundtable">("stream");
   const [rtDialogCheckpoint, setRtDialogCheckpoint] = useState<string | null>(null);
   const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
@@ -44,17 +46,14 @@ export function ChatPanel() {
 
   // Create branch and immediately open in drawer
   const handleCreateBranch = async (checkpointId: string) => {
-    console.log("[branch] handleCreateBranch called:", checkpointId, "convId:", selectedConversationId, "activeBranchId:", activeBranchId);
     if (!selectedConversationId) { console.warn("[branch] no selectedConversationId"); return; }
     try {
       await createBranch(selectedConversationId, checkpointId);
       const { branches: freshBranches } = useChatStore.getState();
-      console.log("[branch] created, freshBranches:", freshBranches.length);
       const newBranch = freshBranches
         .filter((b) => b.checkpointId === checkpointId && b.status === "active")
         .sort((a, b) => b.createdAt - a.createdAt)[0];
       if (newBranch) {
-        console.log("[branch] opening thread:", newBranch.id);
         openThread(newBranch.id);
       } else {
         console.warn("[branch] no matching branch found for checkpoint:", checkpointId);
@@ -63,6 +62,8 @@ export function ChatPanel() {
       console.error("[branch] createBranch failed:", err);
     }
   };
+  // Keep ref up-to-date on every render so memoized renderMessage always calls the latest version
+  handleCreateBranchRef.current = handleCreateBranch;
 
   // Auto-switch view based on conversation mode
   useEffect(() => {
@@ -148,7 +149,7 @@ export function ChatPanel() {
           <MessageItem
             message={msg}
             grouped={grouped}
-            onBranch={!activeBranchId ? (id) => handleCreateBranch(id) : undefined}
+            onBranch={!activeBranchId ? (id) => handleCreateBranchRef.current(id) : undefined}
             onBranchRT={
               !activeBranchId ? (id) => setRtDialogCheckpoint(id) : undefined
             }

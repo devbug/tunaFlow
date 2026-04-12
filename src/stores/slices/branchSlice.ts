@@ -124,10 +124,14 @@ export const createBranchSlice = (set: SetState, get: GetState): BranchSlice => 
     try {
       const input: AdoptBranchInput = { branchId, conversationId };
       await invoke("adopt_branch", { input });
-      const [messages, branches] = await Promise.all([
+      const [freshMessages, branches] = await Promise.all([
         invoke<Message[]>("list_messages", { conversationId }),
         invoke<Branch[]>("list_branches", { conversationId }),
       ]);
+      // Preserve in-memory streaming messages not yet saved to DB
+      const streamingMsgs = get().messages.filter((m) => m.status === "streaming");
+      const dbIds = new Set(freshMessages.map((m) => m.id));
+      const messages = [...freshMessages, ...streamingMsgs.filter((m) => !dbIds.has(m.id))];
       set({ messages, branches });
     } catch (e) {
       const msg = errorMessage(e);

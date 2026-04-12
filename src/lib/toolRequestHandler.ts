@@ -151,6 +151,23 @@ export async function executeToolRequests(requests: ToolRequest[]): Promise<stri
             results.push(`> "${req.query}" 관련 실패 패턴이 없습니다.`);
           }
         }
+      } else if (req.type === "insight-update") {
+        // Format: FINDING_ID|STATUS|NOTE
+        // STATUS: resolved|skipped|discarded|in_progress
+        const parts = req.query.split("|");
+        const findingId = parts[0]?.trim();
+        const status = parts[1]?.trim();
+        const note = parts[2]?.trim() ?? "";
+        const validStatuses = ["resolved", "skipped", "discarded", "in_progress"];
+        if (findingId && status && validStatuses.includes(status)) {
+          await invoke("update_insight_finding_status", { id: findingId, status, resolution: note || null })
+            .catch((e) => console.warn("[insight-update] failed:", e));
+          results.push(`> ✅ Insight finding \`${findingId}\` → **${status}**${note ? ` (${note})` : ""}`);
+          // Notify Meta badge that an insight task was dispatched
+          window.dispatchEvent(new CustomEvent("tunaflow:meta-task"));
+        } else {
+          results.push(`> ⚠️ insight-update 형식 오류: \`FINDING_ID|STATUS|NOTE\` 형식이어야 합니다. (STATUS: resolved|skipped|discarded|in_progress)`);
+        }
       } else if (req.type === "plans") {
         const { useChatStore } = await import("@/stores/chatStore");
         const convId = useChatStore.getState().selectedConversationId;

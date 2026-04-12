@@ -188,6 +188,16 @@ fn scaffold_project_dir(project_path: &str, project_name: &str) {
         let _ = fs::write(&ref_index, "# Reference\n\nReference document index.\n");
     }
 
+    // docs/agentSessionHistory.md — agent session log (only if not present)
+    let session_history = root.join("docs/agentSessionHistory.md");
+    if !session_history.exists() {
+        let _ = fs::write(
+            &session_history,
+            "# Agent Session History\n\nRecord key decisions, completed work, and context from each session.\nUpdate at the end of each session.\n\n---\n\n## Session Log\n\n<!-- Newest entries first -->\n",
+        );
+        eprintln!("[scaffold] created {}", session_history.display());
+    }
+
     // Workflow agent templates — always ensure these exist
     super::project_tools::ensure_workflow_templates(project_path);
 }
@@ -525,6 +535,14 @@ fn generate_claude_md(project_name: &str, project_path: Option<&str>) -> String 
 ## 8. Next Priorities
 
 1. (record here)
+
+---
+
+## 9. Session History
+
+> 세션 이력: `docs/agentSessionHistory.md`
+> Record key decisions, completed features, and context at the end of each session.
+> Read this file at the start of a new session to restore context.
 "#)
 }
 

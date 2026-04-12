@@ -10,6 +10,43 @@ use crate::db::{
 };
 use crate::errors::AppError;
 
+/// Convert a user-provided branch label to git-style slug.
+///
+/// Rules:
+/// - Spaces and common special chars → hyphens
+/// - CJK/Korean characters: preserved (valid in git branch names via unicode)
+/// - Consecutive hyphens → single hyphen
+/// - Leading/trailing hyphens trimmed
+///
+/// Examples:
+/// - "My Feature Branch" → "my-feature-branch"
+/// - "Fix: auth bug" → "fix-auth-bug"
+/// - "Insight Review (3건)" → "insight-review-3건"
+fn slugify_label(label: &str) -> String {
+    let mut result = String::with_capacity(label.len());
+    let mut prev_hyphen = false;
+
+    for ch in label.chars() {
+        if ch.is_whitespace() || matches!(ch, '/' | '\\' | ':' | '!' | '?' | '*' | '[' | ']' | '(' | ')' | '{' | '}' | ',' | ';' | '@' | '#' | '$' | '%' | '^' | '&' | '=' | '+' | '|' | '<' | '>' | '~' | '`' | '\'' | '"') {
+            if !prev_hyphen && !result.is_empty() {
+                result.push('-');
+                prev_hyphen = true;
+            }
+        } else if ch.is_ascii() {
+            result.push(ch.to_ascii_lowercase());
+            prev_hyphen = false;
+        } else {
+            // Non-ASCII (Korean, CJK, etc.) — preserve as-is
+            result.push(ch);
+            prev_hyphen = false;
+        }
+    }
+
+    // Trim trailing hyphen
+    let trimmed = result.trim_end_matches('-');
+    trimmed.to_string()
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateBranchInput {
@@ -98,8 +135,12 @@ pub fn create_branch(
     };
 
     // Auto-generate label: b1, b1.1, b2, etc.
+    // User-provided labels are slugified (spaces → hyphens, git-style).
     let label = match input.label {
-        Some(l) => l,
+        Some(l) => {
+            let slug = slugify_label(l.trim());
+            if slug.is_empty() { l.trim().to_string() } else { slug }
+        }
         None => {
             let count: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM branches WHERE conversation_id = ?1",
@@ -250,10 +291,16 @@ pub fn open_branch_stream(
 
 /// Set or clear the user-facing display label for a branch.
 /// Empty string → NULL (fallback to auto-generated label).
+/// Non-empty labels are slugified (spaces → hyphens, git-style).
 #[tauri::command]
 pub fn rename_branch(id: String, custom_label: String, state: State<DbState>) -> Result<(), AppError> {
     let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-    let value: Option<&str> = if custom_label.trim().is_empty() { None } else { Some(custom_label.trim()) };
+    let value: Option<String> = if custom_label.trim().is_empty() {
+        None
+    } else {
+        let slug = slugify_label(custom_label.trim());
+        Some(if slug.is_empty() { custom_label.trim().to_string() } else { slug })
+    };
     conn.execute(
         "UPDATE branches SET custom_label = ?1 WHERE id = ?2",
         params![value, id],
@@ -517,4 +564,46 @@ pub fn adopt_branch(
         persona: None,
         duration_ms: None, input_tokens: None, output_tokens: None, cost_usd: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slugify_label;
+
+    #[test]
+    fn slugify_spaces_to_hyphens() {
+        assert_eq!(slugify_label("My Feature Branch"), "my-feature-branch");
+    }
+
+    #[test]
+    fn slugify_colon_and_special() {
+        assert_eq!(slugify_label("Fix: auth bug"), "fix-auth-bug");
+    }
+
+    #[test]
+    fn slugify_preserves_korean() {
+        assert_eq!(slugify_label("기능 추가"), "기능-추가");
+    }
+
+    #[test]
+    fn slugify_mixed_korean_english() {
+        assert_eq!(slugify_label("Insight Review (3건)"), "insight-review-3건");
+    }
+
+    #[test]
+    fn slugify_no_trailing_hyphen() {
+        assert_eq!(slugify_label("Feature!"), "feature");
+    }
+
+    #[test]
+    fn slugify_auto_label_unchanged() {
+        // Auto-generated labels like "b1", "b1.1" should pass through cleanly
+        assert_eq!(slugify_label("b1"), "b1");
+        assert_eq!(slugify_label("b2.1"), "b2.1");
+    }
+
+    #[test]
+    fn slugify_empty_input() {
+        assert_eq!(slugify_label(""), "");
+    }
 }

@@ -14,6 +14,7 @@ import { ToolStepsView } from "./message/ToolStepsView";
 import { useToolStepsStore } from "@/stores/toolStepsStore";
 import { deserializeSteps } from "@/lib/toolSteps";
 import { hasPlanProposal, splitPlanProposals } from "@/lib/planProposalParser";
+import { vizMarkers } from "@/lib/vizMarkers";
 import { copyToClipboard } from "@/lib/clipboard";
 import { MessageContextMenu } from "./ContextMenu";
 
@@ -23,20 +24,6 @@ const PROSE_CLS = "prose prose-invert prose-chat max-w-none [&>*:first-child]:mt
 function hasMarkdownSignal(content: string): boolean {
   if (content.length < 100) return false;
   return /^#{1,3} |```|\n- |\n\d+\. |<!-- tunaflow:|\*\*[^*]+\*\*/m.test(content);
-}
-
-/** Clean all tunaflow markers from message display.
- *  Markers are for the workflow pipeline only — users should never see them.
- */
-function vizMarkers(text: string): string {
-  return text
-    // Remove full blocks (verdict, impl-plan — rendered separately in PlanCard)
-    .replace(/<!-- ?tunaflow:review-verdict ?-->[\s\S]*?<!-- ?\/?tunaflow:review-verdict ?-->/g, "")
-    .replace(/<!-- ?tunaflow:impl-plan ?-->[\s\S]*?<!-- ?\/?tunaflow:impl-plan ?-->/g, "")
-    // Remove remaining single markers EXCEPT plan-proposal (parsed by splitPlanProposals for PlanProposalCard)
-    .replace(/<!-- ?\/?(?:tunaflow:(?!plan-proposal)[a-z_-]+(?::\d+)?|subtask-done:\d+|impl-complete) ?-->/g, "")
-    // Clean up leftover blank lines from removed markers
-    .replace(/\n{3,}/g, "\n\n");
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -139,10 +126,10 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
     >
       <div
         className={cn(
-          "relative px-4 transition-colors",
+          "relative pl-5 pr-4 transition-colors border-l-2 border-l-transparent",
           grouped ? "py-1" : "py-2",
-          isCompact && "px-3 py-1",
-          "hover:bg-accent/20",
+          isCompact && "pl-4 pr-3 py-1",
+          "hover:border-l-primary/40 hover:bg-accent/30",
         )}
       >
         {/* Content */}

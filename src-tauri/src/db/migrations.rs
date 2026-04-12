@@ -121,6 +121,9 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     if current < 32 {
         apply_v32(conn)?;
     }
+    if current < 33 {
+        apply_v33(conn)?;
+    }
     Ok(())
 }
 
@@ -793,6 +796,16 @@ fn apply_v32(conn: &Connection) -> Result<(), AppError> {
     }
 
     conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (32, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+fn apply_v33(conn: &Connection) -> Result<(), AppError> {
+    // Meta-agent: add meta_conversation_id and onboarding_done to projects table.
+    // meta_conversation_id — stores the singleton Meta conversation ID for each project.
+    // onboarding_done — flag to prevent duplicate onboarding triggers.
+    add_column_if_missing(conn, "projects", "meta_conversation_id", "TEXT")?;
+    add_column_if_missing(conn, "projects", "onboarding_done", "INTEGER DEFAULT 0")?;
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (33, ?1)", [now_epoch()])?;
     Ok(())
 }
 

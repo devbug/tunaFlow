@@ -57,7 +57,7 @@ function CollapsibleSection({
       <div className="shrink-0 flex items-center px-3 py-1">
         <button
           onClick={onToggle}
-          className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 hover:text-sidebar-foreground/60 transition-colors flex-1"
+          className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/55 hover:text-sidebar-foreground/75 transition-colors flex-1"
         >
           <ChevronRight className={cn("w-3 h-3 transition-transform", expanded && "rotate-90")} />
           <span>{title}</span>

@@ -6,9 +6,6 @@ use crate::db::{models::Message, DbState};
 use crate::errors::AppError;
 use crate::CancelRegistry;
 
-use super::prompt::{build_round_prompt_with_identity, build_round_prompt_with_vector_context, PromptSources};
-use super::persist::{persist_streaming_start, persist_streaming_done};
-
 /// Budget settings for local models (ollama, opencode) — smaller context window.
 #[allow(dead_code)]
 const LOCAL_MODE: &str = "lite";
@@ -20,13 +17,13 @@ const LOCAL_BUDGET_CAP: usize = 15_000;
 /// memory, cross-session, retrieval — ~15k chars), we load only what RT
 /// participants actually need: project path + active plan.
 /// This reduces per-participant context from ~5-7k tokens to ~1-2k tokens.
-struct RtContextCache {
-    context: Option<String>,
+pub(super) struct RtContextCache {
+    pub(super) context: Option<String>,
 }
 
 impl RtContextCache {
     /// Build minimal Tier 0+1 context once per round.
-    fn build(
+    pub(super) fn build(
         state: &DbState,
         conversation_id: &str,
         _topic: &str,
@@ -40,18 +37,15 @@ impl RtContextCache {
 
         let mut sections: Vec<String> = Vec::new();
 
-        // Tier 0: Project path
         if let Some(p) = project_path {
             sections.push(format!("Project: {}", p));
         }
 
-        // Tier 1: Active plan (if exists) — the "source of truth" for current work
         let plan_conv_id = Self::resolve_plan_conv_id(&conn, conversation_id);
         if let Some(plan) = Self::load_plan_summary(&conn, &plan_conv_id) {
             sections.push(plan);
         }
 
-        // Tier 1: Review findings (if phase=review)
         if let Some(findings) = Self::load_review_findings(&conn, &plan_conv_id) {
             sections.push(findings);
         }
@@ -63,10 +57,8 @@ impl RtContextCache {
         }
     }
 
-    /// Resolve plan conversation ID (handles branch shadow conversations).
     fn resolve_plan_conv_id(conn: &rusqlite::Connection, conversation_id: &str) -> String {
         if conversation_id.starts_with("branch:") {
-            // Find parent conversation for branch
             conn.query_row(
                 "SELECT parent_id FROM conversations WHERE id = ?1",
                 [conversation_id], |row| row.get::<_, Option<String>>(0),
@@ -76,7 +68,6 @@ impl RtContextCache {
         }
     }
 
-    /// Load compact plan summary (title + phase + subtask status).
     fn load_plan_summary(conn: &rusqlite::Connection, conversation_id: &str) -> Option<String> {
         let (title, phase): (String, String) = conn.query_row(
             "SELECT title, phase FROM plans
@@ -92,7 +83,6 @@ impl RtContextCache {
 
         let mut out = format!("### Active Plan (phase: {})\n{}", phase, title);
 
-        // Compact subtask list
         if let Ok(mut stmt) = conn.prepare(
             "SELECT title, status FROM plan_subtasks WHERE plan_id = ?1 ORDER BY idx"
         ) {
@@ -112,7 +102,6 @@ impl RtContextCache {
         Some(out)
     }
 
-    /// Load review findings (only if plan is in review phase).
     fn load_review_findings(conn: &rusqlite::Connection, conversation_id: &str) -> Option<String> {
         let phase: String = conn.query_row(
             "SELECT phase FROM plans WHERE conversation_id = ?1 AND status = 'active' ORDER BY updated_at DESC LIMIT 1",
@@ -123,7 +112,6 @@ impl RtContextCache {
             return None;
         }
 
-        // Load latest review findings from failure_lessons
         let mut stmt = conn.prepare(
             "SELECT finding FROM failure_lessons
              WHERE project_key = (SELECT project_key FROM conversations WHERE id = ?1)
@@ -144,30 +132,26 @@ impl RtContextCache {
     }
 
     /// Get cached context (same for all engines — minimal is always small enough).
-    fn get(&self, _engine_key: &str) -> Option<&str> {
+    pub(super) fn get(&self, _engine_key: &str) -> Option<&str> {
         self.context.as_deref()
     }
 }
 
 /// In-memory vector index for RT transcript sharing.
-/// Instead of copying full responses (~4000 chars each) to every participant,
-/// embeds responses and retrieves only relevant chunks via cosine similarity.
-/// Saves ~80% tokens in multi-round RT discussions.
-struct RtVectorIndex {
+pub(super) struct RtVectorIndex {
     entries: Vec<RtVectorEntry>,
 }
 
-struct RtVectorEntry {
-    name: String,
-    text: String,       // truncated text (~800 chars)
-    embedding: Vec<f32>,
+pub(super) struct RtVectorEntry {
+    pub(super) name: String,
+    pub(super) text: String,
+    pub(super) embedding: Vec<f32>,
 }
 
 impl RtVectorIndex {
-    fn new() -> Self { Self { entries: Vec::new() } }
+    pub(super) fn new() -> Self { Self { entries: Vec::new() } }
 
-    /// Add a participant's response to the index. Embeds via bge-m3 (or rawq fallback).
-    fn add(&mut self, name: &str, content: &str) {
+    pub(super) fn add(&mut self, name: &str, content: &str) {
         let text = super::prompt::truncate(content, 800);
         match crate::agents::embedder::embed_text(&text, false) {
             Ok(emb) => {
@@ -179,9 +163,7 @@ impl RtVectorIndex {
         }
     }
 
-    /// Search for top-K most relevant chunks given a topic query.
-    /// Returns (name, relevant_text) pairs.
-    fn search(&self, topic: &str, limit: usize) -> Vec<(String, String)> {
+    pub(super) fn search(&self, topic: &str, limit: usize) -> Vec<(String, String)> {
         let query_emb = match crate::agents::embedder::embed_text(topic, true) {
             Ok(e) => e,
             Err(_) => return Vec::new(),
@@ -194,12 +176,15 @@ impl RtVectorIndex {
         scored.truncate(limit);
 
         scored.into_iter()
-            .filter(|(score, _)| *score > 0.2) // minimum relevance threshold
+            .filter(|(score, _)| *score > 0.2)
             .map(|(_, e)| (e.name.clone(), e.text.clone()))
             .collect()
     }
 
-    fn is_empty(&self) -> bool { self.entries.is_empty() }
+    pub(super) fn is_empty(&self) -> bool { self.entries.is_empty() }
+
+    /// Return number of indexed entries (for logging).
+    pub(super) fn entries_len(&self) -> usize { self.entries.len() }
 }
 
 /// Real-time participant execution status — emitted at actual subprocess lifecycle points.
@@ -211,7 +196,7 @@ pub struct RtParticipantStatus {
     pub engine: String,
     pub model: Option<String>,
     pub round: u32,
-    pub status: String, // "running" | "done" | "error"
+    pub status: String,
     #[serde(default)]
     pub blind: bool,
 }
@@ -226,7 +211,6 @@ pub struct RoundtableParticipant {
     #[serde(default)]
     pub blind: bool,
     /// RT role — affects output cap and prompt directive.
-    /// "proposer" | "reviewer" | "verifier" | "synthesizer" | null (default)
     #[serde(default)]
     pub role: Option<String>,
     /// Explicit output token cap. If not set, derived from role.
@@ -235,7 +219,7 @@ pub struct RoundtableParticipant {
 }
 
 /// Build identity string for a RT participant.
-fn participant_identity(p: &RoundtableParticipant) -> String {
+pub(super) fn participant_identity(p: &RoundtableParticipant) -> String {
     let engine = p.engine.as_deref().unwrap_or("claude");
     let mut lines = vec![format!("## Your Identity in this Roundtable\n\nYou are **{}** (engine: {}).", p.name, engine)];
     if let Some(role) = &p.role {
@@ -253,13 +237,12 @@ fn effective_max_tokens(p: &RoundtableParticipant) -> Option<u32> {
     if let Some(cap) = p.max_tokens {
         return Some(cap);
     }
-    // Role-based defaults
     match p.role.as_deref() {
         Some("proposer") => Some(1200),
         Some("reviewer" | "critic") => Some(900),
         Some("verifier" | "judge") => Some(800),
         Some("synthesizer" | "lead") => Some(1500),
-        _ => None, // no cap for unspecified roles
+        _ => None,
     }
 }
 
@@ -378,7 +361,7 @@ pub async fn run_participant(
 
 /// Run a single participant with real-time streaming. Emits `roundtable:chunk` events
 /// as text arrives. Falls back to `run()` for engines without `stream_run()` (opencode).
-pub async fn stream_participant(
+pub(super) async fn stream_participant(
     p: &RoundtableParticipant,
     prompt: String,
     sources_json: String,
@@ -410,10 +393,7 @@ pub async fn stream_participant(
     let engine_key_owned = engine_key.to_string();
 
     let result: (Result<claude::RunOutput, AppError>, &'static str) = match engine_key {
-        // All engines use the same RunInput/RunOutput — resume_token is passed through.
-        // Engines that don't support resume will ignore it and return session_id: None.
         "claude" | "gemini" => {
-            // Sync CLI engines with cancel support
             let a = app.clone(); let mi = msg_id.clone(); let ci = conversation_id.clone();
             let ca = std::sync::Arc::clone(&cancel_arc);
             let ci2 = conversation_id.clone();
@@ -439,7 +419,6 @@ pub async fn stream_participant(
             .unwrap_or_else(|_| (Err(AppError::Agent("participant task panicked".into())), "unknown"))
         }
         "codex" => {
-            // Sync CLI engine without cancel
             let a = app.clone(); let mi = msg_id.clone(); let ci = conversation_id.clone();
             tokio::task::spawn_blocking(move || {
                 let on_chunk = {
@@ -457,7 +436,6 @@ pub async fn stream_participant(
             .unwrap_or_else(|_| (Err(AppError::Agent("participant task panicked".into())), "unknown"))
         }
         "ollama" => {
-            // Async HTTP engine
             let a = app.clone(); let mi = msg_id.clone(); let ci = conversation_id.clone();
             let on_chunk = {
                 let a = a.clone(); let mi = mi.clone(); let ci = ci.clone();
@@ -471,7 +449,6 @@ pub async fn stream_participant(
             (openai_compat::stream_run(run_input, on_progress, on_chunk).await, "ollama")
         }
         "opencode" => {
-            // No stream_run — fallback to sync run (no chunk events)
             tokio::task::spawn_blocking(move || {
                 (opencode::run(run_input), "opencode")
             })
@@ -499,17 +476,9 @@ pub async fn stream_participant(
     }
 }
 
-/// Run all participants in a single round, persisting and emitting each result.
-///
-/// - **Sequential**: serial execution. Each participant runs after the previous finishes.
-/// - **Deliberative**: parallel execution. All participants run simultaneously.
-///
-/// Prompt is passed through as-is — no forced context injection.
-/// Users control what context to include in their prompt per round.
-/// Session map: participant_name → session_id from previous rounds.
-/// Passed between rounds to enable `--resume` for engines that support it.
 pub type SessionMap = std::collections::HashMap<String, String>;
 
+/// Dispatch to Sequential or Deliberative execution.
 pub async fn execute_round(
     participants: &[RoundtableParticipant],
     transcript: &[(String, String)],
@@ -530,287 +499,18 @@ pub async fn execute_round(
     let prior_refs: Vec<String> = transcript.iter().map(|(n, _)| n.clone()).collect();
 
     match strategy {
-        RoundStrategy::Sequential => execute_sequential(
+        RoundStrategy::Sequential => super::sequential::execute_sequential(
             participants, transcript, &prior_refs, round_num, total_rounds, topic, rt_mode,
             conversation_id, state, app, cancel, trace_id, root_span_id, project_path, session_map,
         ).await,
-        RoundStrategy::Deliberative => execute_parallel(
+        RoundStrategy::Deliberative => super::deliberative::execute_parallel(
             participants, transcript, &prior_refs, round_num, total_rounds, topic, rt_mode,
             conversation_id, state, app, cancel, trace_id, root_span_id, project_path, session_map,
         ).await,
     }
 }
 
-/// Sequential: run participants one by one. Each sees prior-round + current-round context.
-async fn execute_sequential(
-    participants: &[RoundtableParticipant],
-    transcript: &[(String, String)],
-    prior_refs: &[String],
-    round_num: u32, total_rounds: u32,
-    topic: &str, rt_mode: &str,
-    conversation_id: &str, state: &DbState, app: &tauri::AppHandle,
-    cancel: &CancelRegistry, trace_id: &str, root_span_id: &str,
-    project_path: Option<&str>,
-    session_map: &mut SessionMap,
-) -> Result<(Vec<Message>, Vec<(String, String)>), AppError> {
-    let mut messages = Vec::new();
-    let mut round_responses: Vec<(String, String)> = Vec::new();
-
-    // Build ContextPack cache once for all participants (auto + lite variants)
-    let has_local = participants.iter().any(|p| matches!(p.engine.as_deref(), Some("ollama" | "opencode")));
-    let ctx_cache = RtContextCache::build(state, conversation_id, topic, project_path, has_local);
-
-    // Vector index: embed prior transcript for selective retrieval (Tier 2 optimization)
-    let mut vec_index = RtVectorIndex::new();
-    if crate::agents::rawq::is_daemon_ready() {
-        for (name, content) in transcript {
-            vec_index.add(name, content);
-        }
-        if !vec_index.is_empty() {
-            eprintln!("[rt] vector index built: {} entries from prior transcript", vec_index.entries.len());
-        }
-    }
-
-    for p in participants {
-        if cancel.check_and_consume(conversation_id) {
-            return Err(AppError::Agent("cancelled by user".into()));
-        }
-
-        let sources = PromptSources {
-            round: round_num, total_rounds,
-            mode: rt_mode.to_string(),
-            prior_round_refs: prior_refs.to_vec(),
-            current_round_refs: round_responses.iter().map(|(n, _)| n.clone()).collect(),
-        };
-        let sources_json = serde_json::to_string(&sources).unwrap_or_default();
-
-        let engine_key = p.engine.as_deref().unwrap_or("claude");
-        let engine_label = match engine_key {
-            "claude" => "claude-code",
-            "ollama" => "ollama",
-            other => other,
-        };
-
-        // Phase 1: persist streaming placeholder + emit to frontend
-        let streaming_msg = {
-            let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-            persist_streaming_start(&conn, conversation_id, &p.name, engine_label, p.model.as_deref(), &sources_json)?
-        };
-        let msg_id = streaming_msg.id.clone();
-        let _ = app.emit("roundtable:progress", &streaming_msg);
-
-        let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
-            conversation_id: conversation_id.to_string(),
-            name: p.name.clone(), engine: engine_key.to_string(), model: p.model.clone(),
-            round: round_num, status: "running".into(), blind: p.blind,
-        });
-
-        // Phase 2: stream participant (emits roundtable:chunk events during execution)
-        // Use vector context if available (Tier 2 optimization: ~80% token savings)
-        let identity = participant_identity(p);
-        let mut prompt = if p.blind {
-            eprintln!("[rt] blind verifier: {} — no transcript", p.name);
-            build_round_prompt_with_identity(topic, &[], &[], Some(&identity))
-        } else if !vec_index.is_empty() {
-            let vec_ctx = vec_index.search(topic, 5);
-            eprintln!("[rt] {} using vector context: {} chunks (vs {} full transcript)", p.name, vec_ctx.len(), transcript.len());
-            build_round_prompt_with_vector_context(topic, &vec_ctx, &round_responses, Some(&identity))
-        } else {
-            build_round_prompt_with_identity(topic, transcript, &round_responses, Some(&identity))
-        };
-        if let Some(ctx) = ctx_cache.get(engine_key) {
-            prompt = format!("{}\n\n---\n\n{}", ctx, prompt);
-        }
-        let resume = session_map.get(&p.name).cloned();
-        let r = stream_participant(
-            p, prompt, sources_json, project_path.map(|s| s.to_string()),
-            msg_id.clone(), conversation_id.to_string(), app.clone(), std::sync::Arc::clone(&cancel.0),
-            resume,
-        ).await;
-
-        // Phase 3: finalize in DB + emit final message
-        let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
-            conversation_id: conversation_id.to_string(),
-            name: r.name.clone(), engine: r.engine.clone(), model: r.model.clone(),
-            round: round_num, status: r.status.clone(), blind: r.blind,
-        });
-
-        // Save session_id for resume in next round
-        if let Some(ref sid) = r.session_id {
-            session_map.insert(p.name.clone(), sid.clone());
-        }
-
-        let final_msg = {
-            let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-            persist_streaming_done(&conn, conversation_id, &msg_id, &r, trace_id, root_span_id)?
-        };
-        let _ = app.emit("roundtable:progress", &final_msg);
-        messages.push(final_msg);
-
-        if r.status == "done" {
-            // Add to vector index for next participant (sequential: each sees prior responses)
-            if crate::agents::rawq::is_daemon_ready() {
-                vec_index.add(&r.name, &r.content);
-            }
-            round_responses.push((r.name.clone(), r.content.clone()));
-        }
-    }
-
-    Ok((messages, round_responses))
-}
-
-/// Deliberative: run all participants in parallel via tokio tasks, then persist results.
-/// Each sees prior-round context but not current-round peers.
-async fn execute_parallel(
-    participants: &[RoundtableParticipant],
-    transcript: &[(String, String)],
-    prior_refs: &[String],
-    round_num: u32, total_rounds: u32,
-    topic: &str, rt_mode: &str,
-    conversation_id: &str, state: &DbState, app: &tauri::AppHandle,
-    cancel: &CancelRegistry, trace_id: &str, root_span_id: &str,
-    project_path: Option<&str>,
-    session_map: &mut SessionMap,
-) -> Result<(Vec<Message>, Vec<(String, String)>), AppError> {
-    if cancel.check_and_consume(conversation_id) {
-        return Err(AppError::Agent("cancelled by user".into()));
-    }
-
-    // Emit "running" for all participants at once
-    for p in participants {
-        let engine_key = p.engine.as_deref().unwrap_or("claude");
-        let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
-            conversation_id: conversation_id.to_string(),
-            name: p.name.clone(), engine: engine_key.to_string(), model: p.model.clone(),
-            round: round_num, status: "running".into(), blind: p.blind,
-        });
-    }
-
-    // Build sources metadata (same for all — no current-round refs in deliberative)
-    let sources = PromptSources {
-        round: round_num, total_rounds,
-        mode: rt_mode.to_string(),
-        prior_round_refs: prior_refs.to_vec(),
-        current_round_refs: Vec::new(),
-    };
-    let sources_json = serde_json::to_string(&sources).unwrap_or_default();
-
-    // Build ContextPack cache once for all participants (auto + lite variants)
-    let has_local = participants.iter().any(|p| matches!(p.engine.as_deref(), Some("ollama" | "opencode")));
-    let ctx_cache = RtContextCache::build(state, conversation_id, topic, project_path, has_local);
-
-    // Pre-create streaming placeholders for all participants (single DB lock)
-    let mut msg_ids: Vec<String> = Vec::with_capacity(participants.len());
-    {
-        let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-        for p in participants {
-            let engine_key = p.engine.as_deref().unwrap_or("claude");
-            let engine_label = match engine_key {
-                "claude" => "claude-code",
-                "ollama" => "ollama",
-                other => other,
-            };
-            let streaming_msg = persist_streaming_start(
-                &conn, conversation_id, &p.name, engine_label, p.model.as_deref(), &sources_json,
-            )?;
-            msg_ids.push(streaming_msg.id.clone());
-            let _ = app.emit("roundtable:progress", &streaming_msg);
-        }
-    }
-
-    // Spawn all participants as tokio tasks, collect results in completion-order via channel.
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, ParticipantResult)>(participants.len());
-    let participant_count = participants.len();
-
-    let transcript_owned: Vec<(String, String)> = transcript.to_vec();
-    let topic_owned = topic.to_string();
-
-    // Vector index for prior transcript (shared across all parallel participants)
-    let mut vec_index = RtVectorIndex::new();
-    if crate::agents::rawq::is_daemon_ready() {
-        for (name, content) in transcript {
-            vec_index.add(name, content);
-        }
-        if !vec_index.is_empty() {
-            eprintln!("[rt-parallel] vector index built: {} entries", vec_index.entries.len());
-        }
-    }
-
-    // Pre-compute vector context for all participants (same for deliberative — no current-round)
-    let vec_ctx: Vec<(String, String)> = if !vec_index.is_empty() {
-        vec_index.search(&topic_owned, 5)
-    } else {
-        Vec::new()
-    };
-
-    for (i, p) in participants.iter().enumerate() {
-        let p_clone = p.clone();
-        let identity = participant_identity(p);
-        let engine_key = p.engine.as_deref().unwrap_or("claude");
-        let tr = transcript_owned.clone();
-        let tp = topic_owned.clone();
-        let vc = vec_ctx.clone();
-        let mut pr = if p.blind {
-            eprintln!("[rt] blind verifier: {} — no transcript (deliberative)", p.name);
-            build_round_prompt_with_identity(&tp, &[], &[], Some(&identity))
-        } else if !vc.is_empty() {
-            eprintln!("[rt-parallel] {} using vector context: {} chunks", p.name, vc.len());
-            build_round_prompt_with_vector_context(&tp, &vc, &[], Some(&identity))
-        } else {
-            build_round_prompt_with_identity(&tp, &tr, &[], Some(&identity))
-        };
-        if let Some(ctx) = ctx_cache.get(engine_key) {
-            pr = format!("{}\n\n---\n\n{}", ctx, pr);
-        }
-        let sj = sources_json.clone();
-        let pp = project_path.map(|s| s.to_string());
-        let tx = tx.clone();
-        let mid = msg_ids[i].clone();
-        let cid = conversation_id.to_string();
-        let a = app.clone();
-        let ca = std::sync::Arc::clone(&cancel.0);
-        let resume = session_map.get(&p.name).cloned();
-        tokio::spawn(async move {
-            let result = stream_participant(&p_clone, pr, sj, pp, mid.clone(), cid, a, ca, resume).await;
-            let _ = tx.send((mid, result)).await;
-        });
-    }
-    drop(tx); // Close sender so rx terminates after all tasks finish
-
-    // Collect results in completion-order
-    let mut messages = Vec::new();
-    let mut round_responses: Vec<(String, String)> = Vec::new();
-    let mut received = 0;
-
-    while let Some((mid, r)) = rx.recv().await {
-        received += 1;
-        eprintln!("[rt] deliberative result {}/{}: {} ({})", received, participant_count, r.name, r.status);
-
-        let _ = app.emit("roundtable:participant_status", RtParticipantStatus {
-            conversation_id: conversation_id.to_string(),
-            name: r.name.clone(), engine: r.engine.clone(), model: r.model.clone(),
-            round: round_num, status: r.status.clone(), blind: r.blind,
-        });
-
-        let final_msg = {
-            let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-            persist_streaming_done(&conn, conversation_id, &mid, &r, trace_id, root_span_id)?
-        };
-        let _ = app.emit("roundtable:progress", &final_msg);
-        messages.push(final_msg);
-
-        if r.status == "done" {
-            if let Some(ref sid) = r.session_id {
-                session_map.insert(r.name.clone(), sid.clone());
-            }
-            round_responses.push((r.name.clone(), r.content.clone()));
-        }
-    }
-
-    Ok((messages, round_responses))
-}
-
-// ─── Unit tests for pure helper functions ────────────────────────────────────
+// ─── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -826,8 +526,6 @@ mod tests {
             max_tokens: None,
         }
     }
-
-    // ─── participant_identity ────────────────────────────────────────────
 
     #[test]
     fn identity_basic() {
@@ -858,7 +556,7 @@ mod tests {
     fn identity_default_engine() {
         let p = make_participant("Default", None, false, None);
         let id = participant_identity(&p);
-        assert!(id.contains("claude")); // defaults to claude
+        assert!(id.contains("claude"));
     }
 
     #[test]
@@ -867,8 +565,6 @@ mod tests {
         let id = participant_identity(&p);
         assert!(id.contains("Do NOT claim to be a different agent"));
     }
-
-    // ─── effective_max_tokens ────────────────────────────────────────────
 
     #[test]
     fn max_tokens_explicit_override() {
@@ -925,8 +621,6 @@ mod tests {
         assert_eq!(effective_max_tokens(&p), None);
     }
 
-    // ─── output_cap_directive ────────────────────────────────────────────
-
     #[test]
     fn cap_directive_with_cap() {
         let d = output_cap_directive(Some(800));
@@ -940,16 +634,11 @@ mod tests {
         assert!(d.is_empty());
     }
 
-    // ─── RtContextCache::get routing ─────────────────────────────────────
-
-    // ─── RtContextCache (Tier 0+1 minimal) ─────────────────────────────
-
     #[test]
     fn context_cache_returns_same_for_all_engines() {
         let cache = RtContextCache {
             context: Some("plan ctx".into()),
         };
-        // Tier 0+1 minimal: same context for all engines (no auto/lite split)
         assert_eq!(cache.get("claude"), Some("plan ctx"));
         assert_eq!(cache.get("gemini"), Some("plan ctx"));
         assert_eq!(cache.get("codex"), Some("plan ctx"));

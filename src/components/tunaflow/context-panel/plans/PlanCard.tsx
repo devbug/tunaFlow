@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { ChevronDown, ChevronRight, GitBranch, Check, FileText, Ban, CheckCircle, Play, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronRight, GitBranch, Check, FileText, Ban, CheckCircle, Play, RotateCcw, Plus, Loader2, FolderOpen } from "lucide-react";
 import type { Plan, PlanEvent, PlanPhase, PlanSubtask, PlanStatus, SubtaskStatus, Message } from "@/types";
 import * as planApi from "@/lib/api/plans";
 import { getPlanSlug, scanMessagesForMarkers, startReviewRT } from "@/lib/workflowOrchestration";
@@ -78,6 +78,46 @@ export function PlanCard({
         tasks = t;
         setSubtasks(tasks);
         setEvents(e);
+
+        // Auto-recover subtasks from docs if plan has none
+        if (t.length === 0) {
+          const slug = getPlanSlug(plan);
+          if (slug) {
+            try {
+              const projectKey = useChatStore.getState().selectedProjectKey;
+              if (projectKey) {
+                const project = await invoke<{ path?: string }>("get_project", { key: projectKey });
+                if (project?.path) {
+                  const entries = await invoke<{ name: string; path: string; isDir: boolean }[]>(
+                    "list_directory", { path: `${project.path}/docs/plans` }
+                  ).catch(() => [] as { name: string; path: string; isDir: boolean }[]);
+
+                  const taskFiles = entries
+                    .filter((e) => !e.isDir && e.name.match(new RegExp(`^${slug}-task-\\d+\\.md$`)))
+                    .sort((a, b) => a.name.localeCompare(b.name));
+
+                  if (taskFiles.length > 0) {
+                    const titles: string[] = [];
+                    for (const f of taskFiles) {
+                      const content = await invoke<string>("read_file_content", { path: f.path }).catch(() => "");
+                      const heading = content.match(/^#{1,2}\s+(.+)/m)?.[1]
+                        ?.replace(/^(Task\s+\d+[:.]\s*)/i, "").trim()
+                        ?? f.name.replace(/\.md$/, "");
+                      titles.push(heading);
+                    }
+                    const recovered = await planApi.replacePlanSubtasks(plan.id, titles.map((title) => ({ title, details: undefined })));
+                    tasks = recovered;
+                    setSubtasks(recovered);
+                    await planApi.createPlanEvent(plan.id, "review_merged", "system", `Auto-recovered ${recovered.length} subtasks from docs`);
+                    console.log(`[PlanCard] auto-recovered ${recovered.length} subtasks from docs/${slug}-task-*.md`);
+                  }
+                }
+              }
+            } catch (e) {
+              console.debug("[PlanCard] auto-recover subtasks:", e);
+            }
+          }
+        }
 
         // Scan branch messages for workflow markers
         if (plan.implementationBranchId && (plan.phase === "implementation" || plan.phase === "review")) {
@@ -241,7 +281,7 @@ export function PlanCard({
           <div className="pl-5">
             {loading && <p className="text-[10px] text-muted-foreground">Loading…</p>}
             {!loading && subtasks !== null && subtasks.length === 0 && (
-              <p className="text-[10px] text-muted-foreground">No subtasks.</p>
+              <AddSubtasksInline plan={plan} onAdded={(newTasks) => setSubtasks(newTasks)} />
             )}
             {!loading && subtasks && subtasks.map((st, idx) => {
               const linked = branches.find((b) => b.subtaskId === st.id);
@@ -465,5 +505,128 @@ export function PlanCard({
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>
+  );
+}
+
+// ─── AddSubtasksInline ─────────────────────────────────────────────────────
+
+/** Extract first H1/H2 heading from markdown as the task title. */
+function extractHeading(md: string): string | null {
+  const m = md.match(/^#{1,2}\s+(.+)/m);
+  return m ? m[1].replace(/^(Task\s+\d+[:.]\s*)/i, "").trim() : null;
+}
+
+function AddSubtasksInline({ plan, onAdded }: { plan: Plan; onAdded: (tasks: PlanSubtask[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const selectedProjectKey = useChatStore((s) => s.selectedProjectKey);
+  const projects = useChatStore((s) => s.projects);
+
+  const handleParseFromDocs = async () => {
+    const project = projects.find((p) => p.key === selectedProjectKey);
+    if (!project?.path || !plan.slug) return;
+    setParsing(true);
+    try {
+      // List docs/plans/ directory and find task files for this plan
+      const entries = await invoke<{ name: string; path: string; isDir: boolean }[]>(
+        "list_directory", { path: `${project.path}/docs/plans` }
+      ).catch(() => [] as { name: string; path: string; isDir: boolean }[]);
+
+      const taskFiles = entries
+        .filter((e) => !e.isDir && e.name.match(new RegExp(`^${plan.slug}-task-\\d+\\.md$`)))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      if (taskFiles.length === 0) {
+        // Fall back to main plan doc for inline subtask list
+        const mainDoc = await invoke<string>("read_file_content", {
+          path: `${project.path}/docs/plans/${plan.slug}.md`
+        }).catch(() => "");
+        // Extract numbered list items as subtasks
+        const items = [...mainDoc.matchAll(/^\d+\.\s+(.+)/gm)].map((m) => m[1].trim());
+        if (items.length > 0) setText(items.join("\n"));
+      } else {
+        // Read each task file and extract its heading as the subtask title
+        const titles: string[] = [];
+        for (const f of taskFiles) {
+          const content = await invoke<string>("read_file_content", { path: f.path }).catch(() => "");
+          const title = extractHeading(content) ?? f.name.replace(/\.md$/, "");
+          titles.push(title);
+        }
+        setText(titles.join("\n"));
+      }
+    } finally {
+      setParsing(false);
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    }
+  };
+
+  const handleSave = async () => {
+    const lines = text.split("\n").map((l) => l.replace(/^[-*\d.)\s]+/, "").trim()).filter(Boolean);
+    if (lines.length === 0) return;
+    setSaving(true);
+    try {
+      const subtasks = await planApi.replacePlanSubtasks(plan.id, lines.map((title) => ({ title, details: undefined })));
+      onAdded(subtasks);
+    } catch (e) {
+      console.error("[AddSubtasks] failed:", e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => { setOpen(true); setTimeout(() => textareaRef.current?.focus(), 50); }}
+        className="flex items-center gap-1 text-[10px] text-muted-foreground/40 hover:text-primary/60 transition-colors py-0.5"
+      >
+        <Plus className="w-3 h-3" /> 서브태스크 추가
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5 mt-1">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] text-muted-foreground/50">한 줄에 하나씩 (마크다운 리스트 형식 OK)</p>
+        {plan.slug && (
+          <button
+            onClick={handleParseFromDocs}
+            disabled={parsing}
+            className="flex items-center gap-1 text-[10px] text-primary/50 hover:text-primary transition-colors disabled:opacity-40"
+          >
+            {parsing ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
+            docs에서 가져오기
+          </button>
+        )}
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={"1. 첫 번째 작업\n2. 두 번째 작업\n3. 세 번째 작업"}
+        rows={5}
+        className="w-full bg-input rounded-md px-2.5 py-1.5 text-[11px] outline-none text-foreground placeholder:text-muted-foreground/30 border border-border/30 focus:border-ring/40 resize-none font-mono"
+      />
+      <div className="flex gap-1.5">
+        <button
+          onClick={handleSave}
+          disabled={saving || !text.trim()}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 transition-colors"
+        >
+          {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+          저장
+        </button>
+        <button
+          onClick={() => { setOpen(false); setText(""); }}
+          className="px-2 py-1 rounded-md text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          취소
+        </button>
+      </div>
+    </div>
   );
 }

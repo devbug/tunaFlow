@@ -25,11 +25,13 @@ interface PlansPanelProps {
   activeStage?: string;
   /** Callback when a plan's phase changes — parent can update stage */
   onPhaseChanged?: (planId: string, newPhase: PlanPhase) => void;
+  /** Callback when a plan's status changes — parent can refresh badge count */
+  onStatusChanged?: () => void;
   /** Switch to Chat tab — used after sending prompts to Architect */
   onSwitchToChat?: () => void;
 }
 
-export function PlansPanel({ activeStage, onPhaseChanged, onSwitchToChat }: PlansPanelProps) {
+export function PlansPanel({ activeStage, onPhaseChanged, onStatusChanged, onSwitchToChat }: PlansPanelProps) {
   const { selectedConversationId, activeBranchId, parentConversationId } = useChatStore();
   const [plans, setPlans] = useState<Plan[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -67,6 +69,14 @@ export function PlansPanel({ activeStage, onPhaseChanged, onSwitchToChat }: Plan
         await planApi.updatePlanPhase(planId, "done");
         await planApi.createPlanEvent(planId, "manual_done", "user", "수동 완료 처리");
       }
+      // When reverting from abandoned → draft/active, reset phase to drafting
+      // so the plan appears in the "plan" stage rather than being invisible in all stages
+      const isUnAbandoning = status === "draft" || status === "active";
+      const wasAbandoned = plans.find((p) => p.id === planId)?.status === "abandoned";
+      if (isUnAbandoning && wasAbandoned) {
+        await planApi.updatePlanPhase(planId, "drafting");
+        await planApi.createPlanEvent(planId, "phase_manual_override", "user", "Reverted from abandoned → drafting");
+      }
       // Auto-archive related branches when plan is abandoned or done
       if (status === "abandoned" || status === "done") {
         const plan = plans.find((p) => p.id === planId);
@@ -77,8 +87,12 @@ export function PlansPanel({ activeStage, onPhaseChanged, onSwitchToChat }: Plan
           invoke("archive_branch", { id: plan.reviewBranchId }).catch((e) => console.debug("[archive]", e));
         }
       }
-      const phaseOverride = status === "done" ? "done" : undefined;
-      setPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, status, ...(phaseOverride ? { phase: phaseOverride } : {}) } : p)));
+      const phaseOverride = status === "done" ? "done"
+        : (isUnAbandoning && wasAbandoned) ? "drafting"
+        : undefined;
+      setPlans((prev) => prev.map((p) => (p.id === planId ? { ...p, status, ...(phaseOverride ? { phase: phaseOverride as PlanPhase } : {}) } : p)));
+      // Notify parent to refresh badge count
+      onStatusChanged?.();
     } catch (e) {
       console.error("[PlansPanel] plan status update failed:", e);
     }

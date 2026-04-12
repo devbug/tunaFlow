@@ -119,7 +119,7 @@ export function AgentsSection() {
             </div>
 
             <div>
-              <label className="text-[11px] text-muted-foreground mb-1 block">Persona</label>
+              <label className="text-[11px] text-muted-foreground mb-1 block">Persona (= Role)</label>
               <select value={selected.personaId ?? ""} onChange={(e) => updateField("personaId", e.target.value || undefined)}
                 className="w-full bg-background rounded-lg px-3 py-2 text-[12px] outline-none border border-border/30 focus:border-ring/40 cursor-pointer">
                 <option value="">None</option>

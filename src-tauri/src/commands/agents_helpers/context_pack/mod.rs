@@ -1,6 +1,7 @@
 mod utils;
-mod rawq_section;
+mod db_queries;
 mod section_builders;
+mod rawq_section;
 mod system_prompt;
 
 /// Controls how much context is assembled into the system prompt.
@@ -21,6 +22,21 @@ pub enum ContextMode {
 pub use utils::combine_prompt_parts;
 #[allow(unused_imports)]
 pub use rawq_section::{build_rawq_section, CODE_SIGNAL_KEYWORDS};
+
+// DB-dependent queries
+#[allow(unused_imports)]
+pub use db_queries::{
+    build_plan_section,
+    resolve_plan_conversation_id,
+    build_findings_section,
+    build_artifact_handoff_section,
+    build_lite_context_prompt,
+    build_thread_inheritance_section,
+    build_rt_inheritance_section,
+    LITE_CONTEXT_MESSAGES_LIMIT,
+};
+
+// Pure assembly builders
 #[allow(unused_imports)]
 pub use section_builders::{
     build_skills_section,
@@ -29,14 +45,7 @@ pub use section_builders::{
     build_cross_session_section,
     build_context_summary,
     build_context_summary_with_authors,
-    build_artifact_handoff_section,
-    build_findings_section,
-    build_plan_section,
-    resolve_plan_conversation_id,
-    build_lite_context_prompt,
-    build_thread_inheritance_section,
-    build_rt_inheritance_section,
-    LITE_CONTEXT_MESSAGES_LIMIT,
 };
+
 #[allow(unused_imports)]
 pub use system_prompt::assemble_system_prompt;

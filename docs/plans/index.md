@@ -125,6 +125,7 @@
 
 | 문서 | 우선순위 |
 |------|---------|
+| [metaAgentPlan](./metaAgentPlan.md) | **P0** — 메타에이전트. 온보딩, 이슈 감지, 우선순위 제안. 모든 프로젝트 대상 |
 | [geminiSdkIntegrationPlan](./geminiSdkIntegrationPlan.md) | P1 — Google AI SDK 직접 통합 (CLI 대체, SSE/token/function calling) |
 | [toolCallHandlerPlan](./toolCallHandlerPlan.md) | P1 — function calling으로 마커 대체 |
 | [roundtableRoleTerminologySeparationPlan_2026-03-30](./roundtableRoleTerminologySeparationPlan_2026-03-30.md) | P1 — 프로필 역할 vs RT 토론 역할 분리 |

@@ -3,6 +3,9 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { invoke } from "@tauri-apps/api/core";
 import { X, Copy, Check, FileText } from "lucide-react";
 import { cn, errorMessage } from "@/lib/utils";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { markdownComponents } from "./MarkdownComponents";
 
 const SyntaxHighlighter = lazy(() =>
   import("react-syntax-highlighter").then((mod) => ({ default: mod.Prism }))
@@ -45,12 +48,6 @@ export function FileViewer({ filePath, projectPath, lineNumber, onClose }: FileV
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const handleCopyPath = () => {
-    copyToClipboard(filePath);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
   // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -80,18 +77,11 @@ export function FileViewer({ filePath, projectPath, lineNumber, onClose }: FileV
             </span>
           )}
           <button
-            onClick={handleCopyPath}
-            title="Copy path"
-            className="p-1 rounded hover:bg-accent/50 text-muted-foreground/40 hover:text-muted-foreground transition-colors shrink-0"
-          >
-            {copied ? <Check className="w-3.5 h-3.5 text-status-approved" /> : <Copy className="w-3.5 h-3.5" />}
-          </button>
-          <button
             onClick={handleCopyContent}
             title="Copy content"
             className="p-1 rounded hover:bg-accent/50 text-muted-foreground/40 hover:text-muted-foreground transition-colors shrink-0"
           >
-            <Copy className="w-3.5 h-3.5" />
+            {copied ? <Check className="w-3.5 h-3.5 text-status-approved" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
           <button
             onClick={onClose}
@@ -115,8 +105,13 @@ export function FileViewer({ filePath, projectPath, lineNumber, onClose }: FileV
           )}
           {file && !loading && (
             file.language === "markdown" ? (
-              <div className="p-4 prose prose-sm prose-invert max-w-none text-[13px]">
-                <pre className="whitespace-pre-wrap font-sans">{file.content}</pre>
+              <div className="p-5 space-y-2 text-[13px] text-foreground/90 leading-relaxed">
+                <ReactMarkdown
+                  remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
+                  components={markdownComponents}
+                >
+                  {file.content}
+                </ReactMarkdown>
               </div>
             ) : (
               <Suspense fallback={<pre className="p-4 text-[12px] text-foreground/80">{file.content}</pre>}>

@@ -21,6 +21,8 @@ pub struct AppendAssistantMessageInput {
     pub status: Option<String>,
     pub engine: Option<String>,
     pub model: Option<String>,
+    #[serde(default)]
+    pub persona_label: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,7 +70,7 @@ pub fn list_messages(
         "SELECT m.id, m.conversation_id, m.role, m.content, m.timestamp, m.status,
                 (m.progress_content IS NOT NULL) as has_progress,
                 m.engine, m.model, m.persona,
-                t.duration_ms, t.input_tokens, t.output_tokens, t.cost_usd
+                COALESCE(t.duration_ms, m.duration_ms), t.input_tokens, t.output_tokens, t.cost_usd
          FROM messages m
          LEFT JOIN (
            SELECT message_id, duration_ms, input_tokens, output_tokens, cost_usd
@@ -178,8 +180,8 @@ pub fn append_assistant_message(
     let status = input.status.as_deref().unwrap_or("done").to_string();
     conn.execute(
         "INSERT INTO messages
-         (id, conversation_id, role, content, timestamp, status, engine, model)
-         VALUES (?1, ?2, 'assistant', ?3, ?4, ?5, ?6, ?7)",
+         (id, conversation_id, role, content, timestamp, status, engine, model, persona)
+         VALUES (?1, ?2, 'assistant', ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             id,
             input.conversation_id,
@@ -188,6 +190,7 @@ pub fn append_assistant_message(
             status,
             input.engine,
             input.model,
+            input.persona_label,
         ],
     )?;
     Ok(Message {
@@ -200,7 +203,7 @@ pub fn append_assistant_message(
         progress_content: None,
         engine: input.engine,
         model: input.model,
-        persona: None,
+        persona: input.persona_label,
         duration_ms: None, input_tokens: None, output_tokens: None, cost_usd: None,
     })
 }

@@ -14,7 +14,7 @@ export interface Conversation {
   projectKey: string;
   label: string;
   customLabel?: string;
-  type: "main" | "branch" | "discussion" | "scratchpad";
+  type: "main" | "branch" | "discussion" | "scratchpad" | "meta";
   mode: "chat" | "roundtable";
   parentId?: string;
   source: "tunadish" | "mattermost" | "slack";

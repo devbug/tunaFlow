@@ -1,6 +1,6 @@
 # tunaFlow — Claude Code Handoff Document
 
-> 최종 갱신: 2026-04-12 (세션 22 반영)
+> 최종 갱신: 2026-04-12 (세션 25 반영)
 > SSOT: `docs/reference/dataModelRevised.md` (도메인 모델), `docs/reference/implementationStatus.md` (구현 현황)
 > **세션 이력 전체**: `docs/reference/sessionHistory.md` — 새 세션 첫 요청 시 또는 과거 결정 맥락 필요 시 읽을 것
 
@@ -149,12 +149,11 @@ tunaFlow/
 
 ---
 
-## 5. 현재 상태 (세션 22 기준)
+## 5. 현재 상태 (세션 26 기준)
 
-- **DB**: v30 / **Rust**: 223 tests / **Frontend**: 174 tests
-- **현재 브랜치**: `feature/context-tiering`
+- **DB**: v30 / **Rust**: 230 tests / **Frontend**: 176 tests
+- **현재 브랜치**: `main`
 - **알려진 이슈** (상세: `docs/reference/knownIssues_2026-04-05.md`)
-  - Claude CLI 동시 실행 충돌 (같은 프로젝트 브랜치+메인, P1)
   - RT 중간 스트리밍 미지원 (구조적 변경 필요)
   - window-state: dev 모드 Ctrl+C 종료 시 상태 미저장
 - **전체 이력**: `docs/reference/sessionHistory.md`
@@ -264,23 +263,27 @@ tunaFlow/
 
 ## 11. 다음 우선순위
 
-### P0: 최우선
-- **PTY 고도화** — write buffer + ACK + session health check + message queue. 현재 메시지 전달 실패가 실사용 블로커
-- **main 머지 준비** — feature/context-tiering 브랜치가 커져서 머지 지연 위험. 실사용 검증 후 머지
+### P0: 완료
+- ~~PTY write queue (FIFO 순서 보장)~~ — s24 완료
+- ~~ptySpawnLock → per-conversation Map~~ — s24 완료
+- ~~PTY 완료 후 결과 미표시 (adoptBranch 충돌)~~ — s25 완료
+- ~~adopt 중 스트리밍 메시지 소멸~~ — s25 완료
+- ~~main 머지 준비~~ — s23 완료
+- ~~리팩토링 v3 Tier 1(2.4+2.5) + Tier 2(2.6+2.8)~~ — s26 완료
 
-### P1: 후순위
-- 디자인 시스템 확대 적용 — 사이드바 리팩토링 후속, text-tf-*/prose-* 토큰 점진 교체
-- Project-per-window 아키텍처 (`docs/ideas/projectPerWindowIdea.md`) — VS Code 패턴
-- 브랜치 label git 스타일 slug화 (띄어쓰기 → 하이픈)
+### P1: 진행 대상
+- **리팩토링 v3 잔여** — `http_api.rs` (1,162줄), `pty.rs` (1,076줄), `executor.rs` (968줄), `threadSlice.ts` (streamingUtils 추출) — 상세: `docs/plans/codebaseRefactoringProposalV3.md`
+- **ContextPack DB/assembly 완전 분리** — 파일 분리 (현재 단일 파일, 1000줄+)
+- **브랜치 label git 스타일 slug화** — 띄어쓰기 → 하이픈
+- **라이트 모드** — oklch 기반 다크/라이트 토글 (디자인 시스템 Phase 2)
 - RT 전용 페르소나 설계 (participant_identity에 행동 지침 추가)
-- ContextPack DB/assembly 완전 분리 (파일 분리)
+- Project-per-window 아키텍처 (`docs/ideas/projectPerWindowIdea.md`) — VS Code 패턴
 - KnowledgeLayer trait — 6번째 소스 추가 시 도입
 - Insight Phase H~J — tool-request:insight 핸들러
 - 온보딩 메타에이전트 (`docs/ideas/onboardingMetaAgentIdea.md`)
-- CLAUDE.md 경량화 패턴 tunaFlow 적용 — 에이전트 CLAUDE.md에도 sessionHistory 분리 적용
 
 ### P2: 후순위
-- 디자인 시스템 Phase 2: 라이트 모드 (oklch 통일)
+- 디자인 시스템 확대 — text-tf-*/prose-* 토큰 점진 교체
 - Gemini SDK 직접 통합 (보조 경로, CLI 기본 유지)
 - smoke test 복구
 - Trace Phase 2: Git 상태 + OTel 중첩 스팬
@@ -381,7 +384,47 @@ cd src-tauri && cargo test --lib  # Rust unit tests (84 tests)
 
 ---
 
-## 17. 문서 버전관리 규칙
+## 17. 개발 도구 활용 규칙
+
+아래 도구들이 설치되어 있다. 기본 도구(find, grep, cat) 대신 사용한다.
+
+### 코드 검색/조작 (speedy-claude)
+
+| 대신 | 사용 | 이유 |
+|------|------|------|
+| `find . -name` | `fd -e ts` | 64x 빠름, .gitignore 존중 |
+| `grep -r` | `rg "pattern"` | SIMD 가속, 자동 멀티스레드 |
+| `sed -i` | `sd 'old' 'new'` | BSD/GNU 차이 없음, 12x 빠름 |
+| `cat file` | `bat file` | 구문 강조, 줄 번호 |
+| `diff a b` | `difft a b` | AST 기반 구조 비교 |
+| `ls` | `eza -la` | 아이콘, 색상, git 상태 |
+
+멀티 파일 치환:
+- 단순: `fd -e ts | xargs sd 'old' 'new'` (1 커맨드)
+- 대화형: `ambr 'old' 'new'`
+- **Read+Edit 루프 금지** — 한 번의 커맨드로 일괄 처리
+
+### 프로젝트 분석 도구
+
+| 도구 | 명령 | 용도 |
+|------|------|------|
+| **rawq** (v0.1.1) | `rawq search "키워드"` | 코드 시맨틱 검색 (임베딩 기반 하이브리드) |
+| | `rawq map .` | AST 기반 코드베이스 구조 출력 |
+| | `rawq daemon status` | daemon 상태 확인 |
+| **code-review-graph** (v2.3.1) | `code-review-graph status` | 그래프 통계 (노드/엣지/파일) |
+| | `code-review-graph detect-changes` | 변경 영향 분석 + risk score |
+| | `code-review-graph update` | 증분 인덱스 업데이트 (변경 파일만) |
+| **context-hub** | `chub search "react hooks"` | 라이브러리/프레임워크 문서 검색 |
+
+### 사용 시 주의
+
+- rawq daemon이 꺼져있으면 첫 검색이 수분 걸림 → `rawq daemon start --background` 먼저
+- rawq/CRG는 인덱스가 오래되면 결과 부정확 → 대규모 리팩토링 후 `rawq index build` + `code-review-graph build` 재실행
+- CRG `detect-changes`는 git diff 기반 → commit되지 않은 변경도 감지
+
+---
+
+## 18. 문서 버전관리 규칙
 
 - **Reference는 같은 파일 갱신** — 날짜 파일 복제 금지, `updated_at` 메타 갱신
 - **Plan/Prompt는 작업 단위별 새 문서 허용** — 반드시 index.md 업데이트
