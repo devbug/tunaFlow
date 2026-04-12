@@ -235,13 +235,13 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
         const abIsRT = ab?.mode === "roundtable";
         const abLabel = ab?.customLabel ?? ab?.label ?? "Branch";
         return (
-        <div className={cn("mb-1.5 flex items-center gap-2 text-[10px] rounded px-2.5 py-1",
+        <div className={cn("mb-1.5 flex items-center gap-2 text-tf-xs rounded px-2.5 py-1",
           abIsRT ? "text-agent-gemini/60 bg-agent-gemini/5" : "text-muted-foreground/60 bg-primary/5")}>
-          <span className="font-mono text-[9px] uppercase tracking-wide">{abIsRT ? "RT Branch" : "Branch"}</span>
+          <span className="font-mono text-tf-micro uppercase tracking-wide">{abIsRT ? "RT Branch" : "Branch"}</span>
           <span className="font-medium text-foreground/60 flex-1 truncate">{abLabel}</span>
           <button
             onClick={closeBranchStream}
-            className="ml-auto text-muted-foreground/50 hover:text-foreground text-[10px]"
+            className="ml-auto text-muted-foreground/50 hover:text-foreground text-tf-xs"
           >
             ← Back
           </button>
@@ -288,7 +288,7 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
                     }
                   }} />
                   {ptyRespawning && isPtyEngine(engine) && (
-                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground/50">
+                    <span className="flex items-center gap-1 text-tf-xs text-muted-foreground/50">
                       <Loader2 className="w-3 h-3 animate-spin" />PTY 로딩 중
                     </span>
                   )}
@@ -324,7 +324,7 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
               {onCreateRT && (
                 <button
                   onClick={onCreateRT}
-                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-agent-gemini/50 hover:text-agent-gemini hover:bg-agent-gemini/10 transition-colors border border-agent-gemini/15"
+                  className="flex items-center gap-1 px-2 py-1 rounded-md text-tf-xs font-medium text-agent-gemini/50 hover:text-agent-gemini hover:bg-agent-gemini/10 transition-colors border border-agent-gemini/15"
                   title="New Roundtable"
                 >
                   <Users className="w-3 h-3" />
@@ -352,17 +352,17 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
           }
           disabled={!selectedConversationId}
           rows={1}
-          className="w-full px-2.5 py-2 text-[13px] bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground/40 leading-relaxed disabled:opacity-40"
+          className="w-full px-2.5 py-2 text-tf-caption bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground/40 leading-relaxed disabled:opacity-40"
         />
 
         {/* Action bar */}
         <div className="flex items-center gap-1.5 px-2.5 pb-2 pt-0.5">
-          <span className="text-[9px] text-muted-foreground/30 font-mono">↵ send · ⇧↵ newline</span>
+          <span className="text-tf-micro text-muted-foreground/30 font-mono">↵ send · ⇧↵ newline</span>
           <span className="flex-1" />
           {isCurrentThreadRunning && (
             <button
               onClick={() => cancelOperation(selectedConversationId ?? undefined)}
-              className="px-2 py-1 rounded text-[10px] font-medium text-destructive/60 hover:text-destructive hover:bg-destructive/8 transition-colors"
+              className="px-2 py-1 rounded text-tf-xs font-medium text-destructive/60 hover:text-destructive hover:bg-destructive/8 transition-colors"
             >
               Cancel
             </button>
@@ -371,7 +371,7 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
             onClick={handleSend}
             disabled={!text.trim() || !selectedConversationId}
             className={cn(
-              "flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-medium transition-colors",
+              "flex items-center gap-1 px-2.5 py-1 rounded text-tf-xs font-medium transition-colors",
               text.trim() && selectedConversationId
                 ? isCurrentThreadRunning
                   ? "bg-agent-gemini/12 text-agent-gemini/80 hover:bg-agent-gemini/20"

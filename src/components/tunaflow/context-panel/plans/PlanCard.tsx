@@ -18,8 +18,8 @@ import { ReviewVerdictCard } from "./ReviewVerdictCard";
 import { MergeBranchButton } from "./MergeBranchButton";
 
 const ctxMenuContent = "min-w-[160px] bg-popover border border-border/40 rounded-lg shadow-xl p-1 z-[100] animate-in fade-in-0 zoom-in-95";
-const ctxMenuItem = "flex items-center gap-2 px-2.5 py-1.5 text-[12px] rounded-md cursor-pointer outline-none transition-colors text-foreground/80 data-[highlighted]:bg-accent data-[highlighted]:text-foreground";
-const ctxMenuDestructive = "flex items-center gap-2 px-2.5 py-1.5 text-[12px] rounded-md cursor-pointer outline-none transition-colors text-destructive/70 data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive";
+const ctxMenuItem = "flex items-center gap-2 px-2.5 py-1.5 text-tf-caption rounded-md cursor-pointer outline-none transition-colors text-foreground/80 data-[highlighted]:bg-accent data-[highlighted]:text-foreground";
+const ctxMenuDestructive = "flex items-center gap-2 px-2.5 py-1.5 text-tf-caption rounded-md cursor-pointer outline-none transition-colors text-destructive/70 data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive";
 const ctxMenuSeparator = "h-px bg-border/30 my-1 mx-1";
 const ctxMenuIcon = "w-3.5 h-3.5 text-muted-foreground/60";
 
@@ -236,31 +236,31 @@ export function PlanCard({
               <FileText className="w-3 h-3" />
             </button>
             {plan.phase !== "drafting" && (
-              <span className={cn("text-[8px] font-semibold px-1.5 py-0 rounded-full border whitespace-nowrap", phaseCfg.cls)}>
+              <span className={cn("text-tf-micro font-semibold px-1.5 py-0 rounded-full border whitespace-nowrap", phaseCfg.cls)}>
                 {phaseCfg.label}
               </span>
             )}
             {(plan.versionMajor > 1 || plan.versionMinor > 0) && (
-              <span className="text-[8px] font-mono text-muted-foreground/50 px-1 py-0 rounded bg-accent/50" title={`Version ${plan.versionMajor}.${plan.versionMinor}`}>
+              <span className="text-tf-micro font-mono text-muted-foreground/50 px-1 py-0 rounded bg-accent/50" title={`Version ${plan.versionMajor}.${plan.versionMinor}`}>
                 v{plan.versionMajor}.{plan.versionMinor}
               </span>
             )}
             {plan.branchId && (
-              <span className="inline-flex items-center gap-0.5 text-[8px] font-medium text-primary bg-primary/10 border border-primary/20 px-1 py-0 rounded-full">
+              <span className="inline-flex items-center gap-0.5 text-tf-micro font-medium text-primary bg-primary/10 border border-primary/20 px-1 py-0 rounded-full">
                 <GitBranch className="w-2 h-2" />
                 branch
               </span>
             )}
           </div>
           {plan.description && !expanded && (
-            <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{plan.description}</p>
+            <p className="text-tf-xs text-muted-foreground mt-0.5 line-clamp-1">{plan.description}</p>
           )}
         </div>
         <button
           title={`Click to → ${nextPlanStatus}`}
           onClick={(e) => { e.stopPropagation(); onStatusChange(plan.id, nextPlanStatus); }}
           className={cn(
-            "shrink-0 text-[10px] font-semibold px-2 py-1 rounded-full border whitespace-nowrap hover:ring-1 hover:ring-primary/30 transition-all",
+            "shrink-0 text-tf-xs font-semibold px-2 py-1 rounded-full border whitespace-nowrap hover:ring-1 hover:ring-primary/30 transition-all",
             statusCfg.cls
           )}
         >
@@ -271,15 +271,15 @@ export function PlanCard({
       {expanded && (
         <div className="px-2.5 pb-2.5">
           {plan.description && (
-            <p className="text-[10px] text-muted-foreground mb-2 leading-snug pl-5">{plan.description}</p>
+            <p className="text-tf-xs text-muted-foreground mb-2 leading-snug pl-5">{plan.description}</p>
           )}
           {plan.expectedOutcome && (
-            <p className="text-[10px] text-muted-foreground/70 italic mb-2 pl-5 line-clamp-2">
+            <p className="text-tf-xs text-muted-foreground/70 italic mb-2 pl-5 line-clamp-2">
               Goal: {plan.expectedOutcome}
             </p>
           )}
           <div className="pl-5">
-            {loading && <p className="text-[10px] text-muted-foreground">Loading…</p>}
+            {loading && <p className="text-tf-xs text-muted-foreground">Loading…</p>}
             {!loading && subtasks !== null && subtasks.length === 0 && (
               <AddSubtasksInline plan={plan} onAdded={(newTasks) => setSubtasks(newTasks)} />
             )}
@@ -315,7 +315,7 @@ export function PlanCard({
             {/* Review branch merge button */}
             {plan.phase === "approval" && plan.reviewBranchId && (
               <div className="mt-1.5 flex items-center gap-2">
-                <button onClick={() => openThread(plan.reviewBranchId!)} className="text-[9px] text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
+                <button onClick={() => openThread(plan.reviewBranchId!)} className="text-tf-micro text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
                   <GitBranch className="w-2.5 h-2.5" />Review Branch 열기
                 </button>
                 <MergeBranchButton plan={plan} branchId={plan.reviewBranchId} branchType="review" onPlanUpdate={handlePlanUpdate} />
@@ -326,12 +326,12 @@ export function PlanCard({
             {plan.phase === "implementation" && plan.implementationBranchId && (
               <>
                 <div className="mt-1.5 flex items-center gap-2">
-                  <button onClick={() => openThread(plan.implementationBranchId!)} className="text-[9px] text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
+                  <button onClick={() => openThread(plan.implementationBranchId!)} className="text-tf-micro text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
                     <GitBranch className="w-2.5 h-2.5" />Implementation Branch 열기
                   </button>
                 </div>
                 {implComplete && !runningThreadIds.includes(`branch:${plan.implementationBranchId}`) && (
-                  <div className="mt-2 rounded-md border border-status-approved/30 bg-status-approved/5 p-2 text-[10px] text-status-approved flex items-center gap-1.5">
+                  <div className="mt-2 rounded-md border border-status-approved/30 bg-status-approved/5 p-2 text-tf-xs text-status-approved flex items-center gap-1.5">
                     <Check className="w-3 h-3" />구현 완료 — Review 단계로 전환 가능
                     <button
                       onClick={async () => {
@@ -355,7 +355,7 @@ export function PlanCard({
                         await loadBranches(plan.conversationId);
                         await openThread(branch.id);
                       }}
-                      className="ml-auto px-2 py-0.5 rounded text-[9px] font-medium bg-status-approved/20 hover:bg-status-approved/30 transition-colors"
+                      className="ml-auto px-2 py-0.5 rounded text-tf-micro font-medium bg-status-approved/20 hover:bg-status-approved/30 transition-colors"
                     >
                       Review RT 시작
                     </button>
@@ -369,7 +369,7 @@ export function PlanCard({
               <>
                 {plan.reviewBranchId && (
                   <div className="mt-1.5">
-                    <button onClick={() => openThread(plan.reviewBranchId!)} className="text-[9px] text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
+                    <button onClick={() => openThread(plan.reviewBranchId!)} className="text-tf-micro text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
                       <GitBranch className="w-2.5 h-2.5" />Review Branch 열기
                     </button>
                   </div>
@@ -382,18 +382,18 @@ export function PlanCard({
 
             {/* Rework phase — send findings to Developer or return to Subtask */}
             {plan.phase === "rework" && plan.implementationBranchId && (
-              <div className="mt-2 rounded-md border border-status-rejected/30 bg-status-rejected/5 p-2.5 text-[10px] text-status-rejected space-y-2">
+              <div className="mt-2 rounded-md border border-status-rejected/30 bg-status-rejected/5 p-2.5 text-tf-xs text-status-rejected space-y-2">
                 <p>Rework 필요 — Review findings를 Developer에게 전달합니다.</p>
                 {(() => {
                   const failCount = events.filter((e) => e.eventType === "review_failed").length;
                   return failCount >= 2 ? (
-                    <p className="text-[9px] font-medium text-amber-500">
+                    <p className="text-tf-micro font-medium text-amber-500">
                       ⚠ Review 실패 {failCount}회 — {failCount >= 3 ? "설계 재검토가 필요합니다." : "다음 실패 시 설계 재검토로 에스컬레이션됩니다."}
                     </p>
                   ) : null;
                 })()}
                 {reviewVerdict && reviewVerdict.findings.length > 0 && (
-                  <ul className="space-y-0.5 text-[9px] text-foreground/60 pl-2">
+                  <ul className="space-y-0.5 text-tf-micro text-foreground/60 pl-2">
                     {reviewVerdict.findings.map((f, i) => <li key={i}>- {f}</li>)}
                   </ul>
                 )}
@@ -421,7 +421,7 @@ export function PlanCard({
                       const saved = useChatStore.getState().getConversationEngine(shadowConvId);
                       await useChatStore.getState().sendThreadMessage(reworkPrompt, saved?.engine ?? "claude", saved?.model ?? undefined);
                     }}
-                    className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                    className="px-2.5 py-1 rounded-md text-tf-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
                   >
                     Developer에게 전달 + Rework
                   </button>
@@ -431,7 +431,7 @@ export function PlanCard({
                       await planApi.createPlanEvent(plan.id, "reverted_to_subtask_review", "user", "Design change needed");
                       handlePlanUpdate({ phase: "subtask_review" as any });
                     }}
-                    className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                    className="px-2.5 py-1 rounded-md text-tf-xs font-medium bg-accent text-muted-foreground hover:text-foreground transition-colors"
                   >
                     설계 변경 → Subtask
                   </button>
@@ -481,7 +481,7 @@ export function PlanCard({
             </ContextMenu.Item>
           ))}
           <ContextMenu.Separator className={ctxMenuSeparator} />
-          <ContextMenu.Label className="px-2.5 py-1 text-[9px] text-muted-foreground/40 font-medium">Phase 전환</ContextMenu.Label>
+          <ContextMenu.Label className="px-2.5 py-1 text-tf-micro text-muted-foreground/40 font-medium">Phase 전환</ContextMenu.Label>
           {(["drafting", "approval", "implementation", "review", "done"] as PlanPhase[])
             .filter((p) => p !== plan.phase)
             .map((phase) => (
@@ -581,7 +581,7 @@ function AddSubtasksInline({ plan, onAdded }: { plan: Plan; onAdded: (tasks: Pla
     return (
       <button
         onClick={() => { setOpen(true); setTimeout(() => textareaRef.current?.focus(), 50); }}
-        className="flex items-center gap-1 text-[10px] text-muted-foreground/40 hover:text-primary/60 transition-colors py-0.5"
+        className="flex items-center gap-1 text-tf-xs text-muted-foreground/40 hover:text-primary/60 transition-colors py-0.5"
       >
         <Plus className="w-3 h-3" /> 서브태스크 추가
       </button>
@@ -591,12 +591,12 @@ function AddSubtasksInline({ plan, onAdded }: { plan: Plan; onAdded: (tasks: Pla
   return (
     <div className="space-y-1.5 mt-1">
       <div className="flex items-center justify-between">
-        <p className="text-[10px] text-muted-foreground/50">한 줄에 하나씩 (마크다운 리스트 형식 OK)</p>
+        <p className="text-tf-xs text-muted-foreground/50">한 줄에 하나씩 (마크다운 리스트 형식 OK)</p>
         {plan.slug && (
           <button
             onClick={handleParseFromDocs}
             disabled={parsing}
-            className="flex items-center gap-1 text-[10px] text-primary/50 hover:text-primary transition-colors disabled:opacity-40"
+            className="flex items-center gap-1 text-tf-xs text-primary/50 hover:text-primary transition-colors disabled:opacity-40"
           >
             {parsing ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
             docs에서 가져오기
@@ -609,20 +609,20 @@ function AddSubtasksInline({ plan, onAdded }: { plan: Plan; onAdded: (tasks: Pla
         onChange={(e) => setText(e.target.value)}
         placeholder={"1. 첫 번째 작업\n2. 두 번째 작업\n3. 세 번째 작업"}
         rows={5}
-        className="w-full bg-input rounded-md px-2.5 py-1.5 text-[11px] outline-none text-foreground placeholder:text-muted-foreground/30 border border-border/30 focus:border-ring/40 resize-none font-mono"
+        className="w-full bg-input rounded-md px-2.5 py-1.5 text-tf-sm outline-none text-foreground placeholder:text-muted-foreground/30 border border-border/30 focus:border-ring/40 resize-none font-mono"
       />
       <div className="flex gap-1.5">
         <button
           onClick={handleSave}
           disabled={saving || !text.trim()}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1 rounded-md text-tf-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 transition-colors"
         >
           {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
           저장
         </button>
         <button
           onClick={() => { setOpen(false); setText(""); }}
-          className="px-2 py-1 rounded-md text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+          className="px-2 py-1 rounded-md text-tf-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           취소
         </button>

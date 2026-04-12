@@ -222,14 +222,54 @@ pub struct RoundtableParticipant {
 pub(super) fn participant_identity(p: &RoundtableParticipant) -> String {
     let engine = p.engine.as_deref().unwrap_or("claude");
     let mut lines = vec![format!("## Your Identity in this Roundtable\n\nYou are **{}** (engine: {}).", p.name, engine)];
+
     if let Some(role) = &p.role {
-        lines.push(format!("Your role: {}.", role));
+        let guidance = role_guidance(role);
+        if guidance.is_empty() {
+            lines.push(format!("Your role: {}.", role));
+        } else {
+            lines.push(format!("Your role: {}.\n{}", role, guidance));
+        }
     }
     if p.blind {
         lines.push("You are a blind verifier — you have NOT seen other participants' responses. Judge independently.".into());
     }
     lines.push("Do NOT claim to be a different agent. Do NOT use other participants' names as your own.".into());
     lines.join("\n")
+}
+
+/// Role-specific behavioral guidance for RT participants.
+fn role_guidance(role: &str) -> &'static str {
+    match role {
+        "proposer" => {
+            "**Proposer guidelines:**\n\
+             - Form your analysis independently — do not converge toward other participants' views.\n\
+             - Lead with your conclusion, then provide supporting evidence.\n\
+             - Flag assumptions explicitly; do not treat them as facts."
+        }
+        "reviewer" | "critic" => {
+            "**Reviewer guidelines:**\n\
+             - Evaluate across 4 dimensions: plan_coverage (completeness), code_quality (bugs/security), test_coverage, convention.\n\
+             - Score each dimension 1–5. Include the scores in your response.\n\
+             - For each finding, include: file path, line range (if applicable), defect type, severity.\n\
+             - Put improvement suggestions in a separate `recommendations` section, not in `findings`.\n\
+             - If verdict is `fail`, list failed subtask numbers as: `failed_subtask_ids: [N, M]`."
+        }
+        "verifier" | "judge" => {
+            "**Verifier guidelines:**\n\
+             - Focus on concrete evidence — do not rely on other participants' assessments.\n\
+             - State your verdict first, then justify with specific references.\n\
+             - Distinguish clearly between observed facts and inferences."
+        }
+        "synthesizer" | "lead" => {
+            "**Synthesizer guidelines:**\n\
+             - Organize findings into three sections: `consensus`, `contested`, `dissent`.\n\
+             - Preserve each reviewer's original verdict — do not overwrite it.\n\
+             - Final verdict must be consistent with the vote tally across participants.\n\
+             - If no clear consensus exists, state that explicitly rather than forcing agreement."
+        }
+        _ => "",
+    }
 }
 
 /// Get the effective output token cap for a participant based on role.
@@ -241,7 +281,7 @@ fn effective_max_tokens(p: &RoundtableParticipant) -> Option<u32> {
         Some("proposer") => Some(1200),
         Some("reviewer" | "critic") => Some(900),
         Some("verifier" | "judge") => Some(800),
-        Some("synthesizer" | "lead") => Some(1500),
+        Some("synthesizer" | "lead") => Some(2000),
         _ => None,
     }
 }
@@ -600,13 +640,13 @@ mod tests {
     #[test]
     fn max_tokens_synthesizer_default() {
         let p = make_participant("A", None, false, Some("synthesizer"));
-        assert_eq!(effective_max_tokens(&p), Some(1500));
+        assert_eq!(effective_max_tokens(&p), Some(2000));
     }
 
     #[test]
     fn max_tokens_lead_alias() {
         let p = make_participant("A", None, false, Some("lead"));
-        assert_eq!(effective_max_tokens(&p), Some(1500));
+        assert_eq!(effective_max_tokens(&p), Some(2000));
     }
 
     #[test]

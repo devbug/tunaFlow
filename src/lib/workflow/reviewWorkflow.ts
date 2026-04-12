@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Message, Plan, RoundtableParticipant } from "@/types";
 import * as planApi from "../api/plans";
 import * as failureLessonsApi from "../api/failureLessons";
+import * as insightApi from "../api/insight";
 import {
   buildPlanContext,
   createAndLinkBranch,
@@ -137,6 +138,8 @@ export async function processReviewVerdict(
         `Review passed — ${verdict.recommendations?.[0] ?? "resolved"}`,
       );
     } catch (e) { console.warn("[failure-learning] resolve failed:", e); }
+    insightApi.resolveInsightFindingsByPlan(plan.id)
+      .catch((e) => console.warn("[insight] resolve findings failed:", e));
     await createVerdictArtifact(plan, verdict);
     if (plan.implementationBranchId) {
       await invoke("archive_branch", { id: plan.implementationBranchId }).catch((e) => console.debug("[archive]", e));

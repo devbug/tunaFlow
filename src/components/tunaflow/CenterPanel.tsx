@@ -140,7 +140,7 @@ export function CenterPanel() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] font-medium transition-colors",
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-tf-caption font-medium transition-colors",
                 activeTab === tab.id
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground/50 hover:text-foreground/80 hover:bg-background/50"
@@ -148,22 +148,22 @@ export function CenterPanel() {
             >
               {tab.label}
               {tab.id === "plan" && planCount > 0 && (
-                <span className="text-[8px] bg-primary/10 text-primary/70 px-1 rounded">
+                <span className="text-tf-micro bg-primary/10 text-primary/70 px-1 rounded">
                   {planCount}
                 </span>
               )}
               {tab.id === "artifacts" && artifacts.length > 0 && (
-                <span className="text-[8px] bg-primary/10 text-primary/70 px-1 rounded">
+                <span className="text-tf-micro bg-primary/10 text-primary/70 px-1 rounded">
                   {artifacts.length}
                 </span>
               )}
               {tab.id === "review" && reviewCount > 0 && (
-                <span className="text-[8px] bg-status-draft/10 text-status-draft/70 px-1 rounded">
+                <span className="text-tf-micro bg-status-draft/10 text-status-draft/70 px-1 rounded">
                   {reviewCount}
                 </span>
               )}
               {tab.id === "insight" && insightCount > 0 && (
-                <span className="text-[8px] bg-amber-400/20 text-amber-400/80 px-1 rounded">
+                <span className="text-tf-micro bg-amber-400/20 text-amber-400/80 px-1 rounded">
                   {insightCount}
                 </span>
               )}
@@ -196,12 +196,12 @@ export function CenterPanel() {
 
             {memoOpen && (
               <div className="absolute right-0 top-full mt-1 w-[320px] max-h-[400px] bg-popover border border-border/40 rounded-lg shadow-xl overflow-hidden z-50">
-                <div className="px-3 py-2 text-[12px] font-medium text-muted-foreground border-b border-border/30">
+                <div className="px-3 py-2 text-tf-caption font-medium text-muted-foreground border-b border-border/30">
                   Memos ({memos.length})
                 </div>
                 <div className="overflow-y-auto max-h-[350px]">
                   {memos.length === 0 ? (
-                    <div className="px-3 py-6 text-center text-[12px] text-muted-foreground/40">
+                    <div className="px-3 py-6 text-center text-tf-caption text-muted-foreground/40">
                       No memos yet
                     </div>
                   ) : memos.map((m) => (
@@ -223,8 +223,8 @@ export function CenterPanel() {
                     >
                       <StickyNote className="w-3 h-3 text-muted-foreground/30 shrink-0 mt-0.5" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-[12px] text-foreground/80 leading-snug line-clamp-2">{m.content}</p>
-                        <p className="text-[10px] text-muted-foreground/40 mt-0.5 font-mono">
+                        <p className="text-tf-caption text-foreground/80 leading-snug line-clamp-2">{m.content}</p>
+                        <p className="text-tf-xs text-muted-foreground/40 mt-0.5 font-mono">
                           {new Date(m.createdAt).toLocaleDateString()}
                         </p>
                       </div>
@@ -233,7 +233,7 @@ export function CenterPanel() {
                         className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 text-muted-foreground/30 hover:text-destructive transition-all"
                         title="Delete"
                       >
-                        <span className="text-[9px]">✕</span>
+                        <span className="text-tf-micro">✕</span>
                       </button>
                     </div>
                   ))}
@@ -390,14 +390,14 @@ function SearchBox({ projectKey, onSelectResult }: { projectKey: string | null; 
           onChange={(e) => handleChange(e.target.value)}
           onFocus={() => { if (results.length > 0) setOpen(true); }}
           placeholder="Search…"
-          className="flex-1 bg-transparent text-[13px] font-medium outline-none text-foreground placeholder:text-muted-foreground/40"
+          className="flex-1 bg-transparent text-tf-caption font-medium outline-none text-foreground placeholder:text-muted-foreground/40"
         />
         {loading && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground/30 shrink-0" />}
       </div>
 
       {open && results.length > 0 && (
         <div className="absolute right-0 top-full mt-1 w-[360px] max-h-[400px] bg-popover border border-border/40 rounded-lg shadow-xl overflow-hidden z-50">
-          <div className="px-3 py-1.5 text-[11px] text-muted-foreground/50 border-b border-border/30">
+          <div className="px-3 py-1.5 text-tf-sm text-muted-foreground/50 border-b border-border/30">
             {results.length} results
           </div>
           <div className="overflow-y-auto max-h-[350px]">
@@ -407,15 +407,15 @@ function SearchBox({ projectKey, onSelectResult }: { projectKey: string | null; 
                 onClick={() => { onSelectResult(r.conversationId); setOpen(false); setQuery(""); }}
                 className="w-full text-left px-3 py-2 hover:bg-accent/50 transition-colors"
               >
-                <div className="flex items-center gap-2 text-[11px]">
+                <div className="flex items-center gap-2 text-tf-sm">
                   <span className="text-foreground/70 font-medium truncate flex-1">{r.conversationLabel}</span>
-                  <span className="text-[9px] text-muted-foreground/40">{r.role}</span>
-                  {r.persona && <span className="text-[9px] text-muted-foreground/30">{r.persona}</span>}
+                  <span className="text-tf-micro text-muted-foreground/40">{r.role}</span>
+                  {r.persona && <span className="text-tf-micro text-muted-foreground/30">{r.persona}</span>}
                 </div>
-                <p className="text-[11px] text-muted-foreground/60 leading-snug line-clamp-2 mt-0.5"
+                <p className="text-tf-sm text-muted-foreground/60 leading-snug line-clamp-2 mt-0.5"
                   dangerouslySetInnerHTML={{ __html: r.contentSnippet.replace(/\*\*/g, (_, i) => i % 2 === 0 ? '<mark class="bg-primary/20 text-foreground rounded px-0.5">' : '</mark>') }}
                 />
-                <span className="text-[9px] text-muted-foreground/30 font-mono">
+                <span className="text-tf-micro text-muted-foreground/30 font-mono">
                   {new Date(r.timestamp).toLocaleDateString()}
                 </span>
               </button>

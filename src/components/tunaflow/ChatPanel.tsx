@@ -190,7 +190,7 @@ export function ChatPanel() {
     >
       {/* Error banner */}
       {error && (
-        <div className="px-4 py-1.5 bg-destructive/8 border-b border-destructive/15 text-destructive/80 text-[11px] shrink-0">
+        <div className="px-4 py-1.5 bg-destructive/8 border-b border-destructive/15 text-destructive/80 text-tf-sm shrink-0">
           {error}
         </div>
       )}
@@ -290,10 +290,10 @@ export function ChatPanel() {
               <span className="typing-dot w-2 h-2 rounded-full bg-primary" />
               <span className="typing-dot w-2 h-2 rounded-full bg-primary" />
             </div>
-            <p className="text-[13px] font-medium text-foreground">
+            <p className="text-tf-caption font-medium text-foreground">
               {projectLoading}
             </p>
-            <p className="text-[10px] text-muted-foreground/50">
+            <p className="text-tf-xs text-muted-foreground/50">
               This may take a moment for large projects
             </p>
           </div>

@@ -328,6 +328,11 @@ export async function runInsightAnalysis(
       summary,
     );
 
+    // 7. Auto-export findings to docs/insight/ files
+    insightApi.exportInsightToFiles(session.id, projectPath)
+      .then((n) => onProgress?.(`파일 저장 완료: ${n}건`))
+      .catch((e) => console.warn("[insight] auto-export failed:", e));
+
     onProgress?.(`완료: ${summary}`);
     return { session: completed, findings: allFindings };
   } catch (err) {
