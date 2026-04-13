@@ -9,6 +9,7 @@ import { getPlanSlug, syncResultReport } from "@/lib/workflowOrchestration";
 import type { Branch, Message } from "@/types";
 import { PlanDocumentModal } from "./PlanDocumentModal";
 import { useSubtaskProgress } from "./useSubtaskProgress";
+import { ApprovalGate } from "./plans/ApprovalGate";
 
 interface DevProgressViewProps {
   plan: Plan;
@@ -212,6 +213,27 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
 
   if (loading) {
     return <p className="text-xs text-muted-foreground px-2">Loading...</p>;
+  }
+
+  // Approval phase: show the gate UI before implementation starts
+  if (plan.phase === "approval") {
+    return (
+      <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <ClipboardList className="w-4 h-4 text-primary/60" />
+          <span className="text-xs font-medium text-foreground flex-1">{plan.title}</span>
+          <button onClick={() => setShowDoc(true)} className="flex items-center gap-1 text-[9px] text-muted-foreground/50 hover:text-primary/60 transition-colors">
+            <FileText className="w-3 h-3" />문서
+          </button>
+        </div>
+        <ApprovalGate
+          plan={plan}
+          subtasks={subtasks}
+          onPlanUpdate={(update) => onPlanUpdate(plan.id, update)}
+        />
+        {showDoc && <PlanDocumentModal plan={plan} onClose={() => setShowDoc(false)} />}
+      </div>
+    );
   }
 
   return (
