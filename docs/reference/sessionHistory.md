@@ -94,11 +94,69 @@ description: 세션별 전체 작업 이력. 새 세션 시작 시 또는 과거
 - Rust `commands/mod.rs`: `pub mod memory_topics; pub mod memory_compression;` 추가
 - 분할 전후 전체 검증: `cargo check` + `cargo test --lib` (230 tests) + `npx tsc --noEmit` (0 errors) + `npx vitest run` (176 tests)
 
-**미완료 — 다음 세션 Tier 1 잔여**
-- `http_api.rs` (1,162줄) → http_api/ 모듈 (Tier 1 2.1) ⬜
-- `pty.rs` (1,076줄) → commands/pty/ 모듈 (Tier 1 2.2) ⬜
-- `executor.rs` (968줄) → sequential/deliberative 분리 (Tier 1 2.3) ⬜
-- `threadSlice.ts` (609줄) → streamingUtils.ts 추출 (Tier 2 2.7) ⬜
+**미완료 — Tier 1 잔여 (s27에서 완료)**
+- `http_api.rs` → http_api/ 모듈 ✅ s27
+- `pty.rs` → commands/pty/ 모듈 ✅ s27
+- `executor.rs` → sequential/deliberative 분리 ✅ s27
+- `threadSlice.ts` (609줄) → `branchSync.ts` 분리 + `agentStreamHelper.ts` 활용으로 481줄 ✅ s27
+
+---
+
+### ✅ 세션 27 (2026-04-13): 리팩토링 v3 완료 + P1 기능 3종
+
+**리팩토링 v3 Tier 1 잔여 완료**
+
+| 원본 | 결과 |
+|------|------|
+| `http_api.rs` (1,162줄) | `http_api/` 모듈 분리 ✅ |
+| `pty.rs` (1,076줄) | `commands/pty/` 모듈 분리 ✅ |
+| `executor.rs` (968줄) | sequential/deliberative 분리 ✅ |
+| `threadSlice.ts` (609줄) | `branchSync.ts` + `agentStreamHelper.ts` → 481줄 ✅ |
+
+**P1 기능 완료**
+- **RT 전용 페르소나 행동 지침**: `executor.rs`에 `role_guidance()` 추가 — proposer/reviewer/verifier/synthesizer 4종 지침, synthesizer max_tokens 1500→2000
+- **Insight Phase H** (auto-export): `insightOrchestration.ts` — 세션 완료 후 `exportInsightToFiles()` 자동 호출
+- **Insight Phase J** (plan done → findings resolved): `reviewWorkflow.ts` — review pass 시 `resolveInsightFindingsByPlan()` 자동 호출
+- **디자인 시스템 Phase 3**: `ideaImplementationStatus.md` 53개 idea 문서 현황 정리
+
+**수정 파일**
+- `src-tauri/src/commands/roundtable_helpers/executor.rs`
+- `src/lib/insightOrchestration.ts`
+- `src/lib/workflow/reviewWorkflow.ts`
+- `src/lib/workflow/branchSync.ts` (신규)
+- `src/stores/slices/threadSlice.ts`
+- `docs/reference/ideaImplementationStatus.md` (신규)
+
+**테스트**: Rust 230 ✅, Frontend 176 ✅
+
+---
+
+### ✅ 세션 28 (2026-04-13): 사이드바 폰트 크기 수정
+
+**완료**
+- 사이드바 모든 섹션(Branches/Roundtables/Scratchpad/Docs/Archive) 아이템 폰트 정상화
+  - `text-tf-sm` → `text-[11px]`, `text-tf-xs` → `text-[10px]`, `text-tf-micro` → `text-[9px]`
+  - **원인**: Tailwind 4 JIT가 `cn()` 조건부 분기 내 custom `--text-tf-*` 토큰을 dev 모드에서 감지하지 못해 16px(브라우저 기본값)로 렌더링
+  - **해결**: arbitrary value(`text-[11px]`)로 교체 → JIT가 항상 즉시 감지
+
+**수정 파일**
+- `src/components/tunaflow/Sidebar.tsx` — Branch/RT/Archive 아이템 + 섹션 헤더 + 카운트 배지
+- `src/components/tunaflow/sidebar/ScratchpadSection.tsx` — 아이템 + 헤더
+- `src/components/tunaflow/sidebar/TreeRow.tsx` — TreeRow label + SectionHeader title
+- `src/components/tunaflow/sidebar/DocsSection.tsx` — 파일 아이템
+
+**미완료 (다음 P1)**
+- 리팩토링 v3 잔여: `http_api.rs`, `pty.rs`, `executor.rs` 모듈화 (s27 커밋 내 포함여부 확인 필요)
+- ContextPack DB/assembly 완전 분리
+- 브랜치 label git slug화
+- Insight Phase I: `tool-request:insight` 핸들러 — `src/lib/toolRequestHandler.ts`에 insight 케이스 추가 시작점
+- 디자인 시스템 Phase 2: prose-* 토큰 확대 적용
+
+**사이드이펙트 경고**
+- `TreeRow.tsx` label 폰트 변경 → `ChatsSection.tsx`의 conversation/branch 트리 항목에도 적용됨 (시각적 확인 필요)
+- `DocsSection.tsx`는 이전에도 같은 크기였으나 arbitrary value로 통일됨 (동작 변화 없음)
+
+**테스트**: Rust 230 ✅, Frontend 176 ✅. DB v30 변화 없음.
 
 ---
 

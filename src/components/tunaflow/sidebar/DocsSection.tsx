@@ -92,7 +92,7 @@ export function DocsSection({ projectPath }: DocsSectionProps) {
         <div key={entry.path}>
           <button
             onClick={() => toggle(entry.path)}
-            className="w-full flex items-center gap-1 px-2 py-0.5 text-tf-sm text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/40 rounded transition-colors"
+            className="w-full flex items-center gap-1 px-2 py-0.5 text-[11px] text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/40 rounded transition-colors"
             style={{ paddingLeft: `${8 + depth * 12}px` }}
           >
             {isOpen ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
@@ -108,7 +108,7 @@ export function DocsSection({ projectPath }: DocsSectionProps) {
       <button
         key={entry.path}
         onClick={() => fileViewer?.openFile(entry.path)}
-        className="w-full flex items-center gap-1.5 px-2 py-0.5 text-tf-sm text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/40 rounded transition-colors"
+        className="w-full flex items-center gap-1.5 px-2 py-0.5 text-[11px] text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/40 rounded transition-colors"
         style={{ paddingLeft: `${8 + depth * 12}px` }}
         title={entry.path}
       >

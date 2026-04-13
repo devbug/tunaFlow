@@ -57,12 +57,12 @@ function CollapsibleSection({
       <div className="shrink-0 flex items-center px-3 py-1">
         <button
           onClick={onToggle}
-          className="flex items-center gap-1 text-tf-xs font-semibold uppercase tracking-wider text-sidebar-foreground/55 hover:text-sidebar-foreground/75 transition-colors flex-1"
+          className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/55 hover:text-sidebar-foreground/75 transition-colors flex-1"
         >
           <ChevronRight className={cn("w-3 h-3 transition-transform", expanded && "rotate-90")} />
           <span>{title}</span>
           {!expanded && count != null && count > 0 && (
-            <span className="text-tf-micro text-sidebar-foreground/25 font-normal ml-1">({count})</span>
+            <span className="text-[9px] text-sidebar-foreground/25 font-normal ml-1">({count})</span>
           )}
         </button>
         {action && <div className="shrink-0">{action}</div>}
@@ -278,7 +278,7 @@ export function Sidebar() {
             {currentProject?.name ?? "Select project"}
           </span>
           {gitBranch && (
-            <span className="flex items-center gap-0.5 text-tf-micro text-sidebar-foreground/30 font-mono shrink-0">
+            <span className="flex items-center gap-0.5 text-[9px] text-sidebar-foreground/30 font-mono shrink-0">
               <GitBranch className="w-2.5 h-2.5" />
               {gitBranch}
               {gitDirty && <span className="text-status-draft ml-1">●</span>}
@@ -308,7 +308,7 @@ export function Sidebar() {
                         : <Folder className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />}
                       <span className="truncate">{p.name}</span>
                       {p.path && (
-                        <span className="ml-auto text-tf-micro text-muted-foreground/30 truncate max-w-[60px]">
+                        <span className="ml-auto text-[9px] text-muted-foreground/30 truncate max-w-[60px]">
                           {p.path.split(/[\\/]/).pop()}
                         </span>
                       )}
@@ -361,12 +361,12 @@ export function Sidebar() {
             fillRemaining={lastExpanded === "branches"}
           >
             {activeChatBranches.length === 0 ? (
-              <p className="text-tf-xs text-sidebar-foreground/25 italic py-1">No active branches</p>
+              <p className="text-[10px] text-sidebar-foreground/25 italic py-1">No active branches</p>
             ) : (
               activeChatBranches.map((b) => (
                 <button key={b.id} onClick={() => openThread(b.id)}
                   className={cn(
-                    "w-full flex items-center gap-1.5 px-1 py-0.5 text-tf-sm rounded transition-colors group",
+                    "w-full flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded transition-colors group",
                     b.id === threadBranchId
                       ? "bg-sidebar-accent text-sidebar-foreground"
                       : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/40"
@@ -401,12 +401,12 @@ export function Sidebar() {
             }
           >
             {activeRTBranches.length === 0 ? (
-              <p className="text-tf-xs text-sidebar-foreground/25 italic py-1">No roundtables</p>
+              <p className="text-[10px] text-sidebar-foreground/25 italic py-1">No roundtables</p>
             ) : (
               activeRTBranches.map((b) => (
                 <button key={b.id} onClick={() => openThread(b.id)}
                   className={cn(
-                    "w-full flex items-center gap-1.5 px-1 py-0.5 text-tf-sm rounded transition-colors",
+                    "w-full flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded transition-colors",
                     b.id === threadBranchId
                       ? "bg-sidebar-accent text-sidebar-foreground"
                       : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/40"
@@ -465,7 +465,7 @@ export function Sidebar() {
             {archivedBranches.map((b) => (
               <button key={b.id} onClick={() => openThread(b.id)}
                 className={cn(
-                  "w-full flex items-center gap-1.5 px-1 py-0.5 text-tf-sm rounded transition-colors",
+                  "w-full flex items-center gap-1.5 px-1 py-0.5 text-[11px] rounded transition-colors",
                   b.id === threadBranchId
                     ? "bg-sidebar-accent text-sidebar-foreground"
                     : "text-sidebar-foreground/35 hover:text-sidebar-foreground/60 hover:bg-sidebar-accent/40"
