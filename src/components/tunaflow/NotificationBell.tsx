@@ -12,12 +12,14 @@ function timeAgo(ts: number): string {
   return `${Math.floor(diff / 86400)}일 전`;
 }
 
+const ENGINE_COLORS: Record<string, string> = {
+  claude: "text-agent-claude bg-agent-claude/10",
+  codex: "text-agent-codex bg-agent-codex/10",
+  gemini: "text-agent-gemini bg-agent-gemini/10",
+  opencode: "text-primary bg-primary/10",
+};
+
 function NotificationItem({ n, onNavigate }: { n: AppNotification; onNavigate: (convId: string) => void }) {
-  const typeColors = {
-    completed: "text-status-approved",
-    error: "text-status-rejected",
-    info: "text-muted-foreground",
-  };
   const typeDots = {
     completed: "bg-status-approved",
     error: "bg-status-rejected",
@@ -35,11 +37,30 @@ function NotificationItem({ n, onNavigate }: { n: AppNotification; onNavigate: (
       <div className="flex items-start gap-2">
         <span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", typeDots[n.type])} />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={cn("text-[10px] font-medium", typeColors[n.type])}>{n.title}</span>
+          {/* Row 1: title + engine badge + time */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-medium text-foreground/80 truncate">{n.title}</span>
+            {n.engine && (
+              <span className={cn("text-[8px] font-semibold px-1 py-0 rounded shrink-0", ENGINE_COLORS[n.engine] ?? "text-muted-foreground bg-muted")}>
+                {n.engine}
+              </span>
+            )}
             <span className="text-[8px] text-muted-foreground/30 ml-auto shrink-0">{timeAgo(n.timestamp)}</span>
           </div>
-          <p className="text-[10px] text-muted-foreground/60 truncate">{n.body}</p>
+          {/* Row 2: conversation title + body */}
+          <div className="flex items-center gap-1 mt-0.5">
+            {n.conversationTitle && (
+              <span className="text-[9px] text-muted-foreground/50 truncate max-w-[100px] shrink-0">
+                {n.conversationTitle}
+              </span>
+            )}
+            {n.conversationTitle && <span className="text-[8px] text-muted-foreground/25 shrink-0">·</span>}
+            <p className="text-[9px] text-muted-foreground/50 truncate">{n.body}</p>
+          </div>
+          {/* Row 3: response preview */}
+          {n.preview && (
+            <p className="text-[9px] text-foreground/40 truncate mt-0.5 italic">{n.preview}</p>
+          )}
         </div>
       </div>
     </button>
@@ -98,7 +119,7 @@ export function NotificationBell() {
       >
         <Bell className="w-3.5 h-3.5 text-prose-muted" />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[10px] h-2.5 flex items-center justify-center rounded-full bg-status-rejected text-[7px] font-bold text-white px-0.5 leading-none border-2 border-background">
+          <span className="absolute top-0.5 right-0.5 min-w-[10px] h-2.5 flex items-center justify-center rounded-full bg-status-rejected text-[7px] font-bold text-white px-0.5 leading-none z-10">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}

@@ -26,21 +26,20 @@ function deriveStages(
   const phaseIdx = phase ? PHASE_ORDER.indexOf(phase) : -1;
 
   const hasReview = artifacts.some((a) => a.type === "review-findings");
-  const hasDecision = artifacts.some((a) => a.type === "architect-decision") || phase === "done";
+  const hasDone = artifacts.some((a) => a.type === "architect-decision") || phase === "done";
 
   return [
     { id: "plan", label: "Plan", active: !!plan },
     { id: "subtask", label: "Subtask", active: phaseIdx >= 1 },
-    { id: "approved", label: "Approved", active: phaseIdx >= 2 },
-    { id: "dev", label: "Dev", active: phaseIdx >= 3 },
+    { id: "dev", label: "Dev", active: phaseIdx >= 2 },
     { id: "review", label: "Review", active: phaseIdx >= 5 || hasReview },
-    { id: "decision", label: "Decision", active: phaseIdx >= 6 || hasDecision },
+    { id: "done", label: "Done", active: phaseIdx >= 6 || hasDone },
   ];
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export type WorkflowStageId = "all" | "plan" | "subtask" | "approved" | "dev" | "review" | "decision";
+export type WorkflowStageId = "all" | "plan" | "subtask" | "dev" | "review" | "done";
 
 interface HarnessSummaryProps {
   conversationId: string;
@@ -101,10 +100,9 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
   const stageCounts: Record<string, number> = {
     plan: livePlans.filter((p) => p.phase === "drafting").length,
     subtask: livePlans.filter((p) => p.phase === "subtask_review").length,
-    approved: livePlans.filter((p) => p.phase === "approval").length,
-    dev: livePlans.filter((p) => p.phase === "implementation" || p.phase === "rework").length,
+    dev: livePlans.filter((p) => p.phase === "approval" || p.phase === "implementation" || p.phase === "rework").length,
     review: livePlans.filter((p) => p.phase === "review").length,
-    decision: livePlans.filter((p) => p.phase === "done").length,
+    done: livePlans.filter((p) => p.phase === "done").length,
   };
   const abandonedCount = allPlans.filter((p) => p.status === "abandoned").length;
 
@@ -129,9 +127,9 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
                 )}
               >
                 {stage.label}
-                {stage.id === "decision"
-                  ? (stageCounts.decision + abandonedCount > 0 && (
-                      <span className="text-[7px] text-muted-foreground/40">({stageCounts.decision + abandonedCount})</span>
+                {stage.id === "done"
+                  ? (stageCounts.done + abandonedCount > 0 && (
+                      <span className="text-[7px] text-muted-foreground/40">({stageCounts.done + abandonedCount})</span>
                     ))
                   : (stageCounts[stage.id] > 0 && (
                       <span className={cn("min-w-[14px] h-3.5 flex items-center justify-center rounded-full text-[7px] font-semibold",

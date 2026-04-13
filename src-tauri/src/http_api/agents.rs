@@ -15,11 +15,14 @@ pub async fn agents_status(State(state): State<ApiState>) -> impl IntoResponse {
     let mut stmt = match conn.prepare(
         "SELECT id, conversation_id, engine, kind, status FROM agent_jobs WHERE status = 'running'"
     ) { Ok(s) => s, Err(e) => return db_error(e) };
-    let jobs: Vec<serde_json::Value> = stmt.query_map([], |r| Ok(serde_json::json!({
+    let jobs: Vec<serde_json::Value> = match stmt.query_map([], |r| Ok(serde_json::json!({
         "id": r.get::<_, String>(0)?, "conversationId": r.get::<_, String>(1)?,
         "engine": r.get::<_, Option<String>>(2)?, "kind": r.get::<_, String>(3)?,
         "status": r.get::<_, String>(4)?,
-    }))).unwrap().filter_map(|r| r.ok()).collect();
+    }))) {
+        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+        Err(e) => return db_error(e),
+    };
     let running = !jobs.is_empty();
     Json(serde_json::json!({"running": running, "jobs": jobs})).into_response()
 }
@@ -52,6 +55,14 @@ pub async fn send_message(
             return db_error(e);
         }
     }
+
+    // Notify WS clients of the new user message
+    let _ = state.event_tx.send(serde_json::json!({
+        "type": "message:new",
+        "conversationId": conv_id,
+        "messageId": user_msg_id,
+        "role": "user",
+    }).to_string());
 
     if input.dry_run.unwrap_or(false) {
         return (StatusCode::OK, Json(serde_json::json!({
@@ -95,6 +106,7 @@ pub async fn send_message(
                     None, // persona_fragment
                     None, // context_mode_override
                     None, // context_budget_cap
+                    None, // user_profile_json (HTTP API path — not available)
                 )
             };
 
@@ -129,6 +141,12 @@ pub async fn send_message(
                     ).ok();
                 }
                 drop(conn);
+                let _ = event_tx.send(serde_json::json!({
+                    "type": "message:new",
+                    "conversationId": conv_id_clone,
+                    "messageId": msg_id,
+                    "role": "assistant",
+                }).to_string());
                 let _ = event_tx.send(serde_json::json!({
                     "type": "agent:completed",
                     "conversationId": conv_id_clone,

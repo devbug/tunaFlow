@@ -8,9 +8,18 @@ export interface AppNotification {
   type: NotificationType;
   title: string;
   body: string;
+  engine?: string;
+  conversationTitle?: string;
+  preview?: string;
   conversationId?: string;
   timestamp: number;
   read: boolean;
+}
+
+export interface NotifyMeta {
+  engine?: string;
+  conversationTitle?: string;
+  preview?: string;
 }
 
 interface NotificationState {
@@ -107,9 +116,15 @@ export async function notify(
   title: string,
   body: string,
   conversationId?: string,
+  meta?: NotifyMeta,
 ): Promise<void> {
   // Add to in-app history
-  useNotificationStore.getState().addNotification({ type, title, body, conversationId });
+  useNotificationStore.getState().addNotification({
+    type, title, body, conversationId,
+    engine: meta?.engine,
+    conversationTitle: meta?.conversationTitle,
+    preview: meta?.preview,
+  });
 
   // Play sound if enabled
   if (useNotificationStore.getState().soundEnabled) {

@@ -18,6 +18,8 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
   const [revisionInput, setRevisionInput] = useState("");
   const [revisionTarget, setRevisionTarget] = useState<Plan | null>(null);
   const activeBranchId = useChatStore((s) => s.activeBranchId);
+  const threadBranchId = useChatStore((s) => s.threadBranchId);
+  const threadBranchConvId = useChatStore((s) => s.threadBranchConvId);
   const selectedConversationId = useChatStore((s) => s.selectedConversationId);
   const sendWithEngine = useChatStore((s) => s.sendWithEngine);
   const closeThread = useChatStore((s) => s.closeThread);
@@ -217,14 +219,17 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
       }
 
       // Auto-adopt branch if promoted from a branch context
-      if (activeBranchId && planConvId) {
-        await adoptBranch(activeBranchId, planConvId).catch((e) =>
+      // activeBranchId = full-screen branch mode; threadBranchId = drawer mode
+      const adoptId = activeBranchId ?? threadBranchId;
+      const adoptConvId = activeBranchId ? planConvId : threadBranchConvId;
+      if (adoptId && adoptConvId) {
+        await adoptBranch(adoptId, adoptConvId).catch((e) =>
           console.warn("[promote] adopt branch failed:", e)
         );
       }
 
-      // Switch Plan tab to subtask stage so newly promoted plan is visible
-      window.dispatchEvent(new CustomEvent("tunaflow:switch-tab", { detail: "plan" }));
+      // Switch Workflow tab to subtask stage so newly promoted plan is visible
+      window.dispatchEvent(new CustomEvent("tunaflow:switch-tab", { detail: "workflow" }));
       window.dispatchEvent(new CustomEvent("tunaflow:switch-stage", { detail: "subtask" }));
 
       setStatus("promoted");
@@ -259,11 +264,28 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
   if (status === "warn-empty") {
     return (
       <div className="my-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs space-y-2">
-        <p className="text-amber-400 font-medium">서브태스크가 없습니다</p>
+        <p className="text-amber-400 font-medium">서브태스크를 인식하지 못했습니다</p>
         <p className="text-muted-foreground text-[11px]">
-          이 Plan에는 서브태스크가 없습니다. Architect가 먼저 문서를 작성한 뒤 Plan 탭에서 복구하거나, 그래도 지금 승격할 수 있습니다.
+          에이전트가 서브태스크를 잘못된 형식으로 작성했을 수 있습니다.
+          파서가 인식하는 형식:
+        </p>
+        <pre className="text-[10px] text-muted-foreground/70 bg-black/20 rounded px-2 py-1.5 font-mono leading-relaxed">
+{`### Subtasks        ← 삼중 # 필수
+1. 첫 번째 작업 — 설명
+2. 두 번째 작업 — 설명`}
+        </pre>
+        <p className="text-muted-foreground/60 text-[10px]">
+          ❌ <code className="font-mono">## Subtasks</code> (이중 #) &nbsp;·&nbsp;
+          ❌ 마크다운 테이블 <code className="font-mono">| # | 제목 |</code> &nbsp;·&nbsp;
+          ❌ 마커 밖 작성
         </p>
         <div className="flex gap-1.5 pt-0.5">
+          <button
+            onClick={() => setStatus("revising")}
+            className="px-2.5 py-1 rounded-md text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+          >
+            수정 요청
+          </button>
           <button
             onClick={() => { void handlePromote(true); }}
             className="px-2.5 py-1 rounded-md text-xs font-medium bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors"

@@ -6,6 +6,7 @@ import { sendMessageViaPty } from "./ptyMessageSender";
 import { getSetting } from "@/lib/appStore";
 import { useToolStepsStore } from "@/stores/toolStepsStore";
 import { serializeSteps } from "@/lib/toolSteps";
+import { createRtChunkBatcher, createSingleChunkThrottler } from "./streamingUtils";
 import type {
   SetState,
   GetState,
@@ -71,22 +72,23 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     // Notify completion — skip if error was set (error handler sends its own notification)
     if (!get().error) {
       import("@/stores/notificationStore").then(({ notify }) => {
-        notify("completed", "tunaFlow", "에이전트 응답이 완료되었습니다.", threadId);
+        const state = get();
+        const conv = state.conversations.find((c) => c.id === threadId);
+        const engine = state.getConversationEngine(threadId)?.engine;
+        const lastAsst = state.messages.filter((m) => m.conversationId === threadId && m.role === "assistant").slice(-1)[0];
+        const preview = lastAsst?.content?.replace(/\n+/g, " ").slice(0, 80);
+        notify("completed", state.personaLabel ?? "에이전트", "응답 완료", threadId, {
+          engine,
+          conversationTitle: conv?.customLabel ?? conv?.label,
+          preview,
+        });
       }).catch((e) => console.debug("[notify]", e));
     }
-    // Post-completion background tasks — staggered to avoid blocking main thread.
-    // These are synchronous Tauri commands that can take seconds (Claude API, rawq embed).
-    setTimeout(() => invoke("compress_conversation_memory", { conversationId: threadId }).catch((e) => console.error("[bg] compress_memory failed:", e)), 500);
-    setTimeout(() => invoke("refresh_session_links", { conversationId: threadId }).catch((e) => console.error("[bg] refresh_session_links failed:", e)), 1500);
-    setTimeout(() => invoke("index_conversation_chunks", { conversationId: threadId }).catch((e) => console.error("[bg] index_chunks failed:", e)), 3000);
-    setTimeout(() => {
-      const projectKey = get().selectedProjectKey;
-      if (projectKey) {
-        invoke<{ path?: string }>("get_project", { key: projectKey }).then((p) => {
-          if (p?.path) invoke("start_rawq_index", { projectPath: p.path }).catch((e) => console.error("[bg] rawq_index failed:", e));
-        }).catch((e) => console.error("[bg] get_project failed:", e));
-      }
-    }, 5000);
+    // Post-completion background tasks: memory compression, session links, vector indexing, rawq.
+    // Delegated to backend command to avoid setTimeout chain and decouple from UI thread.
+    invoke("on_run_completed", { conversationId: threadId }).catch((e) =>
+      console.error("[bg] on_run_completed failed:", e)
+    );
 
     // Drain next queued action for this thread
     const queue = get().messageQueue;
@@ -130,7 +132,26 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
       const { waitForPtyReady } = await import("@/stores/slices/conversationSlice");
       await waitForPtyReady(selectedConversationId, 20_000);
 
-      const ptySession = usePtyStore.getState().getSession(engine);
+      let ptySession = usePtyStore.getState().getSession(engine);
+      // Re-spawn if model changed since last spawn
+      if (ptySession !== null && model) {
+        const ptyModel = usePtyStore.getState().getModel(engine);
+        if (ptyModel && model !== ptyModel) {
+          console.log(`[pty] model mismatch: spawned=${ptyModel}, requested=${model} — re-spawning`);
+          import("sonner").then(({ toast }) => toast.info(`모델 변경 (${ptyModel} → ${model}) — PTY 재시작 중...`)).catch(() => {});
+          const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
+          await tauriInvoke("pty_kill_all").catch(() => {});
+          usePtyStore.getState().clearAllSessions();
+          const convObj = get().conversations.find((c) => c.id === selectedConversationId);
+          const projectInfo = await tauriInvoke<{ path?: string }>("get_project", { key: selectedProjectKey }).catch(() => null);
+          if (convObj && projectInfo?.path) {
+            const { spawnPtyForConversation, waitForPtyReady: waitReady } = await import("@/stores/slices/conversationSlice");
+            await spawnPtyForConversation(convObj, projectInfo.path);
+            await waitReady(selectedConversationId, 20_000);
+          }
+          ptySession = usePtyStore.getState().getSession(engine);
+        }
+      }
       if (ptySession !== null) {
         try {
           await sendMessageViaPty(set, get, prompt, ptySession, selectedConversationId, engine, {
@@ -151,12 +172,13 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
 
     get()._startRun(selectedConversationId);
     const now = Date.now();
+    const persona = get().personaLabel ?? undefined;
     set((state) => ({
       error: null, // Clear previous error banner on new send
       messages: [
         ...state.messages,
         { id: `temp-user-${now}`, conversationId: selectedConversationId, role: "user", content: prompt, timestamp: now, status: "done" },
-        { id: `temp-thinking-${now}`, conversationId: selectedConversationId, role: "assistant", content: "", timestamp: now, status: "streaming", engine: config.engineKey, model },
+        { id: `temp-thinking-${now}`, conversationId: selectedConversationId, role: "assistant", content: "", timestamp: now, status: "streaming", engine: config.engineKey, model, persona },
       ],
     }));
 
@@ -169,7 +191,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
         }
         // First event with real messageId — replace placeholder
         const withoutPlaceholder = state.messages.filter((m) => !m.id.startsWith("temp-thinking-"));
-        return { messages: [...withoutPlaceholder, { id: messageId, conversationId: selectedConversationId, role: "assistant" as const, content: text, timestamp: Date.now(), status: "streaming" as const, engine: config.engineKey, model }] };
+        return { messages: [...withoutPlaceholder, { id: messageId, conversationId: selectedConversationId, role: "assistant" as const, content: text, timestamp: Date.now(), status: "streaming" as const, engine: config.engineKey, model, persona }] };
       });
     };
 
@@ -188,41 +210,35 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
           const hasReal = state.messages.some((m) => m.id === e.payload.messageId);
           if (hasReal) return state; // already swapped
           const withoutPlaceholder = state.messages.filter((m) => !m.id.startsWith("temp-thinking-"));
-          return { messages: [...withoutPlaceholder, { id: e.payload.messageId, conversationId: selectedConversationId, role: "assistant" as const, content: "", timestamp: Date.now(), status: "streaming" as const, engine: config.engineKey, model }] };
+          return { messages: [...withoutPlaceholder, { id: e.payload.messageId, conversationId: selectedConversationId, role: "assistant" as const, content: "", timestamp: Date.now(), status: "streaming" as const, engine: config.engineKey, model, persona }] };
         });
       },
     );
     // Throttle chunk updates to ~5 per second (200ms) to reduce re-renders during streaming
-    let pendingChunk: { messageId: string; text: string } | null = null;
-    let chunkTimer: ReturnType<typeof setTimeout> | null = null;
-    const flushChunk = () => {
-      if (pendingChunk && isStillActive()) { replaceOrUpdate(pendingChunk.messageId, pendingChunk.text); }
-      pendingChunk = null;
-      chunkTimer = null;
-    };
+    const chunkThrottle = createSingleChunkThrottler(
+      isStillActive,
+      (messageId, text) => replaceOrUpdate(messageId, text),
+    );
     const unlistenChunk = config.hasChunkEvent
       ? await listen<{ messageId: string; conversationId: string; text: string }>(
           `${eventPrefix}:chunk`, (e) => {
             if (e.payload.conversationId !== selectedConversationId) return;
-            pendingChunk = e.payload;
-            if (!chunkTimer) chunkTimer = setTimeout(flushChunk, 200);
+            chunkThrottle.handleChunk(e.payload);
           },
         )
       : () => {};
 
     const cleanup = () => {
       // Flush any pending throttled chunk before cleanup
-      if (chunkTimer) { clearTimeout(chunkTimer); chunkTimer = null; }
-      flushChunk();
+      chunkThrottle.cleanup();
       unlistenProgress(); unlistenChunk(); unlistenDone(); unlistenErr();
     };
 
     const unlistenDone = await listen<{ messageId: string; conversationId: string; durationMs?: number; inputTokens?: number; outputTokens?: number; costUsd?: number }>("agent:completed", async (e) => {
       if (e.payload.conversationId !== selectedConversationId) return;
       // Discard pending chunk BEFORE cleanup — DB reload has final content.
-      // Without this, flushChunk() calls set(status:'streaming') which races
-      // with the later set(messages: enriched) where status='done'.
-      pendingChunk = null;
+      // Without this, the throttle flush races with the DB reload set(status:'done').
+      chunkThrottle.cleanup();
       cleanup();
       // Save tool steps to progressContent for lazy-load display
       const tsStore = useToolStepsStore.getState();
@@ -273,11 +289,16 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
 
     const unlistenErr = await listen<{ messageId: string; conversationId: string; error: string }>("agent:error", async (e) => {
       if (e.payload.conversationId !== selectedConversationId) return;
-      pendingChunk = null;
+      chunkThrottle.cleanup();
       cleanup();
       import("@/stores/notificationStore").then(({ notify }) => {
-        notify("error", "tunaFlow", `에이전트 오류: ${e.payload.error.slice(0, 100)}`, selectedConversationId);
-      }).catch(() => {});
+        const state = get();
+        const conv = state.conversations.find((c) => c.id === selectedConversationId);
+        notify("error", state.personaLabel ?? "에이전트", `오류: ${e.payload.error.slice(0, 80)}`, selectedConversationId, {
+          engine: state.getConversationEngine(selectedConversationId)?.engine,
+          conversationTitle: conv?.customLabel ?? conv?.label,
+        });
+      }).catch((e) => console.debug("[notify:error]", e));
       const freshMessages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });
       set((state) => {
         if (state.selectedConversationId === selectedConversationId) {
@@ -295,6 +316,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
       // Resolve phase-based workflow skills
       const planPhase = await invoke<string | null>("get_active_plan_phase", { conversationId: selectedConversationId }).catch(() => null);
       const effectiveSkills = get().getEffectiveSkills(planPhase, prompt);
+      const userProfile = await getSetting("userProfile", null as unknown as object).catch(() => null);
       const input: SendWithClaudeInput = {
         projectKey: selectedProjectKey,
         conversationId: selectedConversationId,
@@ -303,6 +325,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
         crossSessionIds: get().crossSessionIds,
         personaFragment: get().personaFragment ?? undefined,
         personaLabel: get().personaLabel ?? undefined,
+        userProfileJson: userProfile ? JSON.stringify(userProfile) : undefined,
         ...bo,
       };
       await invoke<{ messageId: string }>(config.command, { input });
@@ -415,31 +438,22 @@ async function runRoundtable(
   });
 
   // Throttled roundtable:chunk listener for real-time streaming (200ms batching)
-  let pendingRtChunk: Map<string, string> = new Map();
-  let rtChunkTimer: ReturnType<typeof setTimeout> | null = null;
-  const flushRtChunk = () => {
-    rtChunkTimer = null;
-    if (!isStillActive() || pendingRtChunk.size === 0) { pendingRtChunk.clear(); return; }
-    const batch = new Map(pendingRtChunk);
-    pendingRtChunk.clear();
-    set((state) => ({
+  const rtBatcher = createRtChunkBatcher(
+    selectedConversationId,
+    isStillActive,
+    (batch) => set((state) => ({
       messages: state.messages.map((m) => {
         const text = batch.get(m.id);
         return text !== undefined ? { ...m, content: text } : m;
       }),
-    }));
-  };
+    })),
+  );
   const ulChunk = await listen<{ messageId: string; conversationId: string; text: string }>(
-    "roundtable:chunk", (e) => {
-      if (e.payload.conversationId !== selectedConversationId) return;
-      pendingRtChunk.set(e.payload.messageId, e.payload.text);
-      if (!rtChunkTimer) rtChunkTimer = setTimeout(flushRtChunk, 200);
-    },
+    "roundtable:chunk", rtBatcher.handleChunk,
   );
 
   const cleanup = () => {
-    if (rtChunkTimer) { clearTimeout(rtChunkTimer); rtChunkTimer = null; }
-    pendingRtChunk.clear();
+    rtBatcher.cleanup();
     ulRT(); ulChunk(); ulD(); ulE();
   };
   const ulD = await listen<{ conversationId: string }>("agent:completed", async (e) => {
@@ -455,8 +469,12 @@ async function runRoundtable(
     if (e.payload.conversationId !== selectedConversationId) return;
     cleanup();
     import("@/stores/notificationStore").then(({ notify }) => {
-      notify("error", "tunaFlow", `에이전트 오류: ${e.payload.error.slice(0, 100)}`, selectedConversationId);
-    }).catch(() => {});
+      const state = get();
+      const conv = state.conversations.find((c) => c.id === selectedConversationId);
+      notify("error", "Roundtable", `오류: ${e.payload.error.slice(0, 80)}`, selectedConversationId, {
+        conversationTitle: conv?.customLabel ?? conv?.label,
+      });
+    }).catch((e) => console.debug("[notify:rt-error]", e));
     if (isStillActive()) {
       set({ error: e.payload.error });
       const messages = await invoke<Message[]>("list_messages", { conversationId: selectedConversationId });

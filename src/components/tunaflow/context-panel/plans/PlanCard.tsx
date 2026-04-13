@@ -6,7 +6,8 @@ import { useChatStore } from "@/stores/chatStore";
 import { ChevronDown, ChevronRight, GitBranch, Check, FileText, Ban, CheckCircle, Play, RotateCcw, Plus, Loader2, FolderOpen } from "lucide-react";
 import type { Plan, PlanEvent, PlanPhase, PlanSubtask, PlanStatus, SubtaskStatus, Message } from "@/types";
 import * as planApi from "@/lib/api/plans";
-import { getPlanSlug, scanMessagesForMarkers, startReviewRT } from "@/lib/workflowOrchestration";
+import { startReviewRT } from "@/lib/workflowOrchestration";
+import { loadPlanExpandData } from "@/lib/workflow/planWorkflowService";
 import type { ParsedReviewVerdict } from "@/lib/planProposalParser";
 import { PLAN_STATUS_CFG, PLAN_PHASE_CFG } from "./constants";
 import { PlanDocumentModal } from "../PlanDocumentModal";
@@ -71,102 +72,17 @@ export function PlanCard({
     if (!expanded && tasks === null) {
       setLoading(true);
       try {
-        const [t, e] = await Promise.all([
-          planApi.listSubtasks(plan.id),
-          planApi.listPlanEvents(plan.id),
-        ]);
-        tasks = t;
-        setSubtasks(tasks);
-        setEvents(e);
-
-        // Auto-recover subtasks from docs if plan has none
-        if (t.length === 0) {
-          const slug = getPlanSlug(plan);
-          if (slug) {
-            try {
-              const projectKey = useChatStore.getState().selectedProjectKey;
-              if (projectKey) {
-                const project = await invoke<{ path?: string }>("get_project", { key: projectKey });
-                if (project?.path) {
-                  const entries = await invoke<{ name: string; path: string; isDir: boolean }[]>(
-                    "list_directory", { path: `${project.path}/docs/plans` }
-                  ).catch(() => [] as { name: string; path: string; isDir: boolean }[]);
-
-                  const taskFiles = entries
-                    .filter((e) => !e.isDir && e.name.match(new RegExp(`^${slug}-task-\\d+\\.md$`)))
-                    .sort((a, b) => a.name.localeCompare(b.name));
-
-                  if (taskFiles.length > 0) {
-                    const titles: string[] = [];
-                    for (const f of taskFiles) {
-                      const content = await invoke<string>("read_file_content", { path: f.path }).catch(() => "");
-                      const heading = content.match(/^#{1,2}\s+(.+)/m)?.[1]
-                        ?.replace(/^(Task\s+\d+[:.]\s*)/i, "").trim()
-                        ?? f.name.replace(/\.md$/, "");
-                      titles.push(heading);
-                    }
-                    const recovered = await planApi.replacePlanSubtasks(plan.id, titles.map((title) => ({ title, details: undefined })));
-                    tasks = recovered;
-                    setSubtasks(recovered);
-                    await planApi.createPlanEvent(plan.id, "review_merged", "system", `Auto-recovered ${recovered.length} subtasks from docs`);
-                    console.log(`[PlanCard] auto-recovered ${recovered.length} subtasks from docs/${slug}-task-*.md`);
-                  }
-                }
-              }
-            } catch (e) {
-              console.debug("[PlanCard] auto-recover subtasks:", e);
-            }
-          }
-        }
-
-        // Scan branch messages for workflow markers
-        if (plan.implementationBranchId && (plan.phase === "implementation" || plan.phase === "review")) {
-          try {
-            const shadowConvId = `branch:${plan.implementationBranchId}`;
-            const msgs = await invoke<Message[]>("list_messages", { conversationId: shadowConvId });
-            const markers = scanMessagesForMarkers(msgs);
-            if (markers.implComplete) {
-              setImplComplete(true);
-            } else if (tasks && tasks.length > 0) {
-              // Fallback: all subtasks done in DB + agent not running → infer impl-complete
-              const allDone = tasks.every((st) => st.status === "done");
-              const notRunning = !runningThreadIds.includes(shadowConvId);
-              if (allDone && notRunning) setImplComplete(true);
-            }
-          } catch { /* branch may not exist yet */ }
-        }
-        if (plan.reviewBranchId && plan.phase === "review") {
-          try {
-            const shadowConvId = `branch:${plan.reviewBranchId}`;
-            const msgs = await invoke<Message[]>("list_messages", { conversationId: shadowConvId });
-            const markers = scanMessagesForMarkers(msgs);
-            if (markers.reviewVerdict) setReviewVerdict(markers.reviewVerdict);
-          } catch { /* branch may not exist yet */ }
-        }
-        // Load task file titles
-        try {
-          const projectKey = useChatStore.getState().selectedProjectKey;
-          if (projectKey) {
-            const project = await invoke("get_project", { key: projectKey }) as { path?: string };
-            if (project?.path) {
-              const slug = getPlanSlug(plan);
-              const titles: Record<number, string> = {};
-              for (let i = 1; i <= (tasks?.length ?? 0); i++) {
-                const taskPath = `${project.path}/docs/plans/${slug}-task-${String(i).padStart(2, "0")}.md`;
-                try {
-                  const content = await invoke<{ content: string }>("read_text_file", { filePath: taskPath, projectPath: project.path });
-                  const m = content.content.match(/^#\s+(.+)$/m);
-                  if (m) titles[i] = m[1].trim();
-                } catch { /* file doesn't exist */ }
-              }
-              setTaskFileTitles(titles);
-            }
-          }
-        } catch (e) {
-          console.warn("[PlanCard] task file title load failed:", e);
-        }
+        const projectKey = useChatStore.getState().selectedProjectKey;
+        const result = await loadPlanExpandData(plan, projectKey, runningThreadIds);
+        tasks = result.subtasks;
+        setSubtasks(result.subtasks);
+        const events = await planApi.listPlanEvents(plan.id);
+        setEvents(events);
+        if (result.implComplete) setImplComplete(true);
+        if (result.reviewVerdict) setReviewVerdict(result.reviewVerdict);
+        setTaskFileTitles(result.taskFileTitles);
       } catch (e) {
-        console.error("[PlanCard] subtask/event load failed:", e);
+        console.error("[PlanCard] expand load failed:", e);
         tasks = [];
         setSubtasks([]);
       } finally {
@@ -236,17 +152,17 @@ export function PlanCard({
               <FileText className="w-3 h-3" />
             </button>
             {plan.phase !== "drafting" && (
-              <span className={cn("text-tf-micro font-semibold px-1.5 py-0 rounded-full border whitespace-nowrap", phaseCfg.cls)}>
+              <span className={cn("text-[9px] font-semibold px-1.5 py-0 rounded-full border whitespace-nowrap", phaseCfg.cls)}>
                 {phaseCfg.label}
               </span>
             )}
             {(plan.versionMajor > 1 || plan.versionMinor > 0) && (
-              <span className="text-tf-micro font-mono text-muted-foreground/50 px-1 py-0 rounded bg-accent/50" title={`Version ${plan.versionMajor}.${plan.versionMinor}`}>
+              <span className="text-[9px] font-mono text-muted-foreground/50 px-1 py-0 rounded bg-accent/50" title={`Version ${plan.versionMajor}.${plan.versionMinor}`}>
                 v{plan.versionMajor}.{plan.versionMinor}
               </span>
             )}
             {plan.branchId && (
-              <span className="inline-flex items-center gap-0.5 text-tf-micro font-medium text-primary bg-primary/10 border border-primary/20 px-1 py-0 rounded-full">
+              <span className="inline-flex items-center gap-0.5 text-[9px] font-medium text-primary bg-primary/10 border border-primary/20 px-1 py-0 rounded-full">
                 <GitBranch className="w-2 h-2" />
                 branch
               </span>
@@ -315,7 +231,7 @@ export function PlanCard({
             {/* Review branch merge button */}
             {plan.phase === "approval" && plan.reviewBranchId && (
               <div className="mt-1.5 flex items-center gap-2">
-                <button onClick={() => openThread(plan.reviewBranchId!)} className="text-tf-micro text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
+                <button onClick={() => openThread(plan.reviewBranchId!)} className="text-[9px] text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
                   <GitBranch className="w-2.5 h-2.5" />Review Branch 열기
                 </button>
                 <MergeBranchButton plan={plan} branchId={plan.reviewBranchId} branchType="review" onPlanUpdate={handlePlanUpdate} />
@@ -326,7 +242,7 @@ export function PlanCard({
             {plan.phase === "implementation" && plan.implementationBranchId && (
               <>
                 <div className="mt-1.5 flex items-center gap-2">
-                  <button onClick={() => openThread(plan.implementationBranchId!)} className="text-tf-micro text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
+                  <button onClick={() => openThread(plan.implementationBranchId!)} className="text-[9px] text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
                     <GitBranch className="w-2.5 h-2.5" />Implementation Branch 열기
                   </button>
                 </div>
@@ -355,7 +271,7 @@ export function PlanCard({
                         await loadBranches(plan.conversationId);
                         await openThread(branch.id);
                       }}
-                      className="ml-auto px-2 py-0.5 rounded text-tf-micro font-medium bg-status-approved/20 hover:bg-status-approved/30 transition-colors"
+                      className="ml-auto px-2 py-0.5 rounded text-[9px] font-medium bg-status-approved/20 hover:bg-status-approved/30 transition-colors"
                     >
                       Review RT 시작
                     </button>
@@ -369,13 +285,42 @@ export function PlanCard({
               <>
                 {plan.reviewBranchId && (
                   <div className="mt-1.5">
-                    <button onClick={() => openThread(plan.reviewBranchId!)} className="text-tf-micro text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
+                    <button onClick={() => openThread(plan.reviewBranchId!)} className="text-[9px] text-primary/60 hover:text-primary hover:underline flex items-center gap-0.5">
                       <GitBranch className="w-2.5 h-2.5" />Review Branch 열기
                     </button>
                   </div>
                 )}
                 {reviewVerdict && (
                   <ReviewVerdictCard verdict={reviewVerdict} plan={plan} onPlanUpdate={handlePlanUpdate} />
+                )}
+                {/* Fallback: no verdict marker detected — let user manually decide */}
+                {!reviewVerdict && !runningThreadIds.includes(`branch:${plan.reviewBranchId}`) && (
+                  <div className="mt-2 rounded-md border border-muted/40 bg-muted/5 p-2.5 space-y-1.5">
+                    <p className="text-[9px] text-muted-foreground/60">리뷰어 마커가 감지되지 않았습니다. 수동으로 판단하세요.</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={async () => {
+                          await planApi.updatePlanPhase(plan.id, "rework");
+                          await planApi.createPlanEvent(plan.id, "review_failed", "reviewer", JSON.stringify({ verdict: "fail", findings: [], recommendations: [] }));
+                          handlePlanUpdate({ phase: "rework" });
+                        }}
+                        className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-rejected/10 text-status-rejected hover:bg-status-rejected/20 transition-colors"
+                      >
+                        수정 필요 (Rework)
+                      </button>
+                      <button
+                        onClick={async () => {
+                          await planApi.updatePlanPhase(plan.id, "done");
+                          await planApi.updatePlanStatus(plan.id, "done");
+                          await planApi.createPlanEvent(plan.id, "review_passed", "reviewer", JSON.stringify({ verdict: "pass", findings: [], recommendations: [] }));
+                          handlePlanUpdate({ phase: "done", status: "done" });
+                        }}
+                        className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 transition-colors"
+                      >
+                        통과 처리 (Done)
+                      </button>
+                    </div>
+                  </div>
                 )}
               </>
             )}
@@ -387,13 +332,13 @@ export function PlanCard({
                 {(() => {
                   const failCount = events.filter((e) => e.eventType === "review_failed").length;
                   return failCount >= 2 ? (
-                    <p className="text-tf-micro font-medium text-amber-500">
+                    <p className="text-[9px] font-medium text-amber-500">
                       ⚠ Review 실패 {failCount}회 — {failCount >= 3 ? "설계 재검토가 필요합니다." : "다음 실패 시 설계 재검토로 에스컬레이션됩니다."}
                     </p>
                   ) : null;
                 })()}
                 {reviewVerdict && reviewVerdict.findings.length > 0 && (
-                  <ul className="space-y-0.5 text-tf-micro text-foreground/60 pl-2">
+                  <ul className="space-y-0.5 text-[9px] text-foreground/60 pl-2">
                     {reviewVerdict.findings.map((f, i) => <li key={i}>- {f}</li>)}
                   </ul>
                 )}
@@ -481,7 +426,7 @@ export function PlanCard({
             </ContextMenu.Item>
           ))}
           <ContextMenu.Separator className={ctxMenuSeparator} />
-          <ContextMenu.Label className="px-2.5 py-1 text-tf-micro text-muted-foreground/40 font-medium">Phase 전환</ContextMenu.Label>
+          <ContextMenu.Label className="px-2.5 py-1 text-[9px] text-muted-foreground/40 font-medium">Phase 전환</ContextMenu.Label>
           {(["drafting", "approval", "implementation", "review", "done"] as PlanPhase[])
             .filter((p) => p !== plan.phase)
             .map((phase) => (

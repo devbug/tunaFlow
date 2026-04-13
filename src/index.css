@@ -54,6 +54,9 @@
   --prose-faint: oklch(0.55 0.03 280);
   --prose-disabled: oklch(0.42 0.02 280);
 
+  /* User chat bubble */
+  --user-bubble: oklch(0.20 0.03 282);
+
   /* Motion (3 steps) */
   --duration-fast: 100ms;
   --duration-normal: 200ms;
@@ -109,6 +112,7 @@
   --color-prose-muted: var(--prose-muted);
   --color-prose-faint: var(--prose-faint);
   --color-prose-disabled: var(--prose-disabled);
+  --color-user-bubble: var(--user-bubble);
   --text-tf-micro: 9px;
   --text-tf-xs: 10px;
   --text-tf-sm: 11px;
@@ -132,40 +136,43 @@
 /* Applied when <html class="light"> is set via Settings > Appearance. */
 
 html.light {
-  --background: oklch(0.97 0.006 282);
-  --foreground: oklch(0.14 0.02 282);
-  --card: oklch(1.00 0.003 282);
-  --card-foreground: oklch(0.14 0.02 282);
-  --popover: oklch(1.00 0.003 282);
-  --popover-foreground: oklch(0.14 0.02 282);
-  --primary: oklch(0.54 0.22 270);
+  --background: oklch(0.96 0.006 282);
+  --foreground: oklch(0.10 0.02 282);
+  --card: oklch(0.99 0.003 282);
+  --card-foreground: oklch(0.10 0.02 282);
+  --popover: oklch(0.99 0.003 282);
+  --popover-foreground: oklch(0.10 0.02 282);
+  --primary: oklch(0.50 0.22 270);
   --primary-foreground: #ffffff;
-  --secondary: oklch(0.95 0.008 282);
-  --secondary-foreground: oklch(0.25 0.02 282);
-  --muted: oklch(0.94 0.009 282);
-  --muted-foreground: oklch(0.48 0.03 282);
-  --accent: oklch(0.94 0.009 282);
-  --accent-foreground: oklch(0.14 0.02 282);
-  --destructive: oklch(0.52 0.21 25);
+  --secondary: oklch(0.92 0.010 282);
+  --secondary-foreground: oklch(0.20 0.02 282);
+  --muted: oklch(0.91 0.010 282);
+  --muted-foreground: oklch(0.40 0.03 282);
+  --accent: oklch(0.91 0.010 282);
+  --accent-foreground: oklch(0.10 0.02 282);
+  --destructive: oklch(0.50 0.22 25);
   --destructive-foreground: #ffffff;
-  --border: oklch(0.87 0.015 282);
-  --input: oklch(0.94 0.009 282);
-  --ring: oklch(0.54 0.15 270);
+  --border: oklch(0.80 0.018 282);
+  --input: oklch(0.91 0.010 282);
+  --ring: oklch(0.50 0.16 270);
 
-  --sidebar: oklch(0.93 0.012 282);
-  --sidebar-foreground: oklch(0.22 0.02 282);
-  --sidebar-primary: oklch(0.54 0.22 270);
+  --sidebar: oklch(0.91 0.013 282);
+  --sidebar-foreground: oklch(0.18 0.02 282);
+  --sidebar-primary: oklch(0.50 0.22 270);
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: oklch(0.90 0.012 282);
-  --sidebar-accent-foreground: oklch(0.14 0.02 282);
-  --sidebar-border: oklch(0.85 0.015 282);
-  --sidebar-ring: oklch(0.56 0.12 270);
+  --sidebar-accent: oklch(0.87 0.013 282);
+  --sidebar-accent-foreground: oklch(0.10 0.02 282);
+  --sidebar-border: oklch(0.78 0.018 282);
+  --sidebar-ring: oklch(0.52 0.13 270);
 
-  --prose-strong: oklch(0.10 0.02 280);
-  --prose-base: oklch(0.22 0.02 280);
-  --prose-muted: oklch(0.44 0.03 280);
-  --prose-faint: oklch(0.60 0.02 280);
-  --prose-disabled: oklch(0.74 0.015 280);
+  --prose-strong: oklch(0.08 0.02 280);
+  --prose-base: oklch(0.18 0.02 280);
+  --prose-muted: oklch(0.38 0.03 280);
+  --prose-faint: oklch(0.52 0.02 280);
+  --prose-disabled: oklch(0.68 0.015 280);
+
+  /* User chat bubble — soft tint, no border */
+  --user-bubble: oklch(0.91 0.03 270);
 }
 
 /* Minimal scrollbar */
@@ -194,11 +201,11 @@ html.light ::-webkit-scrollbar-thumb:hover {
 .prose-chat { font-family: var(--font-prose); font-size: 14px; line-height: 1.7; letter-spacing: -0.01em; }
 .prose-chat h2 { margin-top: 1.5em; margin-bottom: 0.5em; }
 .prose-chat h3 { margin-top: 1.25em; margin-bottom: 0.4em; }
-.prose-chat pre { margin-top: 1em; margin-bottom: 1em; }
-.prose-chat table { margin-top: 0.75em; margin-bottom: 0.75em; }
+.prose-chat pre { margin-top: 0; margin-bottom: 0; }
+.prose-chat table { margin-top: 0; margin-bottom: 0; }
 .prose-chat ul, .prose-chat ol { margin-top: 0.5em; margin-bottom: 0.5em; }
 .prose-chat li { margin-top: 0.15em; margin-bottom: 0.15em; }
-.prose-chat blockquote { margin-top: 0.75em; margin-bottom: 0.75em; }
+.prose-chat blockquote { margin-top: 0.375em; margin-bottom: 0.375em; }
 
 @keyframes typing-dot {
   0%, 60%, 100% { opacity: 0.2; transform: translateY(0); }

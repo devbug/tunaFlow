@@ -1,8 +1,8 @@
 # 코드베이스 리팩토링 제안서 v3
 
-> Status: in-progress
+> Status: completed
 > Created: 2026-04-12
-> Updated: 2026-04-13 (s26 — Tier 1 2.4+2.5, Tier 2 2.6+2.8 완료)
+> Updated: 2026-04-13 (s29 — Tier 1 전체 완료, Tier 2 전체 완료)
 > 이전: `codebaseRefactoringProposalV2.md` (v2, 2026-04-04), `codebaseRefactoringProposal.md` (v1, 2026-03-31)
 
 ---
@@ -134,16 +134,19 @@ commands/pty/
 └── events.rs           — Tauri 이벤트 발행 + 상태 관리 (~200줄)
 ```
 
-#### 2.3 `executor.rs` (968줄) — RT 실행 로직 분할
+#### ✅ 2.3 `executor.rs` (968줄) — RT 실행 로직 분할 (s29 완료)
 
 v2 당시 451줄에서 2배 성장. Sequential/Deliberative 실행 + 공통 유틸이 혼재.
 
 ```
 roundtable_helpers/
-├── executor.rs         — 공통: execute_round(), 참가자 관리 (~200줄)
-├── sequential.rs       — Sequential 모드 실행 (~250줄)
-├── deliberative.rs     — Deliberative 모드 실행 (~250줄)
-└── persist.rs          — 기존 유지
+├── executor.rs         — 공통: execute_round(), stream_participant (~242줄) ✅
+├── types.rs            — 타입 구조체 + 헬퍼 함수 (~273줄) ✅ 신규
+├── context.rs          — RtContextCache + RtVectorIndex (~210줄) ✅ 신규
+├── sequential.rs       — Sequential 모드 실행 (~250줄) ✅
+├── deliberative.rs     — Deliberative 모드 실행 (~250줄) ✅
+├── prompt.rs           — 프롬프트 빌더 ✅
+└── persist.rs          — DB 저장 ✅
 ```
 
 #### ✅ 2.4 `conversation_memory.rs` (984줄) — 메모리 압축 분할 (s26 완료)

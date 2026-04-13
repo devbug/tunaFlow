@@ -298,7 +298,7 @@ pub fn index_project_documents(
     let total_files = to_index.len();
     for (file_idx, (relative, hash, sections, links, mentions)) in to_index.into_iter().enumerate() {
         let mut chunks = Vec::new();
-        let section_count = sections.len();
+        let _section_count = sections.len();
         for section in &sections {
             if section.content.chars().count() < 20 {
                 continue;

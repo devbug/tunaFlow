@@ -14,6 +14,7 @@ import { Toaster } from "sonner";
 import { CommandPalette } from "./CommandPalette";
 import { TitleBar } from "./TitleBar";
 import { MetaFloatingChat } from "./MetaFloatingChat";
+import { ProjectOnboardingModal } from "./ProjectOnboardingModal";
 
 // ─── Panel width constraints ─────────────────────────────────────────────────
 const SIDEBAR_MIN = 220;
@@ -34,6 +35,10 @@ export function AppShell() {
   const [drawerW, setDrawerW] = useState(DRAWER_DEFAULT);
   const [loaded, setLoaded] = useState(false);
   const [themeMode, setThemeMode] = useState<"dark" | "light">("dark");
+  // Auto-hide sidebar when window is too narrow (< sidebar + min chat width)
+  const SIDEBAR_HIDE_THRESHOLD = SIDEBAR_MIN + 680; // ~900px
+  const [sidebarAutoHidden, setSidebarAutoHidden] = useState(() => window.innerWidth < SIDEBAR_MIN + 680);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -78,6 +83,48 @@ export function AppShell() {
     };
     init();
   }, []);
+
+  // Plan completion auto-notify Architect
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { planId: _planId, title, conversationId } = (e as CustomEvent).detail as {
+        planId: string; title: string; conversationId: string;
+      };
+      const store = useChatStore.getState();
+      const prompt = `Plan "${title}" 완료됐습니다. 결과를 확인하고 다음 우선순위를 알려주세요.`;
+      if (store.selectedConversationId === conversationId) {
+        const engine = store.conversations.find((c) => c.id === conversationId)?.engine ?? "claude";
+        store.sendWithEngine(engine, prompt);
+        window.dispatchEvent(new CustomEvent("tunaflow:switch-tab", { detail: "chat" }));
+      } else {
+        import("sonner").then(({ toast }) => {
+          toast.info(`Plan 완료: ${title}`, {
+            description: "아키텍트 대화에 결과를 전달하시겠습니까?",
+            action: {
+              label: "전달",
+              onClick: async () => {
+                await store.selectConversation(conversationId);
+                const freshStore = useChatStore.getState();
+                const engine = freshStore.conversations.find((c) => c.id === conversationId)?.engine ?? "claude";
+                setTimeout(() => useChatStore.getState().sendWithEngine(engine, prompt), 300);
+                window.dispatchEvent(new CustomEvent("tunaflow:switch-tab", { detail: "chat" }));
+              },
+            },
+            duration: 10000,
+          });
+        });
+      }
+    };
+    window.addEventListener("tunaflow:plan-completed", handler);
+    return () => window.removeEventListener("tunaflow:plan-completed", handler);
+  }, []);
+
+  // Auto-hide sidebar on window resize
+  useEffect(() => {
+    const onResize = () => setSidebarAutoHidden(window.innerWidth < SIDEBAR_HIDE_THRESHOLD);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [SIDEBAR_HIDE_THRESHOLD]);
 
   // Persist on resize end
   const persistSidebar = useCallback(() => { setSetting("sidebarWidth", sidebarW); }, [sidebarW]);
@@ -127,35 +174,45 @@ export function AppShell() {
 
       {/* ── Body: sidebar + main ── */}
       <div className="flex flex-1 min-h-0">
-        {/* Sidebar — flat, darkest layer */}
-        <div style={{ width: sidebarW }} className="shrink-0 h-full">
+        {/* Sidebar — flat, darkest layer (auto-hidden when window too narrow) */}
+        <div
+          style={{ width: sidebarAutoHidden ? 0 : sidebarW }}
+          className={`shrink-0 h-full overflow-hidden ${sidebarResizing ? "" : "transition-[width] duration-200 ease-in-out"}`}
+        >
           <Sidebar />
         </div>
 
         {/* Resize handle — between sidebar and main area */}
-        <div
-          className="shrink-0 w-1.5 cursor-col-resize hover:bg-primary/10 transition-colors"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            let lastX = e.clientX;
-            const onMove = (ev: MouseEvent) => {
-              const delta = ev.clientX - lastX;
-              lastX = ev.clientX;
-              handleSidebarResize(delta);
-            };
-            const onUp = () => {
-              document.removeEventListener("mousemove", onMove);
-              document.removeEventListener("mouseup", onUp);
-              document.body.style.cursor = "";
-              document.body.style.userSelect = "";
-              persistSidebar();
-            };
-            document.addEventListener("mousemove", onMove);
-            document.addEventListener("mouseup", onUp);
-            document.body.style.cursor = "col-resize";
-            document.body.style.userSelect = "none";
-          }}
-        />
+        {!sidebarAutoHidden && (
+          <div
+            className="relative shrink-0 w-1 cursor-col-resize group"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setSidebarResizing(true);
+              let lastX = e.clientX;
+              const onMove = (ev: MouseEvent) => {
+                const delta = ev.clientX - lastX;
+                lastX = ev.clientX;
+                handleSidebarResize(delta);
+              };
+              const onUp = () => {
+                document.removeEventListener("mousemove", onMove);
+                document.removeEventListener("mouseup", onUp);
+                document.body.style.cursor = "";
+                document.body.style.userSelect = "";
+                setSidebarResizing(false);
+                persistSidebar();
+              };
+              document.addEventListener("mousemove", onMove);
+              document.addEventListener("mouseup", onUp);
+              document.body.style.cursor = "col-resize";
+              document.body.style.userSelect = "none";
+            }}
+          >
+            {/* 1px visual line, centered on boundary, hover-only */}
+            <div className="absolute inset-y-0 left-1/2 -translate-x-px w-px bg-transparent group-hover:bg-border/50 transition-colors duration-150" />
+          </div>
+        )}
 
         {/* Main area */}
         <div className="flex-1 min-w-0 h-full relative flex">
@@ -268,6 +325,7 @@ export function AppShell() {
       )}
     </div>
     <CommandPalette />
+    <ProjectOnboardingModal />
     </FileViewerContext.Provider>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { copyToClipboard } from "@/lib/clipboard";
-import { GitBranch, Copy, Bookmark, Users, Forward, Trash2, FileText } from "lucide-react";
+import { GitBranch, Copy, Check, Bookmark, BookmarkCheck, Users, Forward, Trash2, FileText, FileCheck } from "lucide-react";
 
 const FOLLOWUP_ENGINES = [
   { id: "claude", label: "Claude" },
@@ -21,9 +21,23 @@ interface MessageActionsProps {
   onSaveArtifact?: (content: string) => void;
 }
 
+function useFlash(duration = 1500) {
+  const [active, setActive] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function flash() {
+    if (timer.current) clearTimeout(timer.current);
+    setActive(true);
+    timer.current = setTimeout(() => setActive(false), duration);
+  }
+  return [active, flash] as const;
+}
+
 export function MessageActions({ messageId, messageContent, isUser, onBranch, onBranchRT, onMemo, onFollowup, onDeletePair, onSaveArtifact }: MessageActionsProps) {
   const [showFollowupMenu, setShowFollowupMenu] = useState(false);
   const followupRef = useRef<HTMLDivElement>(null);
+  const [copied, flashCopy] = useFlash();
+  const [memoed, flashMemo] = useFlash();
+  const [saved, flashSave] = useFlash();
 
   useEffect(() => {
     if (!showFollowupMenu) return;
@@ -36,30 +50,37 @@ export function MessageActions({ messageId, messageContent, isUser, onBranch, on
     return () => document.removeEventListener("mousedown", handle);
   }, [showFollowupMenu]);
 
+  // Vertical pill toolbar — no absolute positioning, caller handles sticky placement
   return (
-    <div className="absolute right-3 -top-2.5 z-10 flex items-center gap-px px-0.5 py-0.5 rounded-md bg-card border border-border/30 shadow-sm opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-data-[state=open]:opacity-100 group-data-[state=open]:pointer-events-auto transition-opacity duration-100">
-      {onBranch && (
+    <div className="flex flex-col gap-px px-0.5 py-0.5 rounded-md bg-card border border-border/30 shadow-sm opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-data-[state=open]:opacity-100 group-data-[state=open]:pointer-events-auto transition-opacity duration-100">
+      {onBranch && !isUser && (
         <button onClick={() => onBranch(messageId)} title="Thread"
           className="p-1 rounded hover:bg-accent hover:text-foreground text-muted-foreground/50 transition-colors">
           <GitBranch className="w-3.5 h-3.5" />
         </button>
       )}
-      {onBranchRT && (
+      {onBranchRT && !isUser && (
         <button onClick={() => onBranchRT(messageId)} title="Roundtable"
           className="p-1 rounded hover:bg-agent-gemini/10 hover:text-agent-gemini text-muted-foreground/50 transition-colors">
           <Users className="w-3.5 h-3.5" />
         </button>
       )}
       {onMemo && (
-        <button onClick={() => onMemo(messageId)} title="Memo"
-          className="p-1 rounded hover:bg-accent hover:text-foreground text-muted-foreground/50 transition-colors">
-          <Bookmark className="w-3.5 h-3.5" />
+        <button
+          onClick={() => { onMemo(messageId); flashMemo(); }}
+          title="Memo"
+          className={`p-1 rounded transition-colors ${memoed ? "text-yellow-400 bg-yellow-400/10" : "text-muted-foreground/50 hover:bg-accent hover:text-foreground"}`}
+        >
+          {memoed ? <BookmarkCheck className="w-3.5 h-3.5" /> : <Bookmark className="w-3.5 h-3.5" />}
         </button>
       )}
       {onSaveArtifact && !isUser && (
-        <button onClick={() => onSaveArtifact(messageContent)} title="Save as Artifact"
-          className="p-1 rounded hover:bg-primary/10 hover:text-primary text-muted-foreground/50 transition-colors">
-          <FileText className="w-3.5 h-3.5" />
+        <button
+          onClick={() => { onSaveArtifact(messageContent); flashSave(); }}
+          title="Save as Artifact"
+          className={`p-1 rounded transition-colors ${saved ? "text-primary bg-primary/10" : "text-muted-foreground/50 hover:bg-primary/10 hover:text-primary"}`}
+        >
+          {saved ? <FileCheck className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
         </button>
       )}
       {onFollowup && !isUser && (
@@ -69,7 +90,8 @@ export function MessageActions({ messageId, messageContent, isUser, onBranch, on
             <Forward className="w-3.5 h-3.5" />
           </button>
           {showFollowupMenu && (
-            <div className="absolute right-0 top-full mt-1 bg-popover border border-border/40 rounded-md shadow-lg p-0.5 min-w-[100px] z-50">
+            // pop to the left so it doesn't go off-screen
+            <div className="absolute right-full top-0 mr-1 bg-popover border border-border/40 rounded-md shadow-lg p-0.5 min-w-[100px] z-50">
               {FOLLOWUP_ENGINES.map((eng) => (
                 <button key={eng.id}
                   onClick={() => { onFollowup(eng.id, messageContent); setShowFollowupMenu(false); }}
@@ -81,9 +103,12 @@ export function MessageActions({ messageId, messageContent, isUser, onBranch, on
           )}
         </div>
       )}
-      <button onClick={() => copyToClipboard(messageContent)} title="Copy"
-        className="p-1 rounded hover:bg-accent hover:text-foreground text-muted-foreground/50 transition-colors">
-        <Copy className="w-3.5 h-3.5" />
+      <button
+        onClick={() => { copyToClipboard(messageContent); flashCopy(); }}
+        title="Copy"
+        className={`p-1 rounded transition-colors ${copied ? "text-emerald-400 bg-emerald-400/10" : "text-muted-foreground/50 hover:bg-accent hover:text-foreground"}`}
+      >
+        {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
       </button>
       {onDeletePair && (
         <button onClick={async () => {

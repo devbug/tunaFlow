@@ -20,6 +20,7 @@ use axum::{
     middleware,
 };
 use tokio::sync::broadcast;
+use tower_http::cors::CorsLayer;
 
 use crate::db::DbState;
 
@@ -73,6 +74,7 @@ where
     .map_err(|e| db_error(e))
 }
 
+#[allow(dead_code)]
 pub(super) async fn with_write_db<F, T>(
     state: &ApiState,
     f: F,
@@ -111,7 +113,7 @@ pub fn start_server(db: DbState, app_handle: tauri::AppHandle, cancel: CancelArc
 
     tauri::async_runtime::spawn(async move {
         let app = build_router(state);
-        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], DEFAULT_PORT));
+        let addr = std::net::SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT));
         eprintln!("[http-api] starting on http://{}", addr);
         let listener = match tokio::net::TcpListener::bind(addr).await {
             Ok(l) => l,
@@ -188,6 +190,7 @@ fn build_router(state: ApiState) -> Router {
         .route("/api/plans/{id}", get(plans::get_plan))
         .route("/api/plans/{id}/events", get(plans::list_plan_events))
         .route("/api/plans/{id}/approve", post(plans::approve_plan))
+        .route("/api/plans/{id}/reject", post(plans::reject_plan))
         .route("/api/artifacts", get(plans::list_artifacts))
         // Agent endpoints
         .route("/api/agents/status", get(agents::agents_status))
@@ -197,5 +200,6 @@ fn build_router(state: ApiState) -> Router {
         // WebSocket
         .route("/ws/events", get(ws::ws_events))
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_middleware))
+        .layer(CorsLayer::permissive())
         .with_state(state)
 }

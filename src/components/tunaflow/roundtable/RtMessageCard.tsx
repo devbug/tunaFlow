@@ -83,9 +83,9 @@ export function RtMessageCard({ message, isLast, onBranch, onBranchRT, onMemo, o
         <div className="prose prose-sm prose-invert max-w-none text-[13px] text-foreground/90 leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
           {message.status === "streaming" && !content ? (
             <div className="flex items-center gap-1 py-1">
-              <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-              <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-              <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
+              <span className="typing-dot w-1 h-1 rounded-full bg-muted-foreground" />
+              <span className="typing-dot w-1 h-1 rounded-full bg-muted-foreground" />
+              <span className="typing-dot w-1 h-1 rounded-full bg-muted-foreground" />
             </div>
           ) : (
             <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]} components={markdownComponents}>

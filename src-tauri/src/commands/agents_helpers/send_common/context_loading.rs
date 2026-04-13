@@ -80,6 +80,9 @@ pub struct ContextData {
     pub persona_fragment: Option<String>,
     pub context_mode_override: Option<String>,
     pub context_budget_cap: Option<usize>,
+    /// Serialized user profile JSON (from frontend settings store).
+    /// Contains name, title, bio, preferredLanguages, gitName, gitEmail, githubOrg.
+    pub user_profile: Option<String>,
 }
 
 /// Phase A: Load all data needed for ContextPack assembly from DB.
@@ -97,6 +100,7 @@ pub fn load_context_data(
     persona_fragment: Option<&str>,
     context_mode_override: Option<&str>,
     context_budget_cap: Option<usize>,
+    user_profile_json: Option<&str>,
 ) -> ContextData {
     use super::super::context_pack::*;
     use crate::commands::context_queries::{
@@ -452,6 +456,7 @@ pub fn load_context_data(
         persona_fragment: persona_fragment.map(|s| s.to_string()),
         context_mode_override: context_mode_override.map(|s| s.to_string()),
         context_budget_cap,
+        user_profile: user_profile_json.map(|s| s.to_string()),
     }
 }
 

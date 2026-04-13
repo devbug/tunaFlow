@@ -1,23 +1,36 @@
 //! WebSocket event bridge + Tauri event bridging.
 
 use axum::{
-    extract::{State, WebSocketUpgrade, ws},
+    extract::{State, WebSocketUpgrade, Query, ws},
     http::{StatusCode, HeaderMap},
     response::IntoResponse,
 };
+use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use super::ApiState;
 
+#[derive(Deserialize, Default)]
+pub struct WsQuery {
+    token: Option<String>,
+}
+
 pub async fn ws_events(
     State(state): State<ApiState>,
     headers: HeaderMap,
+    Query(query): Query<WsQuery>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    let auth = headers.get("authorization")
+    // Accept token either from Authorization header (REST clients) or
+    // ?token= query param (browser WebSocket API can't send custom headers).
+    let header_token = headers.get("authorization")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if auth != format!("Bearer {}", state.token) {
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|s| s.to_string());
+
+    let provided = header_token.or(query.token).unwrap_or_default();
+
+    if provided != state.token {
         return (StatusCode::UNAUTHORIZED, "invalid token").into_response();
     }
     ws.on_upgrade(move |socket| handle_ws(socket, state.event_tx)).into_response()

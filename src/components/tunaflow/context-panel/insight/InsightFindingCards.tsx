@@ -67,7 +67,7 @@ export function FindingRow({
       {(finding.status === "open" || finding.status === "selected") && (
         <button
           onClick={(e) => { e.stopPropagation(); onToggle(finding.id); }}
-          className="shrink-0"
+          className="shrink-0 p-1 -m-1 rounded hover:bg-accent/40 transition-colors"
         >
           {checked ? <CheckSquare className="w-3 h-3 text-accent" /> : <Square className="w-3 h-3 text-muted-foreground/40" />}
         </button>

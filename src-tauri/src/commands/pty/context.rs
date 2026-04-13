@@ -99,6 +99,7 @@ pub fn pty_build_context(
     cross_session_ids: Vec<String>,
     persona_fragment: Option<String>,
     context_mode: Option<String>,
+    user_profile_json: Option<String>,
     db: State<crate::db::DbState>,
 ) -> Result<PtyContextResult, AppError> {
     let conn = db.read.lock().map_err(|_| AppError::Lock)?;
@@ -112,6 +113,7 @@ pub fn pty_build_context(
         persona_fragment.as_deref(),
         context_mode.as_deref(),
         None,
+        user_profile_json.as_deref(),
     );
     Ok(PtyContextResult {
         assembled_prompt: assembled,

@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import {
   Play, Loader2, Download, RefreshCw, GitBranch,
-  AlertTriangle, Info, XCircle,
+  AlertTriangle, Info, XCircle, ChevronRight, ChevronDown, Trash2,
+  CheckSquare, Square,
 } from "lucide-react";
 import type { InsightSession, InsightFinding, InsightCategory, InsightSeverity } from "@/types";
 import * as insightApi from "@/lib/api/insight";
@@ -23,12 +24,13 @@ export function InsightPanel() {
   const [findings, setFindings] = useState<InsightFinding[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState<string>("");
+  const [progressLines, setProgressLines] = useState<string[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<InsightCategory | "all">("all");
   const [activeFinding, setActiveFinding] = useState<InsightFinding | null>(null);
-  // Previous session preview — shown in the right panel instead of replacing the main list
-  const [previewSession, setPreviewSession] = useState<InsightSession | null>(null);
-  const [previewFindings, setPreviewFindings] = useState<InsightFinding[]>([]);
+  // Previous session accordion
+  const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(new Set());
+  const [sessionFindings, setSessionFindings] = useState<Record<string, InsightFinding[]>>({});
+  const progressEndRef = useRef<HTMLDivElement>(null);
 
   // Load sessions
   useEffect(() => {
@@ -45,11 +47,10 @@ export function InsightPanel() {
     insightApi.listInsightFindings(activeSession.id).then(setFindings).catch(console.error);
   }, [activeSession?.id]);
 
-  // Load preview findings when previewSession changes
+  // Auto-scroll progress
   useEffect(() => {
-    if (!previewSession) { setPreviewFindings([]); return; }
-    insightApi.listInsightFindings(previewSession.id).then(setPreviewFindings).catch(console.error);
-  }, [previewSession?.id]);
+    progressEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [progressLines]);
 
   // Run analysis
   const handleRunAnalysis = useCallback(async () => {
@@ -61,24 +62,26 @@ export function InsightPanel() {
     }
 
     setRunning(true);
-    setProgress("시작...");
+    setProgressLines(["시작..."]);
+    setActiveFinding(null);
     try {
       const cats = categoryFilter !== "all" ? [categoryFilter] : undefined;
       const { session, findings: newFindings } = await runInsightAnalysis({
         projectKey: selectedProjectKey,
         projectPath: project.path,
         categories: cats,
-        onProgress: setProgress,
+        onProgress: (msg) => setProgressLines((prev) => [...prev, msg]),
       });
       setActiveSession(session);
       setFindings(newFindings);
       setSessions((prev) => [session, ...prev.filter((s) => s.id !== session.id)]);
+      setProgressLines((prev) => [...prev, `✓ 완료: ${newFindings.length}건 발견`]);
       toast.success(`분석 완료: ${newFindings.length}건 발견`);
     } catch (err) {
+      setProgressLines((prev) => [...prev, `✗ 실패: ${err}`]);
       toast.error(`분석 실패: ${err}`);
     } finally {
       setRunning(false);
-      setProgress("");
     }
   }, [selectedProjectKey, projects, categoryFilter, running]);
 
@@ -91,6 +94,46 @@ export function InsightPanel() {
       return next;
     });
   }, []);
+
+  // Select all open findings
+  const handleSelectAll = useCallback((openFindings: InsightFinding[]) => {
+    const openIds = openFindings.map((f) => f.id);
+    setSelectedIds((prev) => {
+      const allSelected = openIds.every((id) => prev.has(id));
+      const next = new Set(prev);
+      if (allSelected) openIds.forEach((id) => next.delete(id));
+      else openIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }, []);
+
+  // Delete previous session
+  const handleDeleteSession = useCallback(async (sessionId: string) => {
+    try {
+      await insightApi.deleteInsightSession(sessionId);
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      setSessionFindings((prev) => { const next = { ...prev }; delete next[sessionId]; return next; });
+      setExpandedSessionIds((prev) => { const next = new Set(prev); next.delete(sessionId); return next; });
+      toast.success("이전 분석 삭제됨");
+    } catch (err) {
+      toast.error(`삭제 실패: ${err}`);
+    }
+  }, []);
+
+  // Toggle accordion for previous session
+  const handleToggleSession = useCallback(async (sessionId: string) => {
+    setExpandedSessionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) { next.delete(sessionId); return next; }
+      next.add(sessionId);
+      return next;
+    });
+    if (!sessionFindings[sessionId]) {
+      insightApi.listInsightFindings(sessionId)
+        .then((list) => setSessionFindings((prev) => ({ ...prev, [sessionId]: list })))
+        .catch(console.error);
+    }
+  }, [sessionFindings]);
 
   // Dismiss selected
   const handleDismiss = useCallback(async () => {
@@ -153,9 +196,11 @@ ${lines.join("\n\n")}`;
 
       if (!newBranch) { toast.error("브랜치 생성 실패"); return; }
 
-      // Mark findings as in_progress
+      // Mark findings as in_progress and link to branch for auto-cleanup
       const ids = targetFindings.map((f) => f.id);
       await insightApi.updateInsightFindingsBatchStatus(ids, "in_progress");
+      insightApi.linkInsightFindingsToBranch(ids, newBranch.id)
+        .catch((e) => console.debug("[insight] link branch failed:", e));
       setFindings((prev) => prev.map((f) => ids.includes(f.id) ? { ...f, status: "in_progress" as const } : f));
       setSelectedIds(new Set());
 
@@ -178,9 +223,9 @@ ${lines.join("\n\n")}`;
     if (openCount === 0) { toast.info("재검토할 open findings가 없습니다"); return; }
 
     setRunning(true);
-    setProgress(`${openCount}건 재검토 중...`);
+    setProgressLines([`${openCount}건 재검토 중...`]);
     try {
-      const results = await revalidateFindings(findings, selectedProjectKey, setProgress);
+      const results = await revalidateFindings(findings, selectedProjectKey, (msg) => setProgressLines((p) => [...p, msg]));
       const resolved = results.filter((r) => r.status === "resolved");
       const uncertain = results.filter((r) => r.status === "uncertain");
 
@@ -203,7 +248,6 @@ ${lines.join("\n\n")}`;
       toast.error(`재검토 실패: ${err}`);
     } finally {
       setRunning(false);
-      setProgress("");
     }
   }, [running, findings, selectedProjectKey]);
 
@@ -216,6 +260,9 @@ ${lines.join("\n\n")}`;
     ? findings
     : findings.filter((f) => f.category === categoryFilter);
 
+  const openFindings = filtered.filter((f) => f.status === "open" || f.status === "selected");
+  const allSelected = openFindings.length > 0 && openFindings.every((f) => selectedIds.has(f.id));
+
   // Group by quadrant
   const quadrants: Record<QuadrantKey, InsightFinding[]> = {
     "quick-wins": [],
@@ -226,6 +273,12 @@ ${lines.join("\n\n")}`;
   for (const f of filtered) {
     quadrants[classifyQuadrant(f)].push(f);
   }
+
+  // Right panel mode
+  const rightPanel: "progress" | "finding" | "none" =
+    running || progressLines.length > 0
+      ? (activeFinding ? "finding" : "progress")
+      : activeFinding ? "finding" : "none";
 
   if (!selectedProjectKey) {
     return <div className="p-4 text-center text-muted-foreground/50 text-xs">프로젝트를 선택하세요</div>;
@@ -342,48 +395,55 @@ ${lines.join("\n\n")}`;
         );
       })()}
 
-      {/* Progress */}
-      {running && progress && (
-        <div className="px-3 py-1.5 text-[10px] text-accent bg-accent/5 border-b border-border/10">
-          {progress}
-        </div>
-      )}
-
       {/* Content — master-detail layout */}
       <div className="flex-1 flex min-h-0">
         {/* Left: findings list */}
         <div className={cn(
           "overflow-y-auto p-3 space-y-3 border-r border-border/20",
-          (activeFinding || previewSession) ? "w-[40%] shrink-0" : "flex-1",
+          rightPanel !== "none" ? "w-[42%] shrink-0" : "flex-1",
         )}>
           {findings.length > 0 ? (
             <>
+              {/* Select all bar */}
+              {openFindings.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleSelectAll(openFindings)}
+                    className="flex items-center gap-1 text-[10px] text-prose-muted hover:text-foreground transition-colors"
+                  >
+                    {allSelected
+                      ? <CheckSquare className="w-3 h-3 text-accent" />
+                      : <Square className="w-3 h-3 text-muted-foreground/40" />}
+                    전체 선택
+                  </button>
+                  {selectedIds.size > 0 && (
+                    <>
+                      <span className="text-[10px] text-prose-disabled">{selectedIds.size}개 선택됨</span>
+                      <button
+                        onClick={() => {
+                          const selected = findings.filter((f) => selectedIds.has(f.id));
+                          handleSendToArchitect(selected);
+                        }}
+                        className="flex items-center gap-0.5 text-[10px] text-primary hover:text-primary/80 px-1.5 py-0.5 rounded border border-primary/30"
+                      >
+                        <GitBranch className="w-2.5 h-2.5" />
+                        Architect 검토
+                      </button>
+                      <button
+                        onClick={handleDismiss}
+                        className="text-[10px] text-prose-faint hover:text-foreground px-1.5 py-0.5 rounded border border-border/30"
+                      >
+                        무시
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
               <QuadrantSection quadrant="quick-wins" findings={quadrants["quick-wins"]} selectedIds={selectedIds} activeFindingId={activeFinding?.id ?? null} onToggle={handleToggle} onSelect={setActiveFinding} />
               <QuadrantSection quadrant="strategic" findings={quadrants["strategic"]} selectedIds={selectedIds} activeFindingId={activeFinding?.id ?? null} onToggle={handleToggle} onSelect={setActiveFinding} />
               <QuadrantSection quadrant="fill-ins" findings={quadrants["fill-ins"]} selectedIds={selectedIds} activeFindingId={activeFinding?.id ?? null} onToggle={handleToggle} onSelect={setActiveFinding} />
               <QuadrantSection quadrant="deprioritize" findings={quadrants["deprioritize"]} selectedIds={selectedIds} activeFindingId={activeFinding?.id ?? null} onToggle={handleToggle} onSelect={setActiveFinding} />
-
-              {selectedIds.size > 0 && (
-                <div className="flex items-center gap-2 pt-2 border-t border-border/20">
-                  <span className="text-tf-xs text-prose-muted">{selectedIds.size}개 선택</span>
-                  <button
-                    onClick={() => {
-                      const selected = findings.filter((f) => selectedIds.has(f.id));
-                      handleSendToArchitect(selected);
-                    }}
-                    className="text-tf-xs text-primary hover:text-primary/80 px-2 py-0.5 rounded border border-primary/30 flex items-center gap-0.5"
-                  >
-                    <GitBranch className="w-2.5 h-2.5" />
-                    Architect 검토
-                  </button>
-                  <button
-                    onClick={handleDismiss}
-                    className="text-tf-xs text-prose-faint hover:text-foreground px-2 py-0.5 rounded border border-border/30"
-                  >
-                    무시
-                  </button>
-                </div>
-              )}
             </>
           ) : activeSession ? (
             <div className="text-center text-prose-faint text-tf-sm py-8">
@@ -396,71 +456,118 @@ ${lines.join("\n\n")}`;
             </div>
           )}
 
-          {/* Session history */}
+          {/* Previous sessions — accordion */}
           {sessions.length > 1 && (
-            <div className="pt-3 border-t border-border/20">
-              <p className="text-tf-micro text-prose-disabled mb-1">이전 분석</p>
-              {sessions.slice(1, 5).map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => { setPreviewSession(s); setActiveFinding(null); }}
-                  className={cn(
-                    "block w-full text-left text-tf-micro px-2 py-1 rounded hover:bg-muted/30 transition-colors",
-                    s.id === previewSession?.id ? "bg-muted/40 text-foreground/70" : "text-prose-disabled",
-                  )}
-                >
-                  <span>{new Date(s.createdAt * 1000).toLocaleString()}</span>
-                  {s.summary && <span className="ml-2 text-prose-faint">{s.summary}</span>}
-                </button>
-              ))}
+            <div className="pt-3 border-t border-border/20 space-y-1">
+              <p className="text-[10px] font-semibold text-prose-disabled uppercase tracking-wider mb-2">이전 분석</p>
+              {sessions.slice(1).map((s) => {
+                const expanded = expandedSessionIds.has(s.id);
+                const sFindings = sessionFindings[s.id];
+                return (
+                  <div key={s.id} className="rounded-md border border-border/20 bg-card/20 overflow-hidden">
+                    {/* Session header */}
+                    <div className="flex items-center gap-1 px-2 py-1.5 hover:bg-muted/20 transition-colors">
+                      <button
+                        onClick={() => handleToggleSession(s.id)}
+                        className="flex items-center gap-1 flex-1 min-w-0 text-left"
+                      >
+                        {expanded
+                          ? <ChevronDown className="w-3 h-3 text-prose-disabled shrink-0" />
+                          : <ChevronRight className="w-3 h-3 text-prose-disabled shrink-0" />}
+                        <span className="text-[10px] text-prose-muted truncate">
+                          {new Date(s.createdAt * 1000).toLocaleDateString()} {new Date(s.createdAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        {s.summary && (
+                          <span className="text-[9px] text-prose-disabled truncate ml-1">{s.summary}</span>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteSession(s.id)}
+                        className="shrink-0 p-0.5 rounded text-prose-disabled hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        title="삭제"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {/* Expanded finding list */}
+                    {expanded && (
+                      <div className="border-t border-border/10 px-2 py-1.5 space-y-1">
+                        {sFindings === undefined ? (
+                          <div className="flex items-center gap-1 text-[9px] text-prose-disabled py-1">
+                            <Loader2 className="w-2.5 h-2.5 animate-spin" /> 로드 중...
+                          </div>
+                        ) : sFindings.length === 0 ? (
+                          <p className="text-[9px] text-prose-faint py-1">발견 사항 없음</p>
+                        ) : (
+                          sFindings.map((f) => (
+                            <button
+                              key={f.id}
+                              onClick={() => setActiveFinding(f)}
+                              className={cn(
+                                "w-full text-left flex items-center gap-1.5 px-1.5 py-1 rounded text-[9px] hover:bg-muted/30 transition-colors",
+                                activeFinding?.id === f.id ? "bg-primary/10 text-foreground/80" : "text-prose-muted",
+                              )}
+                            >
+                              <span className={cn("shrink-0", CATEGORY_META[f.category]?.color)}>
+                                {CATEGORY_META[f.category]?.icon}
+                              </span>
+                              <span className={cn("text-[8px] px-0.5 py-px rounded shrink-0", SEVERITY_META[f.severity]?.cls)}>
+                                {f.severity}
+                              </span>
+                              <span className="truncate">{f.title}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
 
-        {/* Right: detail panel — finding detail OR previous session preview */}
-        {(activeFinding || previewSession) && (
+        {/* Right: progress log OR finding detail */}
+        {rightPanel !== "none" && (
           <div className="flex-1 min-w-0 relative flex flex-col">
             <button
-              onClick={() => { setActiveFinding(null); setPreviewSession(null); }}
+              onClick={() => setActiveFinding(null)}
               className="absolute top-2 right-2 z-10 text-prose-disabled hover:text-foreground p-1 rounded hover:bg-muted/30"
             >
-              <XCircle className="w-4 h-4" />
+              <XCircle className="w-3.5 h-3.5" />
             </button>
-            {activeFinding ? (
+            {rightPanel === "finding" && activeFinding ? (
               <FindingDetail finding={activeFinding} onSendToArchitect={(f) => handleSendToArchitect([f])} />
-            ) : previewSession && (
-              <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                <div className="pr-6">
-                  <p className="text-tf-xs font-medium text-foreground/70 mb-0.5">
-                    {new Date(previewSession.createdAt * 1000).toLocaleString()}
-                  </p>
-                  {previewSession.summary && (
-                    <p className="text-tf-micro text-prose-muted mb-2">{previewSession.summary}</p>
-                  )}
-                </div>
-                {previewFindings.length === 0 ? (
-                  <p className="text-tf-micro text-prose-faint text-center py-4">발견 사항 없음</p>
-                ) : previewFindings.map((f) => (
-                  <button
-                    key={f.id}
-                    onClick={() => setActiveFinding(f)}
-                    className="w-full text-left rounded-md border border-border/20 bg-card/30 hover:bg-card/60 px-3 py-2 transition-colors"
-                  >
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      <span className={cn("flex items-center gap-0.5 text-tf-micro px-1 py-0.5 rounded", SEVERITY_META[f.severity]?.cls)}>
-                        {SEVERITY_META[f.severity]?.icon} {f.severity}
-                      </span>
-                      <span className={cn("text-tf-micro", CATEGORY_META[f.category]?.color)}>
-                        {CATEGORY_META[f.category]?.label}
-                      </span>
+            ) : (
+              /* Progress log — streaming style */
+              <div className="flex-1 overflow-y-auto p-3">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-prose-disabled mb-2">
+                  {running ? "분석 진행 중..." : "마지막 분석 로그"}
+                </p>
+                <div className="space-y-0.5 font-mono">
+                  {progressLines.map((line, i) => (
+                    <div key={i} className={cn(
+                      "text-[10px] leading-relaxed",
+                      line.startsWith("✓") ? "text-status-approved/80" :
+                      line.startsWith("✗") ? "text-destructive/80" :
+                      line.includes("실패") || line.includes("없음") ? "text-prose-disabled" :
+                      "text-prose-muted",
+                    )}>
+                      {line}
                     </div>
-                    <p className="text-tf-xs text-foreground/80 leading-snug">{f.title}</p>
-                  </button>
-                ))}
+                  ))}
+                  {running && (
+                    <div className="flex items-center gap-1 text-[10px] text-primary/60 animate-pulse mt-1">
+                      <Loader2 className="w-2.5 h-2.5 animate-spin" /> 처리 중...
+                    </div>
+                  )}
+                  <div ref={progressEndRef} />
+                </div>
               </div>
             )}
           </div>
         )}
+
       </div>
     </div>
   );

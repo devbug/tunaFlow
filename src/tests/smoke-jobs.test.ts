@@ -31,4 +31,20 @@ describe("Jobs smoke", () => {
     const result = await invoke("start_roundtable_run", { input: {} });
     expect(result).toEqual({ messageId: "msg-rt-1" });
   });
+
+  it("on_run_completed resolves without error", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(null);
+    const result = await invoke("on_run_completed", { conversationId: "conv-123" });
+    expect(result).toBeNull();
+    expect(invoke).toHaveBeenCalledWith("on_run_completed", { conversationId: "conv-123" });
+  });
+
+  it("on_run_completed is called with correct conversationId shape", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(null);
+    await invoke("on_run_completed", { conversationId: "branch:abc-def" });
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith(
+      "on_run_completed",
+      expect.objectContaining({ conversationId: expect.any(String) }),
+    );
+  });
 });

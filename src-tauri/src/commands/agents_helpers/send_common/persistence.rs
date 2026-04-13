@@ -63,6 +63,7 @@ pub fn prepare_engine_run(
             &conn, &input.conversation_id, &input.prompt, pp.as_deref(),
             &input.active_skills, &input.cross_session_ids, identity_frag,
             input.context_mode_override.as_deref(), input.context_budget_cap,
+            input.user_profile_json.as_deref(),
         );
         let mid = Uuid::new_v4().to_string();
         let now = now_epoch_ms();

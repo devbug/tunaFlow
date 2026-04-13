@@ -12,12 +12,11 @@ import { PlanCard } from "./plans/PlanCard";
 
 /** Phase filter mapping for stage IDs */
 const STAGE_PHASE_MAP: Record<string, { phases: PlanPhase[]; includeAbandoned?: boolean; empty: string }> = {
-  plan:     { phases: ["drafting"],                 empty: "Chat 탭에서 Architect와 대화하여 Plan을 생성하세요." },
-  subtask:  { phases: ["subtask_review"],           empty: "Subtask 검토 중인 Plan이 없습니다." },
-  approved: { phases: ["approval"],                 empty: "Dev 대기 중인 Plan이 없습니다." },
-  dev:      { phases: ["implementation", "rework"], empty: "구현 중인 Plan이 없습니다." },
-  review:   { phases: ["review"],                   empty: "리뷰 중인 Plan이 없습니다." },
-  decision: { phases: ["done"], includeAbandoned: true, empty: "완료된 Plan이 없습니다." },
+  plan:    { phases: ["drafting"],                              empty: "Chat 탭에서 Architect와 대화하여 Plan을 생성하세요." },
+  subtask: { phases: ["subtask_review"],                       empty: "Subtask 검토 중인 Plan이 없습니다." },
+  dev:     { phases: ["approval", "implementation", "rework"], empty: "구현 중인 Plan이 없습니다." },
+  review:  { phases: ["review"],                               empty: "리뷰 중인 Plan이 없습니다." },
+  done:    { phases: ["done"], includeAbandoned: true,         empty: "완료된 Plan이 없습니다." },
 };
 
 interface PlansPanelProps {

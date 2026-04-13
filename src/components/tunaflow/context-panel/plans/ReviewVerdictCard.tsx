@@ -42,6 +42,39 @@ export function ReviewVerdictCard({
     setBusy(false);
   };
 
+  // Conditional-specific: record verdict and send findings to Developer immediately
+  const handleSendToDevDirect = async () => {
+    if (!plan.implementationBranchId) return;
+    setBusy(true);
+    try {
+      // Record as conditional, then immediately transition to implementation
+      await processReviewVerdict(plan, verdict);
+      await import("@/lib/api/plans").then((api) => api.updatePlanPhase(plan.id, "implementation"));
+      await import("@/lib/api/plans").then((api) => api.createPlanEvent(plan.id, "rework_requested", "user"));
+      onPlanUpdate({ phase: "implementation" as PlanPhase });
+
+      const { openThread, sendThreadMessage, getConversationEngine } = useChatStore.getState();
+      await openThread(plan.implementationBranchId);
+      const saved = getConversationEngine(`branch:${plan.implementationBranchId}`);
+      const findings = verdict.findings.length > 0 ? `\n- ${verdict.findings.join("\n- ")}` : " (세부 findings 없음 — Review Branch를 직접 확인하세요)";
+      const recs = verdict.recommendations.length > 0 ? `\n- ${verdict.recommendations.join("\n- ")}` : "";
+      const prompt = [
+        `[Conditional Review] 리뷰어가 일부 수정을 요청했습니다.`,
+        ``,
+        `**Findings (수정 필요):${findings}`,
+        recs ? `**Recommendations:${recs}` : "",
+        ``,
+        `수정 후 impl-complete 마커를 출력해 주세요.`,
+      ].filter(Boolean).join("\n");
+      await sendThreadMessage(prompt, saved?.engine ?? "claude", saved?.model ?? undefined);
+      toast.success("DEV에게 conditional findings를 전달했습니다");
+    } catch (e) {
+      console.error("[ReviewVerdictCard] sendToDevDirect failed:", e);
+      toast.error("DEV 전달 실패: " + errorMessage(e));
+    }
+    setBusy(false);
+  };
+
   // Fresh Session: kill current context, create new Implementation Branch from scratch
   const handleFreshRestart = async () => {
     setBusy(true);
@@ -141,18 +174,26 @@ export function ReviewVerdictCard({
 
       {/* User decision — only show when plan is still in review/rework phase */}
       {plan.phase !== "done" && (
-        <div className="flex items-center gap-2 pt-1 border-t border-current/10">
+        <div className="flex items-center gap-2 pt-1 border-t border-current/10 flex-wrap">
           <span className="text-[9px] text-muted-foreground/50">사용자 판단:</span>
           <button onClick={handleApprove} disabled={busy}
             className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-approved/10 text-status-approved hover:bg-status-approved/20 disabled:opacity-50 transition-colors">
-            완료 → Decision
+            완료 → Done
           </button>
-          <button onClick={handleRework} disabled={busy}
-            className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-rejected/10 text-status-rejected hover:bg-status-rejected/20 disabled:opacity-50 transition-colors">
-            이어서 수정
-          </button>
+          {verdict.verdict === "conditional" && plan.implementationBranchId ? (
+            <button onClick={handleSendToDevDirect} disabled={busy}
+              className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-agent-gemini/10 text-agent-gemini hover:bg-agent-gemini/20 disabled:opacity-50 transition-colors"
+              title="Findings를 DEV에 전달하고 바로 구현 단계로 전환">
+              DEV에 전달
+            </button>
+          ) : (
+            <button onClick={handleRework} disabled={busy}
+              className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-status-rejected/10 text-status-rejected hover:bg-status-rejected/20 disabled:opacity-50 transition-colors">
+              이어서 수정
+            </button>
+          )}
           <button onClick={handleFreshRestart} disabled={busy}
-            className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-agent-gemini/10 text-agent-gemini hover:bg-agent-gemini/20 disabled:opacity-50 transition-colors"
+            className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-muted/30 text-muted-foreground hover:bg-muted/50 disabled:opacity-50 transition-colors"
             title="컨텍스트를 버리고 새 Branch에서 처음부터 다시 구현">
             처음부터 다시
           </button>

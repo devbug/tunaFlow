@@ -30,6 +30,10 @@ export async function listInsightSessions(
   return invoke<InsightSession[]>("list_insight_sessions", { projectKey });
 }
 
+export async function deleteInsightSession(sessionId: string): Promise<void> {
+  return invoke<void>("delete_insight_session", { sessionId });
+}
+
 export async function updateInsightSessionStatus(
   sessionId: string,
   status: string,
@@ -178,4 +182,19 @@ export async function runInsightExtraction(
     projectPath,
     categories,
   });
+}
+
+/** Link insight findings to the Architect Review branch they were sent to. */
+export async function linkInsightFindingsToBranch(
+  findingIds: string[],
+  branchId: string,
+): Promise<number> {
+  return invoke<number>("link_insight_findings_to_branch", { findingIds, branchId });
+}
+
+/** Auto-resolve in_progress findings linked to a branch when adopted/archived. */
+export async function resolveInsightFindingsByBranch(
+  branchId: string,
+): Promise<number> {
+  return invoke<number>("resolve_insight_findings_by_branch", { branchId });
 }

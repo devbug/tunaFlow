@@ -142,7 +142,8 @@ function splitSections(md: string): [string, string][] {
   let currentBody: string[] = [];
 
   for (const line of lines) {
-    const headerMatch = line.match(/^###\s+(.+)$/);
+    // Match ## or ### headers, but exclude "## Plan Proposal:" (the title line)
+    const headerMatch = line.match(/^#{2,4}\s+(?!Plan Proposal:)(.+)$/);
     if (headerMatch) {
       if (currentHeader) {
         parts.push([currentHeader, currentBody.join("\n")]);
@@ -413,11 +414,16 @@ export function extractReviewVerdict(content: string): ParsedReviewVerdict | nul
 // ─── Tool request markers ──────────────────────────────────────────────────
 
 export interface ToolRequest {
-  type: "docs" | "rawq" | "graph" | "plans" | "memory" | "sessions" | "skills" | "artifacts" | "lessons" | "insight-update";
+  type: "docs" | "rawq" | "graph" | "plans" | "memory" | "sessions" | "skills" | "artifacts" | "lessons" | "insight-update" | "insight";
   query: string;
 }
 
 const TOOL_REQUEST_RE = /<!--\s*tunaflow:tool-request:([\w-]+):(.+?)\s*-->/g;
+
+const VALID_TOOL_REQUEST_TYPES = [
+  "docs", "rawq", "graph", "plans", "memory", "sessions", "skills",
+  "artifacts", "lessons", "insight-update", "insight",
+] as const;
 
 /** Extract all tool-request markers from a message. */
 export function extractToolRequests(content: string): ToolRequest[] {
@@ -426,7 +432,7 @@ export function extractToolRequests(content: string): ToolRequest[] {
   while ((match = TOOL_REQUEST_RE.exec(content)) !== null) {
     const type = match[1] as ToolRequest["type"];
     const query = match[2].trim();
-    if (["docs", "rawq", "graph", "plans", "memory", "sessions", "skills", "artifacts", "lessons", "insight-update"].includes(type) && query) {
+    if ((VALID_TOOL_REQUEST_TYPES as readonly string[]).includes(type) && query) {
       requests.push({ type, query });
     }
   }

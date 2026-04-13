@@ -11,7 +11,7 @@ import type { RtMode, RoundtableParticipant, AgentProfile } from "@/types";
 import { EngineSelector, type Engine } from "./input/EngineSelector";
 import { ModelSelector } from "./input/ModelSelector";
 import { ProfileSelector } from "./input/ProfileSelector";
-import { isPtyEngine } from "@/stores/ptyStore";
+import { isPtyEngine, usePtyStore } from "@/stores/ptyStore";
 import { RoundtableControls } from "./input/RoundtableControls";
 import { ContextBadges } from "./input/ContextBadges";
 import { useSendActions } from "./input/useSendActions";
@@ -36,6 +36,7 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
   const [text, setText] = useState("");
   const [engine, setEngine] = useState<Engine>("claude");
   const [selectedModel, setSelectedModel] = useState<string>("");
+  const ptySessionId = usePtyStore((s) => s.getSession(engine));
   const [rtMode, setRtMode] = useState<RtMode>("sequential");
   const [ptyRespawning, setPtyRespawning] = useState(false);
 
@@ -69,8 +70,9 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
   };
 
   // Restore per-conversation engine state when conversation/thread changes
+  // Also re-runs when profiles finish loading (profiles may be empty on first render)
   useEffect(() => {
-    if (!effectiveConvForRestore) return;
+    if (!effectiveConvForRestore || profiles.length === 0) return;
     const saved = useChatStore.getState().getConversationEngine(effectiveConvForRestore);
     if (saved) {
       setEngine(saved.engine as Engine);
@@ -90,7 +92,7 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
         });
       }
     }
-  }, [effectiveConvForRestore]);
+  }, [effectiveConvForRestore, profiles]);
 
   const handleProfileSelect = (profileId: string | null) => {
     if (!profileId) {
@@ -235,13 +237,13 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
         const abIsRT = ab?.mode === "roundtable";
         const abLabel = ab?.customLabel ?? ab?.label ?? "Branch";
         return (
-        <div className={cn("mb-1.5 flex items-center gap-2 text-tf-xs rounded px-2.5 py-1",
+        <div className={cn("mb-1.5 flex items-center gap-2 text-[10px] rounded px-2.5 py-1",
           abIsRT ? "text-agent-gemini/60 bg-agent-gemini/5" : "text-muted-foreground/60 bg-primary/5")}>
-          <span className="font-mono text-tf-micro uppercase tracking-wide">{abIsRT ? "RT Branch" : "Branch"}</span>
+          <span className="font-mono text-[9px] uppercase tracking-wide">{abIsRT ? "RT Branch" : "Branch"}</span>
           <span className="font-medium text-foreground/60 flex-1 truncate">{abLabel}</span>
           <button
             onClick={closeBranchStream}
-            className="ml-auto text-muted-foreground/50 hover:text-foreground text-tf-xs"
+            className="ml-auto text-muted-foreground/50 hover:text-foreground text-[10px]"
           >
             ← Back
           </button>
@@ -264,7 +266,15 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
             />
           ) : (
             <>
-              {profiles.length > 0 && (
+              {/* Profile selector or running state */}
+              {isCurrentThreadRunning ? (
+                <div className="flex items-center gap-1.5 shrink-0" title="에이전트 실행 중">
+                  <Loader2 className="w-3 h-3 animate-spin text-primary/70" />
+                  <span className="text-[11px] text-foreground/60 font-medium">
+                    {profiles.find((p) => p.id === selectedProfileId)?.label || engine || "실행 중"}
+                  </span>
+                </div>
+              ) : profiles.length > 0 && (
                 <ProfileSelector
                   profiles={profiles}
                   selectedProfileId={selectedProfileId}
@@ -288,7 +298,7 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
                     }
                   }} />
                   {ptyRespawning && isPtyEngine(engine) && (
-                    <span className="flex items-center gap-1 text-tf-xs text-muted-foreground/50">
+                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground/50">
                       <Loader2 className="w-3 h-3 animate-spin" />PTY 로딩 중
                     </span>
                   )}
@@ -320,11 +330,22 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
                   />
                 </>
               )}
+              {isPtyEngine(engine) && (
+                <span
+                  className={cn(
+                    "text-[9px] font-mono font-semibold px-1 rounded",
+                    ptySessionId !== null ? "text-status-approved/70 bg-status-approved/8" : "text-muted-foreground/20",
+                  )}
+                  title={ptySessionId !== null ? "PTY 연결됨" : "PTY 연결 없음"}
+                >
+                  P
+                </span>
+              )}
               <span className="flex-1" />
               {onCreateRT && (
                 <button
                   onClick={onCreateRT}
-                  className="flex items-center gap-1 px-2 py-1 rounded-md text-tf-xs font-medium text-agent-gemini/50 hover:text-agent-gemini hover:bg-agent-gemini/10 transition-colors border border-agent-gemini/15"
+                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-agent-gemini/50 hover:text-agent-gemini hover:bg-agent-gemini/10 transition-colors border border-agent-gemini/15"
                   title="New Roundtable"
                 >
                   <Users className="w-3 h-3" />
@@ -346,33 +367,32 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
               ? "Select a conversation first"
               : isRoundtable
               ? hasRtMessages
-                ? "/follow codex,claude <prompt> or type… (↵)"
-                : "Start roundtable… (↵)"
-              : "Ask anything… (↵)"
+                ? "/follow codex,claude <prompt> or type…  ↵ send · ⇧↵ newline"
+                : "Start roundtable…  ↵ send · ⇧↵ newline"
+              : "Ask anything…  ↵ send · ⇧↵ newline"
           }
           disabled={!selectedConversationId}
           rows={1}
-          className="w-full px-2.5 py-2 text-tf-caption bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground/40 leading-relaxed disabled:opacity-40"
+          className="w-full px-2.5 py-2 text-[13px] bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground/40 leading-relaxed disabled:opacity-40"
         />
 
         {/* Action bar */}
         <div className="flex items-center gap-1.5 px-2.5 pb-2 pt-0.5">
-          <span className="text-tf-micro text-muted-foreground/30 font-mono">↵ send · ⇧↵ newline</span>
           <span className="flex-1" />
           {isCurrentThreadRunning && (
             <button
               onClick={() => cancelOperation(selectedConversationId ?? undefined)}
-              className="px-2 py-1 rounded text-tf-xs font-medium text-destructive/60 hover:text-destructive hover:bg-destructive/8 transition-colors"
+              className="px-2 py-1 rounded text-[11px] font-medium text-destructive/60 hover:text-destructive hover:bg-destructive/8 transition-colors"
             >
               Cancel
             </button>
           )}
           <button
             onClick={handleSend}
-            disabled={!text.trim() || !selectedConversationId}
+            disabled={!text.trim() || !selectedConversationId || ptyRespawning}
             className={cn(
-              "flex items-center gap-1 px-2.5 py-1 rounded text-tf-xs font-medium transition-colors",
-              text.trim() && selectedConversationId
+              "flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium transition-colors",
+              text.trim() && selectedConversationId && !ptyRespawning
                 ? isCurrentThreadRunning
                   ? "bg-agent-gemini/12 text-agent-gemini/80 hover:bg-agent-gemini/20"
                   : "bg-primary/90 text-primary-foreground hover:bg-primary"

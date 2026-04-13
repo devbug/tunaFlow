@@ -82,6 +82,15 @@ export function TerminalPanel() {
       try { if (WebLinksAddon) { term.loadAddon(new WebLinksAddon()); } } catch { /* ok */ }
       term.open(containerRef.current);
       fit.fit();
+      // WebKit (Tauri/macOS) does not auto-focus the xterm canvas on click.
+      // Explicitly focus after open so the terminal captures keyboard input.
+      term.focus();
+
+      // Sync PTY size to actual terminal dimensions so Claude wraps correctly
+      const sid = usePtyStore.getState().getSession("claude");
+      if (sid !== null) {
+        invoke("pty_resize", { sessionId: sid, cols: term.cols, rows: term.rows }).catch(() => {});
+      }
 
       termRef.current = term;
       fitRef.current = fit;
@@ -94,11 +103,11 @@ export function TerminalPanel() {
         }
       });
 
-      // Resize
+      // Resize — sync PTY cols/rows when terminal is resized
       term.onResize(({ cols, rows }) => {
         const sid = usePtyStore.getState().getSession("claude");
         if (sid !== null) {
-          invoke("pty_resize", { sessionId: sid, cols, rows }).catch(console.error);
+          invoke("pty_resize", { sessionId: sid, cols, rows }).catch(() => {});
         }
       });
 
@@ -118,13 +127,20 @@ export function TerminalPanel() {
         ulOutput();
       };
 
-      // Show session status
+      // Show session status + replay current screen buffer
       const sessions = usePtyStore.getState().sessions;
-      for (const [engine, session] of sessions) {
-        term.write(`\x1b[90m[${engine} session ${session.sessionId} active]\x1b[0m\r\n`);
-      }
       if (sessions.size === 0) {
         term.write(`\x1b[33m[No PTY sessions — select a project]\x1b[0m\r\n`);
+      } else {
+        for (const [engine, session] of sessions) {
+          // Try to load the current screen buffer (shows ongoing activity)
+          const screen = await invoke<string>("pty_get_screen", { sessionId: session.sessionId }).catch(() => "");
+          if (screen && screen.trim().length > 0) {
+            term.write(screen);
+          } else {
+            term.write(`\x1b[90m[${engine} session ${session.sessionId} active]\x1b[0m\r\n`);
+          }
+        }
       }
     })().catch(console.error);
 
@@ -181,7 +197,12 @@ export function TerminalPanel() {
           재시작
         </button>
       </div>
-      <div ref={containerRef} className="flex-1 min-h-0 p-1" />
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+      <div
+        ref={containerRef}
+        className="flex-1 min-h-0 p-1"
+        onMouseDown={() => termRef.current?.focus()}
+      />
     </div>
   );
 }

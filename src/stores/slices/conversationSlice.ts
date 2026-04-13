@@ -98,7 +98,7 @@ export async function spawnPtyForConversation(conv: Conversation, projectPath: s
       file: binary, args, cwd: projectPath, cols: 220, rows: 50,
       env: { NO_COLOR: "1" },
     });
-    pty.setSession(engine, sessionId, projectPath);
+    pty.setSession(engine, sessionId, projectPath, savedModel ?? undefined);
 
     // Wait for CLI to become ready (❯ prompt or response indicator)
     // Claude CLI takes 2-5s to load, especially with --resume
@@ -207,27 +207,22 @@ export const createConversationSlice = (set: SetState, get: GetState): Conversat
   deleteConversation: async (id: string) => {
     try {
       await invoke("delete_conversation", { id });
-      const { selectedProjectKey, selectedConversationId } = get();
-      // Refresh conversation list
-      if (selectedProjectKey) {
-        const conversations = await invoke<Conversation[]>("list_conversations", {
-          projectKey: selectedProjectKey,
-        });
-        set({ conversations });
-      }
+      // Optimistic update: filter locally instead of re-fetching list_conversations.
+      // Re-fetching triggers ChatPanel re-render → Virtuoso layout recalculation →
+      // momentary empty messages + showTyping=true → typing dots appear at wrong position.
+      set((state) => ({
+        conversations: state.conversations.filter((c) => c.id !== id),
+        crossSessionIds: state.crossSessionIds.filter((cid) => cid !== id),
+      }));
       // Clear selection if deleted conversation was selected
-      if (selectedConversationId === id) {
+      if (get().selectedConversationId === id) {
         set({
           selectedConversationId: null,
           messages: [],
           branches: [],
           memos: [],
           artifacts: [],
-          crossSessionIds: get().crossSessionIds.filter((cid) => cid !== id),
         });
-      } else {
-        // Remove from cross-session if it was included
-        set({ crossSessionIds: get().crossSessionIds.filter((cid) => cid !== id) });
       }
     } catch (e) {
       set({ error: errorMessage(e) });

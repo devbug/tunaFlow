@@ -6,6 +6,7 @@ import { sendMessageViaPty } from "./ptyMessageSender";
 import { useToolStepsStore } from "@/stores/toolStepsStore";
 import { handleToolRequests, saveToolSteps } from "./agentStreamHelper";
 import { autoSyncImplCompletion, autoDetectReviewVerdict } from "@/lib/workflow/branchSync";
+import { runThreadRoundtable } from "./threadRtRunner";
 import type {
   SetState,
   GetState,
@@ -125,11 +126,11 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
       import("@/lib/api/plans").then(async ({ findPlanByBranch }) => {
         const plan = await findPlanByBranch(branchId);
         if (plan && (plan.implementationBranchId === branchId || plan.reviewBranchId === branchId)) {
-          window.dispatchEvent(new CustomEvent("tunaflow:switch-tab", { detail: "plan" }));
+          window.dispatchEvent(new CustomEvent("tunaflow:switch-tab", { detail: "workflow" }));
           // Also switch to the correct workflow stage based on plan phase
           const PHASE_TO_STAGE: Record<string, string> = {
-            drafting: "plan", subtask_review: "subtask", approval: "approved",
-            implementation: "dev", rework: "dev", review: "review", done: "decision",
+            drafting: "plan", subtask_review: "subtask", approval: "dev",
+            implementation: "dev", rework: "dev", review: "review", done: "done",
           };
           const stage = PHASE_TO_STAGE[plan.phase];
           if (stage) {
@@ -213,8 +214,16 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
               autoDetectReviewVerdict(convId, threadMessages);
               // Notify
               import("@/stores/notificationStore").then(({ notify }) => {
-                notify("completed", "tunaFlow", "드로어 에이전트 응답 완료", convId);
-              }).catch(() => {});
+                const state = get();
+                const branch = state.branches.find((b) => `branch:${b.id}` === convId);
+                const engine = state.getConversationEngine(convId)?.engine;
+                const lastAsst = threadMessages.filter((m) => m.role === "assistant").slice(-1)[0];
+                notify("completed", state.personaLabel ?? "에이전트", "응답 완료", convId, {
+                  engine,
+                  conversationTitle: branch?.customLabel ?? branch?.label,
+                  preview: lastAsst?.content?.replace(/\n+/g, " ").slice(0, 80),
+                });
+              }).catch((e) => console.debug("[notify]", e));
               return toolRequestHandled; // true = caller handles _endRun
             },
           });
@@ -242,6 +251,7 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
 
     const { getSetting } = await import("@/lib/appStore");
     const budgetCfg = await getSetting<{ mode: string; totalCap: number }>("contextBudgetConfig", { mode: "auto", totalCap: 60000 });
+    const userProfile = await getSetting("userProfile", null as unknown as object).catch(() => null);
     // Resolve phase-based workflow skills
     const planPhase = await invoke<string | null>("get_active_plan_phase", { conversationId: convId }).catch(() => null);
     const effectiveSkills = get().getEffectiveSkills(planPhase, prompt);
@@ -256,6 +266,7 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
       personaLabel: get().personaLabel ?? undefined,
       contextModeOverride: budgetCfg.mode === "auto" ? undefined : budgetCfg.mode,
       contextBudgetCap: budgetCfg.totalCap === 60000 ? undefined : budgetCfg.totalCap,
+      userProfileJson: userProfile ? JSON.stringify(userProfile) : undefined,
     };
 
     // Event listeners for streaming updates
@@ -313,16 +324,29 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
       autoDetectReviewVerdict(convId, threadMessages);
       // Notify thread completion
       import("@/stores/notificationStore").then(({ notify }) => {
-        notify("completed", "tunaFlow", "드로어 에이전트 응답 완료", convId);
-      }).catch(() => {});
+        const state = get();
+        const branch = state.branches.find((b) => `branch:${b.id}` === convId);
+        const engine = state.getConversationEngine(convId)?.engine;
+        const lastAsst = threadMessages.filter((m) => m.role === "assistant").slice(-1)[0];
+        notify("completed", state.personaLabel ?? "에이전트", "응답 완료", convId, {
+          engine,
+          conversationTitle: branch?.customLabel ?? branch?.label,
+          preview: lastAsst?.content?.replace(/\n+/g, " ").slice(0, 80),
+        });
+      }).catch((e) => console.debug("[notify:completed]", e));
       if (!toolRequestHandled) get()._endRun(convId);
     });
     const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
       if (e.payload.conversationId !== convId) return;
       cleanup(); set({ error: e.payload.error });
       import("@/stores/notificationStore").then(({ notify }) => {
-        notify("error", "tunaFlow", `드로어 에이전트 오류: ${e.payload.error.slice(0, 100)}`, convId);
-      }).catch(() => {});
+        const state = get();
+        const branch = state.branches.find((b) => `branch:${b.id}` === convId);
+        notify("error", state.personaLabel ?? "에이전트", `오류: ${e.payload.error.slice(0, 80)}`, convId, {
+          engine: state.getConversationEngine(convId)?.engine,
+          conversationTitle: branch?.customLabel ?? branch?.label,
+        });
+      }).catch((e) => console.debug("[notify:error]", e));
       const threadMessages = await invoke<Message[]>("list_messages", { conversationId: convId });
       set({ threadMessages }); get()._endRun(convId);
     });
@@ -345,137 +369,3 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
     await runThreadRoundtable(set, get, "start_roundtable_followup", prompt, participants, mode);
   },
 });
-
-// ─── Thread RT helper (shared by run + followup) ────────────────────────────
-
-async function runThreadRoundtable(
-  set: SetState, get: GetState, command: string,
-  prompt: string, participants: RoundtableParticipant[], mode?: RtMode,
-) {
-  const { threadBranchConvId } = get();
-  if (!threadBranchConvId) return;
-  if (get().runningThreadIds.includes(threadBranchConvId)) {
-    get()._enqueue(threadBranchConvId, prompt.slice(0, 30), () =>
-      command === "start_roundtable_run"
-        ? get().sendThreadRoundtable(prompt, participants, mode)
-        : get().sendThreadRoundtableFollowup(prompt, participants, mode),
-    );
-    return;
-  }
-  get()._startRun(threadBranchConvId);
-  const now = Date.now();
-  set((state) => ({
-    threadMessages: [
-      ...state.threadMessages,
-      { id: `temp-user-${now}`, conversationId: threadBranchConvId, role: "user", content: prompt, timestamp: now, status: "done" },
-      { id: `temp-thinking-${now}`, conversationId: threadBranchConvId, role: "assistant", content: "", progressContent: "Roundtable starting...", timestamp: now, status: "streaming", engine: "system" },
-    ],
-  }));
-
-  const { listen } = await import("@tauri-apps/api/event");
-  set({ rtParticipantStatuses: new Map(), rtStatusConversationId: threadBranchConvId });
-  let placeholderCleared = false;
-  // Guard: only update UI if this branch is still the active thread
-  const isActiveThread = () => get().threadBranchConvId === threadBranchConvId;
-
-  const ulPS = await listen<{ conversationId: string; name: string; engine: string; model?: string; round: number; status: string }>(
-    "roundtable:participant_status", (e) => {
-      if (e.payload.conversationId !== threadBranchConvId) return;
-      if (!isActiveThread()) return;
-      const { name, engine, model, round, status } = e.payload;
-      set((state) => {
-        const next = new Map(state.rtParticipantStatuses);
-        next.set(name, { name, engine, model: model ?? null, round, status: status as RtParticipantStatus["status"], updatedAt: Date.now() });
-        return { rtParticipantStatuses: next };
-      });
-    },
-  );
-  const ulRT = await listen<Message>("roundtable:progress", (event) => {
-    const msg = event.payload;
-    if (msg.conversationId !== threadBranchConvId) return;
-    if (msg.role === "user") return;
-    if (!isActiveThread()) return;
-    set((state) => {
-      const idx = state.threadMessages.findIndex((m) => m.id === msg.id);
-      if (idx >= 0) {
-        // Update existing message (streaming → done)
-        const msgs = [...state.threadMessages];
-        msgs[idx] = msg;
-        return { threadMessages: msgs };
-      }
-      if (!placeholderCleared) {
-        placeholderCleared = true;
-        return { threadMessages: [...state.threadMessages.filter((m) => !m.id.startsWith("temp-thinking-")), msg] };
-      }
-      return { threadMessages: [...state.threadMessages, msg] };
-    });
-  });
-
-  // Throttled roundtable:chunk listener for real-time streaming
-  let pendingRtChunk: Map<string, string> = new Map();
-  let rtChunkTimer: ReturnType<typeof setTimeout> | null = null;
-  const flushRtChunk = () => {
-    rtChunkTimer = null;
-    if (!isActiveThread() || pendingRtChunk.size === 0) { pendingRtChunk.clear(); return; }
-    const batch = new Map(pendingRtChunk);
-    pendingRtChunk.clear();
-    set((state) => ({
-      threadMessages: state.threadMessages.map((m) => {
-        const text = batch.get(m.id);
-        return text !== undefined ? { ...m, content: text } : m;
-      }),
-    }));
-  };
-  const ulChunk = await listen<{ messageId: string; conversationId: string; text: string }>(
-    "roundtable:chunk", (e) => {
-      if (e.payload.conversationId !== threadBranchConvId) return;
-      if (!isActiveThread()) return;
-      pendingRtChunk.set(e.payload.messageId, e.payload.text);
-      if (!rtChunkTimer) rtChunkTimer = setTimeout(flushRtChunk, 200);
-    },
-  );
-
-  const cleanup = () => {
-    if (rtChunkTimer) { clearTimeout(rtChunkTimer); rtChunkTimer = null; }
-    pendingRtChunk.clear();
-    ulPS(); ulRT(); ulChunk(); ulD(); ulE();
-  };
-  const ulD = await listen<{ conversationId: string }>("agent:completed", async (e) => {
-    if (e.payload.conversationId !== threadBranchConvId) return;
-    cleanup();
-    if (get().threadBranchConvId === threadBranchConvId) {
-      const threadMessages = await invoke<Message[]>("list_messages", { conversationId: threadBranchConvId });
-      set({ threadMessages });
-    }
-    // Auto-detect review verdict after RT completion
-    if (get().threadBranchConvId === threadBranchConvId) {
-      const latestMsgs = await invoke<Message[]>("list_messages", { conversationId: threadBranchConvId });
-      autoDetectReviewVerdict(threadBranchConvId, latestMsgs);
-    }
-    // Notify RT completion
-    import("@/stores/notificationStore").then(({ notify }) => {
-      notify("completed", "tunaFlow", "Roundtable 토론 완료", threadBranchConvId);
-    }).catch(() => {});
-    setTimeout(() => set({ rtParticipantStatuses: new Map(), rtStatusConversationId: null }), 2000);
-    get()._endRun(threadBranchConvId);
-  });
-  const ulE = await listen<{ conversationId: string; error: string }>("agent:error", async (e) => {
-    if (e.payload.conversationId !== threadBranchConvId) return;
-    cleanup();
-    import("@/stores/notificationStore").then(({ notify }) => {
-      notify("error", "tunaFlow", `RT 에이전트 오류: ${e.payload.error.slice(0, 100)}`, threadBranchConvId);
-    }).catch(() => {});
-    if (get().threadBranchConvId === threadBranchConvId) {
-      set({ error: e.payload.error });
-      const threadMessages = await invoke<Message[]>("list_messages", { conversationId: threadBranchConvId });
-      set({ threadMessages, rtParticipantStatuses: new Map(), rtStatusConversationId: null });
-    }
-    get()._endRun(threadBranchConvId);
-  });
-
-  try {
-    await invoke<{ messageId: string }>(command, { input: { conversationId: threadBranchConvId, prompt, participants, mode } });
-  } catch (e) {
-    cleanup(); set({ error: errorMessage(e), rtParticipantStatuses: new Map(), rtStatusConversationId: null }); get()._endRun(threadBranchConvId);
-  }
-}

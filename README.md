@@ -9,7 +9,7 @@
 [![Rust](https://img.shields.io/badge/Rust-stable-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)](https://sqlite.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-372_passing-22c55e)](.)
+[![Tests](https://img.shields.io/badge/Tests-420_passing-22c55e)](.)
 [![DB Schema](https://img.shields.io/badge/DB_Schema-v30-8b5cf6)](.)
 
 [![Language: Korean](https://img.shields.io/badge/Language-한국어-2563eb)](./README.md)
@@ -348,11 +348,11 @@ npx vite build                # Frontend build
 cd src-tauri && cargo check   # Rust check
 
 # Tests
-npx vitest run                # Frontend (175 tests)
-cd src-tauri && cargo test --lib  # Rust unit (188 tests)
+npx vitest run                # Frontend (188 tests)
+cd src-tauri && cargo test --lib  # Rust unit (232 tests)
 ```
 
-현재 Rust 188 + Frontend 175 = **363개 테스트** 통과.
+현재 Rust 232 + Frontend 188 = **420개 테스트** 통과.
 
 ---
 

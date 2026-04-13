@@ -30,6 +30,7 @@ static GLOBAL_EMBEDDER: OnceLock<Result<Arc<BgeM3Embedder>, String>> = OnceLock:
 
 /// Local ONNX-based embedder using ort + tokenizers.
 /// Session pool enables concurrent inference across CPU cores.
+#[allow(dead_code)]
 pub struct BgeM3Embedder {
     sessions: Vec<Arc<Mutex<ort::session::Session>>>,
     next_session: AtomicUsize,
@@ -37,6 +38,7 @@ pub struct BgeM3Embedder {
     dim: usize,
 }
 
+#[allow(dead_code)]
 impl BgeM3Embedder {
     /// Create with default pool size (2 sessions for desktop app).
     pub fn new(model_dir: &Path) -> Result<Self, AppError> {
@@ -62,7 +64,7 @@ impl BgeM3Embedder {
             .map_err(|e| AppError::Agent(format!("tokenizer load failed: {e}")))?;
 
         // Build first session and probe dimensions
-        let mut first_session = ort::session::Session::builder()
+        let first_session = ort::session::Session::builder()
             .map_err(|e| AppError::Agent(format!("ort session builder: {e}")))?
             .with_optimization_level(GraphOptimizationLevel::Level3)
             .map_err(|e| AppError::Agent(format!("ort optimization: {e}")))?
@@ -358,10 +360,6 @@ impl ModelManager {
     }
 
     async fn download(&self) -> Result<(), AppError> {
-        use futures_util::StreamExt;
-        use sha2::{Digest, Sha256};
-        use std::io::Write;
-
         std::fs::create_dir_all(&self.model_dir)
             .map_err(|e| AppError::Agent(format!("mkdir: {e}")))?;
 
@@ -587,6 +585,7 @@ pub fn is_available() -> bool {
 }
 
 /// Get embedding dimension for current embedder.
+#[allow(dead_code)]
 pub fn current_dim() -> usize {
     get_embedder()
         .map(|e| e.dimensions())

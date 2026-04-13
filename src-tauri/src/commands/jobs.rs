@@ -76,6 +76,41 @@ pub fn list_active_jobs(state: State<DbState>) -> Result<Vec<AgentJob>, AppError
     Ok(jobs)
 }
 
+/// Post-completion background tasks for a conversation.
+/// Replaces the frontend setTimeout chain (compress → session_links → index_chunks → rawq_index).
+/// Returns immediately; all work is done in background threads.
+#[tauri::command]
+pub fn on_run_completed(conversation_id: String, state: State<DbState>) -> Result<(), AppError> {
+    let db = state.inner().clone();
+
+    // 1–3: memory compression + session links + vector chunks (existing helper)
+    let db_clone = db.clone();
+    let cid = conversation_id.clone();
+    crate::commands::agents_helpers::send_common::spawn_post_completion_tasks(db_clone, cid);
+
+    // 4: rawq code-search index rebuild (best-effort; skips if daemon not ready)
+    if crate::agents::rawq::is_daemon_ready() {
+        let db_rawq = db;
+        let cid_rawq = conversation_id;
+        std::thread::spawn(move || {
+            let project_path: Option<String> = db_rawq.read.lock().ok().and_then(|conn| {
+                conn.query_row(
+                    "SELECT p.path FROM projects p \
+                     JOIN conversations c ON c.project_key = p.key WHERE c.id = ?1",
+                    [&cid_rawq], |r| r.get::<_, Option<String>>(0),
+                ).ok().flatten()
+            });
+            if let Some(path) = project_path {
+                if let Err(e) = crate::agents::rawq::ensure_index(&path) {
+                    eprintln!("[on_run_completed] rawq index error: {}", e);
+                }
+            }
+        });
+    }
+
+    Ok(())
+}
+
 /// Cleanup stale jobs: mark 'running' jobs as 'stale' and fix orphaned streaming messages.
 /// Called on app startup to recover from interrupted runs.
 #[tauri::command]

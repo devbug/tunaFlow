@@ -377,13 +377,23 @@ pub fn find_plan_by_branch(
 
 // ─── Orchestration Commands (Phase A) ────────────────────────────────────────
 
+/// Valid plan phases (canonical list — mirrors PlanPhase in types.ts).
+const VALID_PHASES: &[&str] = &[
+    "drafting", "subtask_review", "approval",
+    "implementation", "rework", "review", "done",
+];
+
 /// Update the orchestration phase of a plan.
+/// Returns an error if the requested phase is not in the canonical list.
 #[tauri::command]
 pub fn update_plan_phase(
     id: String,
     phase: String,
     state: State<DbState>,
 ) -> Result<(), AppError> {
+    if !VALID_PHASES.contains(&phase.as_str()) {
+        return Err(AppError::BadRequest(format!("invalid plan phase: {phase}")));
+    }
     let conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let now = now_epoch_ms();
     conn.execute(
@@ -560,20 +570,9 @@ pub fn bump_plan_major_version(
 /// Public accessor for slugify — used by ContextPack plan document loader
 pub fn slugify_pub(title: &str) -> String { slugify(title) }
 
+/// Delegate to migrations::slugify_title (single canonical slug implementation).
 fn slugify(title: &str) -> String {
-    // ASCII alphanumeric only — no Korean/CJK characters in filenames
-    let slug: String = title.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
-        .collect();
-    let result: String = slug.split('-')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-    // If title was all non-ASCII (e.g. pure Korean), result is empty — use "plan" as fallback
-    let result = if result.is_empty() { "plan".to_string() } else { result };
-    if result.len() > 80 {
-        result[..80].to_string()
-    } else { result }
+    crate::db::migrations::slugify_title(title)
 }
 
 /// Generate a review report document.

@@ -44,6 +44,7 @@ mod tests {
             persona_fragment: None,
             context_mode_override: None,
             context_budget_cap: None,
+            user_profile: None,
         }
     }
 

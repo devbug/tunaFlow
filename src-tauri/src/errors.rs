@@ -19,6 +19,9 @@ pub enum AppError {
     #[error("Agent error: {0}")]
     Agent(String),
 
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
     #[error("Lock poisoned")]
     Lock,
 }
@@ -32,6 +35,7 @@ impl AppError {
             AppError::Io(_) => "io_error",
             AppError::Json(_) => "json_error",
             AppError::Agent(_) => "agent_error",
+            AppError::BadRequest(_) => "bad_request",
             AppError::Lock => "lock_error",
         }
     }

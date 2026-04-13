@@ -124,6 +124,9 @@ pub fn run(conn: &Connection) -> Result<(), AppError> {
     if current < 33 {
         apply_v33(conn)?;
     }
+    if current < 34 {
+        apply_v34(conn)?;
+    }
     Ok(())
 }
 
@@ -806,6 +809,14 @@ fn apply_v33(conn: &Connection) -> Result<(), AppError> {
     add_column_if_missing(conn, "projects", "meta_conversation_id", "TEXT")?;
     add_column_if_missing(conn, "projects", "onboarding_done", "INTEGER DEFAULT 0")?;
     conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (33, ?1)", [now_epoch()])?;
+    Ok(())
+}
+
+fn apply_v34(conn: &Connection) -> Result<(), AppError> {
+    // Link insight findings to the Architect Review branch they were sent to.
+    // Enables auto-resolve when the branch is adopted/archived.
+    add_column_if_missing(conn, "insight_findings", "review_branch_id", "TEXT")?;
+    conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (34, ?1)", [now_epoch()])?;
     Ok(())
 }
 

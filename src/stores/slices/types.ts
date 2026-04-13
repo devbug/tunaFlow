@@ -95,6 +95,7 @@ export interface ChatState {
   crossSessionIds: string[];
   rawqStatus: RawqStatus | null;
   projectLoading: string | null;
+  onboardingProject: { key: string; path: string; name: string } | null;
   engineModels: EngineModel[];
   /** Recommended skills from project stack detection (null = not shown, [] = detected but empty) */
   recommendedSkills: string[] | null;
@@ -124,6 +125,7 @@ export interface ChatState {
   loadProjects: () => Promise<void>;
   loadEngineModels: (refresh?: boolean) => Promise<void>;
   createProject: (input: CreateProjectInput) => Promise<void>;
+  clearOnboardingProject: () => void;
   hideProject: (key: string) => Promise<void>;
   selectProject: (key: string) => Promise<void>;
   createConversation: (input: CreateConversationInput) => Promise<Conversation>;

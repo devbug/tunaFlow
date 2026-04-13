@@ -42,6 +42,9 @@ pub struct SendWithClaudeInput {
     /// Total context budget cap override (chars). null = use default (60000)
     #[serde(default)]
     pub context_budget_cap: Option<usize>,
+    /// Serialized user profile JSON (from frontend settings store).
+    #[serde(default)]
+    pub user_profile_json: Option<String>,
 }
 
 /// Wrap persona_fragment with identity framing block for a given engine.
@@ -92,7 +95,7 @@ pub async fn start_claude_stream(
         let prep = prepare_engine_run("claude-code", &input, id_frag.as_deref(), &db)?;
 
         let system_prompt = {
-            let conn = db.write.lock().map_err(|_| AppError::Lock)?;
+            let _conn = db.write.lock().map_err(|_| AppError::Lock)?;
             let agent_sp = assemble_system_prompt(
                 input.agent_name.as_deref(), prep.project_path.as_deref(), input.system_prompt.as_deref(),
             );

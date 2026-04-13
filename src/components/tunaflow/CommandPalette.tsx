@@ -34,6 +34,13 @@ export function CommandPalette() {
     return () => document.removeEventListener("keydown", handler);
   }, []);
 
+  // Custom event trigger from TitleBar search bar
+  useEffect(() => {
+    const handler = () => setOpen(true);
+    window.addEventListener("tunaflow:open-command-palette", handler);
+    return () => window.removeEventListener("tunaflow:open-command-palette", handler);
+  }, []);
+
   const otherConversations = conversations.filter(
     (c) => c.id !== selectedConversationId && !c.id.startsWith("branch:") && c.mode !== "roundtable"
   );

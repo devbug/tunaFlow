@@ -335,9 +335,9 @@ export function BranchThreadPanel() {
             })}
             {runningThreadIds.length > 0 && threadMessages[threadMessages.length - 1]?.status !== "streaming" && (
               <div className="flex items-center gap-1 px-4 py-2 text-muted-foreground text-xs">
-                <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-                <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-                <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
+                <span className="typing-dot w-1 h-1 rounded-full bg-muted-foreground" />
+                <span className="typing-dot w-1 h-1 rounded-full bg-muted-foreground" />
+                <span className="typing-dot w-1 h-1 rounded-full bg-muted-foreground" />
               </div>
             )}
             <div ref={bottomRef} />

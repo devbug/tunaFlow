@@ -44,6 +44,15 @@ pub fn init(db_path: PathBuf) -> Result<(Connection, Connection), AppError> {
         )));
     }
 
+    // Back up the database before running migrations (best-effort, non-fatal).
+    // This creates <db>.bak so users can recover from a bad migration.
+    if db_path.exists() {
+        let bak_path = db_path.with_extension("db.bak");
+        if let Err(e) = std::fs::copy(&db_path, &bak_path) {
+            eprintln!("[db] backup failed (non-fatal): {}", e);
+        }
+    }
+
     // Write connection — runs migrations, enables WAL + foreign keys
     let write_conn = Connection::open(&db_path)?;
     write_conn.execute_batch("PRAGMA journal_mode = WAL;")?;

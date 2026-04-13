@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { Lightbulb, Plus, Trash2, ChevronRight } from "lucide-react";
+import { Lightbulb, Plus, Trash2, ChevronRight, Pencil } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
 import { ask } from "@tauri-apps/plugin-dialog";
 import type { Conversation } from "@/types";
+import { SidebarContextMenu, type ContextMenuState } from "./SidebarContextMenu";
 
 interface ScratchpadSectionProps {
   scratchpads: Conversation[];
@@ -23,6 +24,7 @@ export function ScratchpadSection({
   const deleteConversation = useChatStore((s) => s.deleteConversation);
   const selectedProjectKey = useChatStore((s) => s.selectedProjectKey);
   const runningThreadIds = useChatStore((s) => s.runningThreadIds);
+  const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
 
   const handleAdd = async () => {
     if (!selectedProjectKey) return;
@@ -40,6 +42,32 @@ export function ScratchpadSection({
   const handleDelete = async (id: string) => {
     const ok = await ask("Delete this scratchpad?", { kind: "warning", title: "Delete" });
     if (ok) await deleteConversation(id);
+  };
+
+  const openCtx = (e: React.MouseEvent, sp: Conversation) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        {
+          label: "이름 변경",
+          icon: <Pencil className="w-3.5 h-3.5" />,
+          onClick: () => {
+            const val = window.prompt("새 이름을 입력하세요", sp.label ?? "");
+            if (val) renameConversation(sp.id, val);
+          },
+        },
+        { separator: true, label: "", onClick: () => {} },
+        {
+          label: "삭제",
+          icon: <Trash2 className="w-3.5 h-3.5" />,
+          danger: true,
+          onClick: () => handleDelete(sp.id),
+        },
+      ],
+    });
   };
 
   return (
@@ -76,8 +104,9 @@ export function ScratchpadSection({
               <button
                 key={sp.id}
                 onClick={() => selectConversation(sp.id)}
+                onContextMenu={(e) => openCtx(e, sp)}
                 className={cn(
-                  "group w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-left text-[11px] transition-colors",
+                  "group w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-left text-[11px] transition-colors select-none",
                   isSelected
                     ? "bg-accent/40 text-foreground"
                     : "text-foreground/60 hover:bg-accent/20 hover:text-foreground/80"
@@ -100,6 +129,8 @@ export function ScratchpadSection({
           })}
         </div>
       )}
+
+      {ctxMenu && <SidebarContextMenu menu={ctxMenu} onClose={() => setCtxMenu(null)} />}
     </div>
   );
 }

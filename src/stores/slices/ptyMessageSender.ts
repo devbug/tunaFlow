@@ -116,11 +116,14 @@ export async function sendMessageViaPty(
   try {
     const { activeSkills, crossSessionIds } = get();
     if (!trackedJsonl) {
+      const { getSetting } = await import("@/lib/appStore");
+      const userProfile = await getSetting("userProfile", null as unknown as object).catch(() => null);
       const contextResult = await invoke<{ assembledPrompt: string; sections: string[] }>(
         "pty_build_context", {
           conversationId, prompt, projectPath: projectPath || null,
           activeSkills: activeSkills ?? [], crossSessionIds: crossSessionIds ?? [],
           personaFragment: null, contextMode: null,
+          userProfileJson: userProfile ? JSON.stringify(userProfile) : null,
         }
       );
       if (contextResult.assembledPrompt) {
@@ -139,24 +142,33 @@ export async function sendMessageViaPty(
 
   // ── Timeouts ──
   const START_TIMEOUT_MS = 90_000;  // 90s: must see ANY activity (screen or JSONL) after write
-  const TOTAL_TIMEOUT_MS = 600_000; // 10min: total execution limit (agents can run long)
+  // No hard TOTAL_TIMEOUT: we keep waiting as long as the PTY process is alive.
+  // The loop checks pty_is_alive every 30s; if the process exits, we finalize.
   const POLL_INTERVAL_MS = 200;
 
   // Send prompt via bracket paste + Enter
   try {
     // ── Pre-write: ensure CLI is ready (❯ prompt visible) ──
     const screen = await invoke<string>("pty_get_screen", { sessionId }).catch(() => "");
-    if (screen && !/❯/.test(screen)) {
-      // CLI not showing prompt — send Enter to wake it
-      console.log("[pty] CLI not ready, sending wake signal...");
-      await invoke("pty_write", { sessionId, data: "\r" });
-      // Wait for prompt to appear (max 10s)
-      const { listen } = await import("@tauri-apps/api/event");
+    // Wait for ❯ prompt if: screen is empty (CLI still initializing) OR screen has no ❯ yet.
+    // Previously checked `screen && !/❯/` which skipped the wait when screen was empty —
+    // causing bracket paste to arrive before Claude CLI was ready to accept input.
+    if (!/❯/.test(screen)) {
+      console.log("[pty] CLI not ready (screen empty or no ❯), waiting...");
+      if (screen) {
+        // Screen has content but no ❯ — send Enter to wake it
+        await invoke("pty_write", { sessionId, data: "\r" });
+      }
+      // Wait for ❯ prompt to appear (max 10s)
       await new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => { ul(); resolve(); }, 10_000);
-        let ul = () => {};
+        let resolved = false;
+        let ul: () => void = () => {};
+        const timeout = setTimeout(() => {
+          if (!resolved) { resolved = true; ul(); resolve(); }
+        }, 10_000);
         listenEvent<{ sessionId: number; data: string }>("pty:screen", (e) => {
-          if (e.payload.sessionId === sessionId && /❯/.test(e.payload.data)) {
+          if (!resolved && e.payload.sessionId === sessionId && /❯/.test(e.payload.data)) {
+            resolved = true;
             clearTimeout(timeout); ul(); resolve();
           }
         }).then((u) => { ul = u; });
@@ -206,19 +218,22 @@ export async function sendMessageViaPty(
         return;
       }
 
-      // ��─ Total timeout: 3 minutes ──
-      if (elapsed > TOTAL_TIMEOUT_MS) {
-        finalized = true;
-        ulScreen();
-        ulDelivery();
-        usePtyStore.getState().endCapture();
-        console.error("[pty] total timeout: 10 minutes exceeded");
-        updateAsstMsg({
-          content: "(응답 대기 시간 초과 — 10분)",
-          status: "error" as const,
-        });
-        get()._endRun(conversationId);
-        return;
+      // ── Process alive check: every 30s verify PTY is still running ──
+      if (elapsed > 0 && attempt % Math.round(30_000 / POLL_INTERVAL_MS) === 0) {
+        const alive = await invoke<boolean>("pty_is_alive", { sessionId }).catch(() => false);
+        if (!alive) {
+          finalized = true;
+          ulScreen();
+          ulDelivery();
+          usePtyStore.getState().endCapture();
+          console.error("[pty] process exited unexpectedly");
+          updateAsstMsg({
+            content: "(PTY 프로세스가 종료되었습니다 — 에이전트가 예기치 않게 종료됨)",
+            status: "error" as const,
+          });
+          get()._endRun(conversationId);
+          return;
+        }
       }
 
       // Lazy JSONL detection: if no tracked path, detect new file by snapshot diff
@@ -308,7 +323,7 @@ export async function sendMessageViaPty(
               }
               invoke("update_message_status", {
                 input: { messageId: savedMsg.id, status: "done", durationMs },
-              }).catch(() => {});
+              }).catch((e) => console.debug("[pty] update_message_status failed:", e));
               if (opts.isActiveCheck()) {
                 const currentMsgs = (get() as any)[mt] as Message[];
                 const stillPresent = currentMsgs.some((m: Message) => m.id === asstMsgId);
@@ -348,9 +363,7 @@ export async function sendMessageViaPty(
                       console.log("[pty] tool-request markers detected:", requests.length);
                     }
                   }).catch(() => {});
-                  import("@/stores/notificationStore").then(({ notify }) => {
-                    notify("completed", "tunaFlow", "PTY 응답 완료", conversationId);
-                  }).catch(() => {});
+                  // Notification handled by _endRun to avoid duplicate
                 }
                 get()._endRun(conversationId);
               }

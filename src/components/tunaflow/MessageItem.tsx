@@ -126,14 +126,15 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
     >
       <div
         className={cn(
-          "relative pl-5 pr-4 transition-colors border-l-2 border-l-transparent",
+          "relative flex items-start pl-5 transition-colors border-l-2 border-l-transparent",
           grouped ? "py-1" : "py-2",
-          isCompact && "pl-4 pr-3 py-1",
+          isCompact && "pl-4 py-1",
           "hover:border-l-primary/40 hover:bg-accent/30",
+          showActions ? "pr-1" : "pr-4",
         )}
       >
         {/* Content */}
-        <div className={cn("min-w-0", isCompact && "space-y-0.5")}>
+        <div className={cn("flex-1 min-w-0", isCompact && "space-y-0.5")}>
           {/* Header — hidden for grouped consecutive messages */}
           {!grouped && (
             <MessageMeta
@@ -152,7 +153,7 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
           {/* Body */}
           <div className={cn("text-foreground leading-relaxed overflow-x-auto", isCompact ? "text-xs" : "text-sm")}>
             {isUser ? (
-              <div className={cn("bg-white/[0.035] rounded-lg px-3 py-2 inline-block", isCompact && "line-clamp-3")}>
+              <div className={cn("rounded-lg px-3 py-2 inline-block", isCompact && "line-clamp-3")} style={{ background: "var(--user-bubble)" }}>
                 <MarkdownBody content={message.content} conversationId={message.conversationId} />
               </div>
             ) : isStreaming && !message.content ? (
@@ -165,19 +166,21 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
           </div>
         </div>
 
-        {/* Hover actions — icon-only toolbar, CSS group-hover for instant show/hide */}
+        {/* Hover actions — sticky sidebar, follows viewport as you scroll long messages */}
         {showActions && (
-          <MessageActions
-            messageId={message.id}
-            messageContent={message.content}
-            isUser={isUser}
-            onBranch={onBranch}
-            onBranchRT={onBranchRT}
-            onMemo={onMemo}
-            onFollowup={onFollowup}
-            onDeletePair={onDeletePair}
-            onSaveArtifact={onSaveArtifact}
-          />
+          <div className="sticky top-2 self-start flex-shrink-0 ml-1">
+            <MessageActions
+              messageId={message.id}
+              messageContent={message.content}
+              isUser={isUser}
+              onBranch={onBranch}
+              onBranchRT={onBranchRT}
+              onMemo={onMemo}
+              onFollowup={onFollowup}
+              onDeletePair={onDeletePair}
+              onSaveArtifact={onSaveArtifact}
+            />
+          </div>
         )}
       </div>
     </MessageContextMenu>

@@ -133,6 +133,11 @@ export const createBranchSlice = (set: SetState, get: GetState): BranchSlice => 
       const dbIds = new Set(freshMessages.map((m) => m.id));
       const messages = [...freshMessages, ...streamingMsgs.filter((m) => !dbIds.has(m.id))];
       set({ messages, branches });
+      // Auto-resolve insight findings linked to this branch
+      import("@/lib/api/insight").then(({ resolveInsightFindingsByBranch }) => {
+        resolveInsightFindingsByBranch(branchId)
+          .catch((e) => console.debug("[insight] auto-resolve branch findings failed:", e));
+      });
     } catch (e) {
       const msg = errorMessage(e);
       if (msg.includes("empty_branch")) {

@@ -147,6 +147,10 @@ export async function processReviewVerdict(
     if (plan.reviewBranchId) {
       await invoke("archive_branch", { id: plan.reviewBranchId }).catch((e) => console.debug("[archive]", e));
     }
+    // Notify: auto-send plan completion summary to Architect
+    window.dispatchEvent(new CustomEvent("tunaflow:plan-completed", {
+      detail: { planId: plan.id, title: plan.title, conversationId: plan.conversationId },
+    }));
   } else if (verdict.verdict === "fail") {
     await planApi.updatePlanPhase(plan.id, "rework");
     await planApi.createPlanEvent(plan.id, "review_failed", "reviewer", detail);

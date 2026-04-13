@@ -1,20 +1,24 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { X, Bot, UserCircle, Zap, Cpu, Terminal } from "lucide-react";
+import { X, Bot, UserCircle, Zap, Cpu, Terminal, Smartphone, User } from "lucide-react";
 import { SkillsPanel } from "./context-panel/SkillsPanel";
 import { AgentsSection } from "./settings/AgentsSection";
 import { PersonasSection } from "./settings/PersonasSection";
 import { RuntimeSection } from "./settings/RuntimeSection";
 import { TerminalSection } from "./settings/TerminalSection";
+import { MobileSection } from "./settings/MobileSection";
+import { ProfileSection } from "./settings/ProfileSection";
 
-type SettingsSection = "agents" | "personas" | "skills" | "runtime" | "terminal";
+type SettingsSection = "profile" | "agents" | "personas" | "skills" | "runtime" | "terminal" | "mobile";
 
 const SECTIONS: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
+  { id: "profile", label: "Profile", icon: <User className="w-4 h-4" /> },
   { id: "agents", label: "Agents", icon: <Bot className="w-4 h-4" /> },
   { id: "personas", label: "Personas", icon: <UserCircle className="w-4 h-4" /> },
   { id: "skills", label: "Skills", icon: <Zap className="w-4 h-4" /> },
   { id: "runtime", label: "Runtime", icon: <Cpu className="w-4 h-4" /> },
   { id: "terminal", label: "Terminal", icon: <Terminal className="w-4 h-4" /> },
+  { id: "mobile", label: "Mobile", icon: <Smartphone className="w-4 h-4" /> },
 ];
 
 interface SettingsPanelProps {
@@ -22,7 +26,7 @@ interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ onClose }: SettingsPanelProps) {
-  const [activeSection, setActiveSection] = useState<SettingsSection>("agents");
+  const [activeSection, setActiveSection] = useState<SettingsSection>("profile");
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center">
@@ -57,6 +61,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
           <div className="flex-1 min-w-0 border-l border-border/30 overflow-y-auto">
             <div className="p-5">
+              {activeSection === "profile" && <ProfileSection />}
               {activeSection === "agents" && <AgentsSection />}
               {activeSection === "personas" && <PersonasSection />}
               {activeSection === "skills" && (
@@ -68,6 +73,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               )}
               {activeSection === "runtime" && <RuntimeSection />}
               {activeSection === "terminal" && <TerminalSection />}
+              {activeSection === "mobile" && <MobileSection />}
             </div>
           </div>
         </div>

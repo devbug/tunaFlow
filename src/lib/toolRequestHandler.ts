@@ -168,6 +168,59 @@ export async function executeToolRequests(requests: ToolRequest[]): Promise<stri
         } else {
           results.push(`> ⚠️ insight-update 형식 오류: \`FINDING_ID|STATUS|NOTE\` 형식이어야 합니다. (STATUS: resolved|skipped|discarded|in_progress)`);
         }
+      } else if (req.type === "insight") {
+        // Tier 2 Pull: query insight findings from the latest session
+        // Query formats:
+        //   "open"              — all open/pending findings
+        //   "category:CATNAME"  — findings filtered by category
+        //   "severity:high"     — findings filtered by severity
+        //   other text          — free text search in title/description
+        const pk = (await import("@/stores/chatStore")).useChatStore.getState().selectedProjectKey;
+        if (pk) {
+          const sessions = await invoke<{ id: string; status: string; created_at: number }[]>(
+            "list_insight_sessions", { projectKey: pk }
+          ).catch(() => []);
+          const latestSession = sessions.sort((a, b) => b.created_at - a.created_at)[0];
+          if (latestSession) {
+            const allFindings = await invoke<{
+              id: string; category: string; severity: string;
+              title: string; description: string; status: string; fix_difficulty: string;
+            }[]>("list_insight_findings", { sessionId: latestSession.id, category: null }).catch(() => []);
+
+            let filtered = allFindings;
+            const q = req.query.trim().toLowerCase();
+            if (q === "open") {
+              filtered = allFindings.filter((f) => f.status === "open" || f.status === "pending");
+            } else if (q.startsWith("category:")) {
+              const cat = q.slice("category:".length).trim();
+              filtered = allFindings.filter((f) => f.category.toLowerCase() === cat);
+            } else if (q.startsWith("severity:")) {
+              const sev = q.slice("severity:".length).trim();
+              filtered = allFindings.filter((f) => f.severity.toLowerCase() === sev);
+            } else {
+              filtered = allFindings.filter(
+                (f) => f.title.toLowerCase().includes(q) || f.description.toLowerCase().includes(q)
+              );
+            }
+
+            if (filtered.length > 0) {
+              const lines = filtered.slice(0, 10).map((f) =>
+                `- **[${f.severity.toUpperCase()}]** \`${f.id.slice(0, 8)}\` ${f.title} (${f.category}, ${f.fix_difficulty}, ${f.status})\n  ${f.description.slice(0, 200)}`
+              );
+              results.push([
+                `## 🔍 Insight Findings: "${req.query}" (${filtered.length}건)`,
+                "",
+                ...lines,
+                "",
+                "> 상태 변경: `<!-- tunaflow:tool-request:insight-update:FINDING_ID|STATUS|NOTE -->`",
+              ].join("\n"));
+            } else {
+              results.push(`> "${req.query}" 조건에 맞는 insight finding이 없습니다.`);
+            }
+          } else {
+            results.push(`> 이 프로젝트에 insight 세션이 없습니다. InsightPanel에서 분석을 먼저 실행하세요.`);
+          }
+        }
       } else if (req.type === "plans") {
         const { useChatStore } = await import("@/stores/chatStore");
         const convId = useChatStore.getState().selectedConversationId;

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { Loader2, Search, StickyNote } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Search, StickyNote } from "lucide-react";
 
 import { lazy, Suspense } from "react";
 import { ChatPanel } from "./ChatPanel";
@@ -11,26 +11,25 @@ import { HarnessSummary, type WorkflowStageId } from "./context-panel/HarnessSum
 import { ReviewPanel } from "./context-panel/ReviewPanel";
 import { InsightPanel } from "./context-panel/InsightPanel";
 import { ArtifactsPanel } from "./context-panel/ArtifactsPanel";
-import { InlineRename } from "./InlineRename";
+import { NotificationBell } from "./NotificationBell";
 
 const TerminalPanel = lazy(() => import("./TerminalPanel").then((m) => ({ default: m.TerminalPanel })));
 
-type CenterTab = "chat" | "plan" | "artifacts" | "review" | "insight";
+type CenterTab = "chat" | "workflow" | "insight" | "notes";
 
 const TABS: { id: CenterTab; label: string }[] = [
   { id: "chat", label: "Chat" },
-  { id: "plan", label: "Plan" },
-  { id: "artifacts", label: "Artifacts" },
-  { id: "review", label: "Results" },
+  { id: "workflow", label: "Workflow" },
   { id: "insight", label: "Insight" },
+  { id: "notes", label: "Notes" },
 ];
 
-/** Map PlanPhase → WorkflowStageId for auto-switching */
+/** Map PlanPhase → WorkflowStageId for auto-switching the HarnessSummary sub-tab */
 const PHASE_TO_STAGE: Record<string, WorkflowStageId> = {
   drafting: "plan", subtask_review: "subtask",
-  approval: "approved",
+  approval: "dev",
   implementation: "dev", rework: "dev",
-  review: "review", done: "decision", // review stage in HarnessSummary, not tab
+  review: "review", done: "done",
 };
 
 export function CenterPanel() {
@@ -38,6 +37,9 @@ export function CenterPanel() {
   const [activeStage, setActiveStage] = useState<WorkflowStageId>("plan");
   const [planRefreshKey, setPlanRefreshKey] = useState(0);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalHeight, setTerminalHeight] = useState(320);
+  const terminalDragRef = useRef<{ startY: number; startH: number } | null>(null);
+  const [reviewExpanded, setReviewExpanded] = useState(false);
 
   // Listen for terminal toggle from RuntimeStatusBar
   useEffect(() => {
@@ -45,35 +47,51 @@ export function CenterPanel() {
     window.addEventListener("tunaflow:terminal-toggle", handler);
     return () => window.removeEventListener("tunaflow:terminal-toggle", handler);
   }, []);
+
+  // Terminal drag-resize: min 160px, max 50% of window height
+  const handleTerminalDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    terminalDragRef.current = { startY: e.clientY, startH: terminalHeight };
+    const onMove = (ev: MouseEvent) => {
+      if (!terminalDragRef.current) return;
+      const delta = terminalDragRef.current.startY - ev.clientY;
+      const next = Math.max(160, Math.min(window.innerHeight * 0.5, terminalDragRef.current.startH + delta));
+      setTerminalHeight(next);
+    };
+    const onUp = () => {
+      terminalDragRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [terminalHeight]);
+
   const selectedProjectKey = useChatStore((s) => s.selectedProjectKey);
   const artifacts = useChatStore((s) => s.artifacts);
   const selectedConversationId = useChatStore((s) => s.selectedConversationId);
   const conversations = useChatStore((s) => s.conversations);
-  const branches = useChatStore((s) => s.branches);
   const activeBranchId = useChatStore((s) => s.activeBranchId);
   const parentConversationId = useChatStore((s) => s.parentConversationId);
-  const threadBranchId = useChatStore((s) => s.threadBranchId);
-  const threadBranchLabel = useChatStore((s) => s.threadBranchLabel);
   const drawerPinned = useChatStore((s) => s.drawerPinned);
-  const runningThreadIds = useChatStore((s) => s.runningThreadIds);
-  const messageQueue = useChatStore((s) => s.messageQueue);
-  const renameConversation = useChatStore((s) => s.renameConversation);
+  const memos = useChatStore((s) => s.memos);
+  const deleteMemo = useChatStore((s) => s.deleteMemo);
+  const selectConversation = useChatStore((s) => s.selectConversation);
 
   const canonicalConvId = activeBranchId && parentConversationId
     ? parentConversationId
     : selectedConversationId;
 
   const currentConv = conversations.find((c) => c.id === selectedConversationId);
-  const isRoundtable = currentConv?.mode === "roundtable";
   const isScratchpad = currentConv?.type === "scratchpad";
 
-  // Scratchpad: force Chat tab, no other tabs needed
+  // Scratchpad: force Chat tab
   const effectiveTab = isScratchpad ? "chat" : activeTab;
 
   // Reset to Chat tab on project switch
   useEffect(() => { setActiveTab("chat"); }, [selectedProjectKey]);
 
-  // Listen for tab/stage switch events from CommandPalette and openThread
+  // Listen for tab/stage switch events
   useEffect(() => {
     const tabHandler = (e: Event) => {
       const tab = (e as CustomEvent).detail as CenterTab;
@@ -91,16 +109,12 @@ export function CenterPanel() {
     };
   }, []);
 
-  const memos = useChatStore((s) => s.memos);
-  const deleteMemo = useChatStore((s) => s.deleteMemo);
-  const selectConversation = useChatStore((s) => s.selectConversation);
-
-  const reviewCount = artifacts.filter((a) => a.type === "review-findings" || a.type === "architect-decision").length;
+  const reviewArtifacts = artifacts.filter((a) => a.type === "review-findings");
 
   const [planCount, setPlanCount] = useState(0);
   const [insightCount, setInsightCount] = useState(0);
 
-  // Fetch plan count (active, non-done) for badge
+  // Fetch plan count badge
   useEffect(() => {
     const convId = canonicalConvId;
     if (!convId) { setPlanCount(0); return; }
@@ -109,7 +123,7 @@ export function CenterPanel() {
       .catch(() => setPlanCount(0));
   }, [canonicalConvId, planRefreshKey]);
 
-  // Fetch insight session count (completed sessions) for badge
+  // Fetch insight session count badge
   useEffect(() => {
     if (!selectedProjectKey) { setInsightCount(0); return; }
     invoke<{ status: string }[]>("list_insight_sessions", { projectKey: selectedProjectKey })
@@ -117,137 +131,64 @@ export function CenterPanel() {
       .catch(() => setInsightCount(0));
   }, [selectedProjectKey]);
 
-  // Memo popover
-  const [memoOpen, setMemoOpen] = useState(false);
-  const memoRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!memoOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (memoRef.current && !memoRef.current.contains(e.target as Node)) setMemoOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [memoOpen]);
+  const notesCount = memos.length + artifacts.length;
 
   return (
     <div className="flex flex-col flex-1 min-w-0 h-full">
-      {/* ── Toolbar: tabs | path (center) | search ── */}
+      {/* ── Toolbar ── */}
       <div className="flex items-center px-3 pt-2 pb-1 shrink-0">
-        {/* Left: tab pills — hidden for scratchpad */}
-        {!isScratchpad && <div className="flex items-center gap-1 shrink-0">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-tf-caption font-medium transition-colors",
-                activeTab === tab.id
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground/50 hover:text-foreground/80 hover:bg-background/50"
-              )}
-            >
-              {tab.label}
-              {tab.id === "plan" && planCount > 0 && (
-                <span className="text-tf-micro bg-primary/10 text-primary/70 px-1 rounded">
-                  {planCount}
-                </span>
-              )}
-              {tab.id === "artifacts" && artifacts.length > 0 && (
-                <span className="text-tf-micro bg-primary/10 text-primary/70 px-1 rounded">
-                  {artifacts.length}
-                </span>
-              )}
-              {tab.id === "review" && reviewCount > 0 && (
-                <span className="text-tf-micro bg-status-draft/10 text-status-draft/70 px-1 rounded">
-                  {reviewCount}
-                </span>
-              )}
-              {tab.id === "insight" && insightCount > 0 && (
-                <span className="text-tf-micro bg-amber-400/20 text-amber-400/80 px-1 rounded">
-                  {insightCount}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>}
+        {/* Tabs — scratchpad shows back button instead */}
+        {isScratchpad ? (
+          <button
+            onClick={() => {
+              const chatConvs = conversations
+                .filter((c) => c.type === "main" || c.type === "discussion")
+                .sort((a, b) => b.updatedAt - a.updatedAt);
+              if (chatConvs.length > 0) selectConversation(chatConvs[0].id);
+            }}
+            className="flex items-center gap-1 text-[12px] text-muted-foreground/60 hover:text-foreground px-2 py-1 rounded-md hover:bg-accent/50 transition-colors shrink-0"
+            title="최근 채팅 대화로 이동"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+            메인 채팅
+          </button>
+        ) : (
+          <div className="flex items-center gap-1 shrink-0">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium transition-colors",
+                  activeTab === tab.id
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground/50 hover:text-foreground/80 hover:bg-background/50"
+                )}
+              >
+                {tab.label}
+                {tab.id === "workflow" && planCount > 0 && (
+                  <span className="text-[9px] bg-primary/20 text-primary font-semibold px-1 rounded">{planCount}</span>
+                )}
+                {tab.id === "insight" && insightCount > 0 && (
+                  <span className="text-[9px] bg-amber-500/20 text-amber-500 font-semibold px-1 rounded">{insightCount}</span>
+                )}
+                {tab.id === "notes" && notesCount > 0 && (
+                  <span className="text-[9px] bg-foreground/10 text-foreground/60 font-semibold px-1 rounded">{notesCount}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
-        {/* Center: spacer (path info moved to title bar) */}
         <div className="flex-1 min-w-0" />
 
-        {/* Right: memo icon + search */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {/* Memo icon + popover */}
-          <div className="relative" ref={memoRef}>
-            <button
-              onClick={() => setMemoOpen((v) => !v)}
-              className={cn(
-                "flex items-center justify-center w-8 h-8 rounded-md transition-colors",
-                memoOpen ? "bg-background text-foreground" : "text-muted-foreground/40 hover:text-foreground/70 hover:bg-background/50"
-              )}
-              title={`Memos (${memos.length})`}
-            >
-              <StickyNote className="w-4 h-4" />
-              {memos.length > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 text-[7px] bg-primary/80 text-primary-foreground w-3.5 h-3.5 rounded-full flex items-center justify-center font-medium">
-                  {memos.length}
-                </span>
-              )}
-            </button>
-
-            {memoOpen && (
-              <div className="absolute right-0 top-full mt-1 w-[320px] max-h-[400px] bg-popover border border-border/40 rounded-lg shadow-xl overflow-hidden z-50">
-                <div className="px-3 py-2 text-tf-caption font-medium text-muted-foreground border-b border-border/30">
-                  Memos ({memos.length})
-                </div>
-                <div className="overflow-y-auto max-h-[350px]">
-                  {memos.length === 0 ? (
-                    <div className="px-3 py-6 text-center text-tf-caption text-muted-foreground/40">
-                      No memos yet
-                    </div>
-                  ) : memos.map((m) => (
-                    <div
-                      key={m.id}
-                      className="group flex items-start gap-2 px-3 py-2 hover:bg-accent/50 cursor-pointer transition-colors"
-                      onClick={() => {
-                        // Navigate to conversation and scroll to the message
-                        if (m.conversationId && m.conversationId !== selectedConversationId) {
-                          selectConversation(m.conversationId);
-                        }
-                        // Set scroll target after conversation loads
-                        setTimeout(() => {
-                          useChatStore.setState({ scrollToMessageId: m.messageId });
-                        }, 100);
-                        setMemoOpen(false);
-                        setActiveTab("chat");
-                      }}
-                    >
-                      <StickyNote className="w-3 h-3 text-muted-foreground/30 shrink-0 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-tf-caption text-foreground/80 leading-snug line-clamp-2">{m.content}</p>
-                        <p className="text-tf-xs text-muted-foreground/40 mt-0.5 font-mono">
-                          {new Date(m.createdAt).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); deleteMemo(m.id); }}
-                        className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 text-muted-foreground/30 hover:text-destructive transition-all"
-                        title="Delete"
-                      >
-                        <span className="text-tf-micro">✕</span>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Search — icon-only when drawer is pinned, full box otherwise */}
+        {/* Search + Notification bell */}
+        <div className="flex items-center gap-1 shrink-0">
           {drawerPinned ? (
             <button
-              onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
+              onClick={() => window.dispatchEvent(new CustomEvent("tunaflow:open-command-palette"))}
               title="Search (Cmd+K)"
-              className="p-1.5 rounded text-muted-foreground/40 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+              className="p-1.5 rounded text-muted-foreground/40 hover:text-foreground hover:bg-accent/50 transition-colors"
             >
               <Search className="w-3.5 h-3.5" />
             </button>
@@ -257,43 +198,48 @@ export function CenterPanel() {
               onSelectResult={(convId) => {
                 setActiveTab("chat");
                 if (convId.startsWith("branch:")) {
-                  const branchId = convId.replace("branch:", "");
-                  useChatStore.getState().openThread(branchId);
+                  useChatStore.getState().openThread(convId.replace("branch:", ""));
                 } else {
                   selectConversation(convId);
                 }
               }}
             />
           )}
+          <NotificationBell />
         </div>
       </div>
 
-      {/* ── Content zone — bordered, elevated ── */}
+      {/* ── Content zone ── */}
       <div className="flex-1 min-h-0 rounded-xl border-[0.5px] border-border bg-background overflow-hidden flex flex-col mx-2 mb-2">
-        {/* ChatPanel stays mounted (CSS hidden) to preserve Virtuoso scroll position */}
+
+        {/* Chat — stays mounted to preserve Virtuoso scroll */}
         <div className="flex-1 min-h-0 flex flex-col" style={{ display: effectiveTab === "chat" ? "flex" : "none" }}>
           <div className="min-h-0 overflow-hidden relative" style={{ flex: "2 1 0%" }}>
             <div className="absolute inset-0 flex flex-col">
               <ChatPanel />
             </div>
           </div>
-          {/* PTY debug terminal — inside chat area */}
           {terminalOpen && (
-            <div className="shrink-0 border-t border-border/30 bg-[#0d0f17]" style={{ height: 200 }}>
-              <Suspense fallback={<div className="p-2 text-xs text-muted-foreground">Loading terminal...</div>}>
-                <TerminalPanel />
-              </Suspense>
+            <div className="shrink-0 border-t border-border/30 bg-[#0d0f17] flex flex-col" style={{ height: terminalHeight }}>
+              {/* Drag handle */}
+              <div
+                onMouseDown={handleTerminalDragStart}
+                className="shrink-0 h-1 cursor-row-resize hover:bg-primary/30 transition-colors"
+                title="드래그로 크기 조정"
+              />
+              <div className="flex-1 min-h-0">
+                <Suspense fallback={<div className="p-2 text-xs text-muted-foreground">Loading terminal...</div>}>
+                  <TerminalPanel />
+                </Suspense>
+              </div>
             </div>
           )}
         </div>
 
-        {effectiveTab === "artifacts" && (
-          <ArtifactsPanel />
-        )}
-
-        {effectiveTab === "plan" && (
+        {/* Workflow */}
+        {effectiveTab === "workflow" && (
           <div className="flex-1 overflow-y-auto p-5">
-            <div className="max-w-4xl mx-auto">
+            <div className="max-w-4xl mx-auto space-y-6">
               {canonicalConvId && (
                 <HarnessSummary
                   conversationId={canonicalConvId}
@@ -310,24 +256,129 @@ export function CenterPanel() {
                   setPlanRefreshKey((k) => k + 1);
                 }}
                 onStatusChanged={() => {
-                  // Refresh badge count + switch to "plan" stage so un-abandoned plans become visible
                   setPlanRefreshKey((k) => k + 1);
                   setActiveStage("plan");
                 }}
                 onSwitchToChat={() => setActiveTab("chat")}
               />
+              {(activeStage === "review" || activeStage === "done") && reviewArtifacts.length > 0 && (
+                <div className="border-t border-border/20 pt-3">
+                  <button
+                    onClick={() => setReviewExpanded((v) => !v)}
+                    className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50 hover:text-foreground/70 transition-colors mb-2"
+                  >
+                    <ChevronRight className={cn("w-3 h-3 transition-transform", reviewExpanded && "rotate-90")} />
+                    Review Results
+                    <span className="text-[9px] font-normal text-muted-foreground/30">({reviewArtifacts.length})</span>
+                  </button>
+                  {reviewExpanded && <ReviewPanel />}
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {effectiveTab === "review" && (
-          <ReviewPanel />
-        )}
-
+        {/* Insight */}
         {effectiveTab === "insight" && (
-          <InsightPanel />
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <InsightPanel />
+          </div>
         )}
 
+        {/* Notes — Memos + Artifacts */}
+        {effectiveTab === "notes" && (
+          <NotesPanel
+            memos={memos}
+            deleteMemo={deleteMemo}
+            selectedConversationId={selectedConversationId}
+            selectConversation={selectConversation}
+            onNavigateToChat={() => setActiveTab("chat")}
+          />
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+// ─── Notes Panel ─────────────────────────────────────────────────────────────
+
+interface Memo {
+  id: string;
+  content: string;
+  messageId: string;
+  conversationId: string | null;
+  createdAt: number;
+}
+
+function NotesPanel({
+  memos, deleteMemo, selectedConversationId, selectConversation, onNavigateToChat,
+}: {
+  memos: Memo[];
+  deleteMemo: (id: string) => void;
+  selectedConversationId: string | null;
+  selectConversation: (id: string) => Promise<void>;
+  onNavigateToChat: () => void;
+}) {
+  return (
+    <div className="flex-1 overflow-y-auto">
+      {/* Memos section */}
+      <div className="px-5 pt-5 pb-3">
+        <div className="flex items-center gap-2 mb-3">
+          <StickyNote className="w-3.5 h-3.5 text-muted-foreground/40" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+            Memos
+          </span>
+          {memos.length > 0 && (
+            <span className="text-[9px] text-muted-foreground/30">({memos.length})</span>
+          )}
+        </div>
+        {memos.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground/30 italic">
+            메시지 우클릭 → Save as memo로 추가할 수 있습니다
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {memos.map((m) => (
+              <div
+                key={m.id}
+                className="group flex items-start gap-2.5 px-3 py-2 rounded-lg hover:bg-accent/50 cursor-pointer transition-colors"
+                onClick={() => {
+                  if (m.conversationId && m.conversationId !== selectedConversationId) {
+                    selectConversation(m.conversationId);
+                  }
+                  setTimeout(() => {
+                    useChatStore.setState({ scrollToMessageId: m.messageId });
+                  }, 100);
+                  onNavigateToChat();
+                }}
+              >
+                <StickyNote className="w-3 h-3 text-muted-foreground/25 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] text-foreground/80 leading-snug line-clamp-2">{m.content}</p>
+                  <p className="text-[10px] text-muted-foreground/35 mt-0.5 font-mono">
+                    {new Date(m.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); deleteMemo(m.id); }}
+                  className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 text-muted-foreground/30 hover:text-destructive transition-all"
+                  title="Delete"
+                >
+                  <span className="text-[9px]">✕</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Divider */}
+      <div className="mx-5 border-t border-border/20" />
+
+      {/* Artifacts section */}
+      <div className="px-5 pt-3 pb-5">
+        <ArtifactsPanel />
       </div>
     </div>
   );
@@ -355,11 +406,10 @@ function SearchBox({ projectKey, onSelectResult }: { projectKey: string | null; 
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); }
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -370,7 +420,7 @@ function SearchBox({ projectKey, onSelectResult }: { projectKey: string | null; 
     setLoading(true);
     invoke<SearchResult[]>("search_messages", { query: q, projectKey, limit: 15 })
       .then((r) => { setResults(r); setOpen(r.length > 0); })
-      .catch(() => { setResults([]); })
+      .catch(() => setResults([]))
       .finally(() => setLoading(false));
   }, [projectKey]);
 
@@ -381,7 +431,7 @@ function SearchBox({ projectKey, onSelectResult }: { projectKey: string | null; 
   };
 
   return (
-    <div className="relative w-[200px]" ref={ref}>
+    <div className="relative" style={{ width: "clamp(160px, 18vw, 320px)" }} ref={ref}>
       <div className="flex items-center gap-2 bg-background/50 hover:bg-background/70 border border-border/30 rounded-md px-2.5 py-1.5 transition-colors focus-within:border-ring/40">
         <Search className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
         <input
@@ -390,7 +440,7 @@ function SearchBox({ projectKey, onSelectResult }: { projectKey: string | null; 
           onChange={(e) => handleChange(e.target.value)}
           onFocus={() => { if (results.length > 0) setOpen(true); }}
           placeholder="Search…"
-          className="flex-1 bg-transparent text-tf-caption font-medium outline-none text-foreground placeholder:text-muted-foreground/40"
+          className="flex-1 bg-transparent text-[12px] font-medium outline-none text-foreground placeholder:text-muted-foreground/40"
         />
         {loading && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground/30 shrink-0" />}
       </div>
@@ -409,13 +459,14 @@ function SearchBox({ projectKey, onSelectResult }: { projectKey: string | null; 
               >
                 <div className="flex items-center gap-2 text-tf-sm">
                   <span className="text-foreground/70 font-medium truncate flex-1">{r.conversationLabel}</span>
-                  <span className="text-tf-micro text-muted-foreground/40">{r.role}</span>
-                  {r.persona && <span className="text-tf-micro text-muted-foreground/30">{r.persona}</span>}
+                  <span className="text-[9px] text-muted-foreground/40">{r.role}</span>
+                  {r.persona && <span className="text-[9px] text-muted-foreground/30">{r.persona}</span>}
                 </div>
-                <p className="text-tf-sm text-muted-foreground/60 leading-snug line-clamp-2 mt-0.5"
+                <p
+                  className="text-tf-sm text-muted-foreground/60 leading-snug line-clamp-2 mt-0.5"
                   dangerouslySetInnerHTML={{ __html: r.contentSnippet.replace(/\*\*/g, (_, i) => i % 2 === 0 ? '<mark class="bg-primary/20 text-foreground rounded px-0.5">' : '</mark>') }}
                 />
-                <span className="text-tf-micro text-muted-foreground/30 font-mono">
+                <span className="text-[9px] text-muted-foreground/30 font-mono">
                   {new Date(r.timestamp).toLocaleDateString()}
                 </span>
               </button>

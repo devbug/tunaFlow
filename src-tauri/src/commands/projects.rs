@@ -268,17 +268,17 @@ pub fn refresh_project_stack_info(project_path: String, project_name: String) ->
 }
 
 /// Detected project information from manifest files.
-struct ProjectInfo {
-    framework: Option<String>,
-    language: Option<String>,
-    test_command: Option<String>,
-    type_check_command: Option<String>,
-    build_command: Option<String>,
-    detected_stack: Vec<String>,
+pub struct ProjectInfo {
+    pub framework: Option<String>,
+    pub language: Option<String>,
+    pub test_command: Option<String>,
+    pub type_check_command: Option<String>,
+    pub build_command: Option<String>,
+    pub detected_stack: Vec<String>,
 }
 
 /// Detect project info from manifest files (package.json, Cargo.toml, pyproject.toml).
-fn detect_project_info(project_path: &str) -> ProjectInfo {
+pub fn detect_project_info(project_path: &str) -> ProjectInfo {
     let root = std::path::Path::new(project_path);
     let mut info = ProjectInfo {
         framework: None, language: None, test_command: None,

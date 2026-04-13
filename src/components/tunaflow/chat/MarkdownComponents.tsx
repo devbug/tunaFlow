@@ -58,41 +58,46 @@ function CodeBlock({ children, ...rest }: ComponentPropsWithoutRef<"pre">) {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const showHeader = !!(lang || shouldCollapse);
+
   return (
-    <div className="relative my-2 rounded-md bg-card/80 border border-border/30 overflow-hidden">
-      {/* ─── Header bar ─── */}
-      <div className="flex items-center gap-2 px-3 py-1 bg-white/[0.03] border-b border-border/10 text-[10px] text-muted-foreground/50">
-        {shouldCollapse && (
+    <div className="group/codeblock relative my-2 rounded-md bg-card border border-border/30 overflow-hidden">
+      {/* ─── Header bar — only when language tag or collapsible ─── */}
+      {showHeader && (
+        <div className="flex items-center gap-2 px-3 py-1 bg-white/[0.03] border-b border-border/10 text-[10px] text-muted-foreground/50">
+          {shouldCollapse && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="flex items-center gap-0.5 hover:text-muted-foreground transition-colors"
+            >
+              {expanded
+                ? <ChevronDown className="w-3 h-3" />
+                : <ChevronRight className="w-3 h-3" />
+              }
+            </button>
+          )}
+          {lang && <span className="font-mono">{lang}</span>}
+          <span>{lineCount} lines</span>
+          <div className="flex-1" />
           <button
-            onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-0.5 hover:text-muted-foreground transition-colors"
+            onClick={handleCopy}
+            className="flex items-center gap-1 hover:text-muted-foreground transition-colors"
           >
-            {expanded
-              ? <ChevronDown className="w-3 h-3" />
-              : <ChevronRight className="w-3 h-3" />
+            {copied
+              ? <><Check className="w-3 h-3 text-status-approved" /><span className="text-status-approved">Copied</span></>
+              : <><Copy className="w-3 h-3" /><span>Copy</span></>
             }
           </button>
-        )}
-        {lang && <span className="font-mono">{lang}</span>}
-        <span>{lineCount} lines</span>
-        <div className="flex-1" />
-        <button
-          onClick={handleCopy}
-          className="flex items-center gap-1 hover:text-muted-foreground transition-colors"
-        >
-          {copied
-            ? <><Check className="w-3 h-3 text-status-approved" /><span className="text-status-approved">Copied</span></>
-            : <><Copy className="w-3 h-3" /><span>Copy</span></>
-          }
-        </button>
-      </div>
+        </div>
+      )}
 
       {/* ─── Code content ─── */}
       <div className="relative">
         <pre
           {...rest}
           className={cn(
-            "text-[13px] leading-relaxed overflow-x-auto [&>code]:!bg-transparent [&>code]:!p-0",
+            "!m-0 text-[13px] leading-relaxed overflow-x-auto [&>code]:!bg-transparent [&>code]:!p-0",
+            !lang && "px-3 py-2.5",
             !expanded && "overflow-hidden"
           )}
           style={!expanded ? { maxHeight: `${COLLAPSED_VISIBLE_LINES * 1.6 + 0.75}rem` } : undefined}
@@ -100,12 +105,25 @@ function CodeBlock({ children, ...rest }: ComponentPropsWithoutRef<"pre">) {
           {children}
         </pre>
 
+        {/* No-header hover copy button */}
+        {!showHeader && (
+          <button
+            onClick={handleCopy}
+            className="absolute top-1.5 right-1.5 opacity-0 group-hover/codeblock:opacity-100 transition-opacity flex items-center gap-1 text-[10px] text-muted-foreground/50 hover:text-muted-foreground bg-card/80 px-1.5 py-0.5 rounded border border-border/20"
+          >
+            {copied
+              ? <><Check className="w-3 h-3 text-status-approved" /><span className="text-status-approved">Copied</span></>
+              : <><Copy className="w-3 h-3" /><span>Copy</span></>
+            }
+          </button>
+        )}
+
         {/* Collapse gradient overlay */}
         {!expanded && (
-          <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-card/90 to-transparent flex items-end justify-center pb-1">
+          <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-card to-transparent flex items-end justify-center pb-1">
             <button
               onClick={() => setExpanded(true)}
-              className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground bg-card/80 px-2 py-0.5 rounded border border-border/20 transition-colors"
+              className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground bg-card px-2 py-0.5 rounded border border-border/20 transition-colors"
             >
               Show all {lineCount} lines
             </button>
@@ -170,6 +188,7 @@ function InlineCode({ children, className, ...rest }: ComponentPropsWithoutRef<"
             background: "transparent",
             fontSize: "12px",
             lineHeight: "1.6",
+            textShadow: "none",
           }}
           codeTagProps={{ style: {} }}
         >
@@ -212,9 +231,9 @@ function InlineCode({ children, className, ...rest }: ComponentPropsWithoutRef<"
 
 function ScrollTable({ children, ...rest }: ComponentPropsWithoutRef<"table">) {
   return (
-    <div className="overflow-x-auto my-2 rounded-md max-w-full border border-border/20">
+    <div className="overflow-x-auto my-2 rounded-md max-w-full border border-border/20 inline-block">
       <table {...rest}
-        className="w-full border-collapse text-[13px] [&_th]:bg-accent/30 [&_th]:px-2.5 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium [&_th]:text-foreground/70 [&_th]:border-b [&_th]:border-border/20 [&_td]:px-2.5 [&_td]:py-1 [&_td]:border-b [&_td]:border-border/10">
+        className="border-collapse text-[13px] [&_th]:bg-accent/30 [&_th]:px-2.5 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium [&_th]:text-foreground/70 [&_th]:border-b [&_th]:border-border/20 [&_td]:px-2.5 [&_td]:py-1 [&_td]:border-b [&_td]:border-border/10">
         {children}
       </table>
     </div>
@@ -257,7 +276,7 @@ function SafeLink({ href, children, ...rest }: ComponentPropsWithoutRef<"a">) {
 function Quote({ children, ...rest }: ComponentPropsWithoutRef<"blockquote">) {
   return (
     <blockquote {...rest}
-      className="my-2 pl-3 border-l-2 border-border/40 text-muted-foreground/80 italic">
+      className="!my-1.5 pl-3 border-l-2 border-border/40 text-muted-foreground/80 italic">
       {children}
     </blockquote>
   );

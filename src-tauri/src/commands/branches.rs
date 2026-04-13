@@ -27,7 +27,9 @@ fn slugify_label(label: &str) -> String {
     let mut prev_hyphen = false;
 
     for ch in label.chars() {
-        if ch.is_whitespace() || matches!(ch, '/' | '\\' | ':' | '!' | '?' | '*' | '[' | ']' | '(' | ')' | '{' | '}' | ',' | ';' | '@' | '#' | '$' | '%' | '^' | '&' | '=' | '+' | '|' | '<' | '>' | '~' | '`' | '\'' | '"') {
+        if ch.is_whitespace() || matches!(ch, '/' | '\\' | ':' | '!' | '?' | '*' | '[' | ']' | '(' | ')' | '{' | '}' | ',' | ';' | '@' | '#' | '$' | '%' | '^' | '&' | '=' | '+' | '|' | '<' | '>' | '~' | '`' | '\'' | '"')
+            || matches!(ch, '\u{2014}' | '\u{2013}' | '\u{2012}' | '\u{2212}') // em dash, en dash, figure dash, minus sign
+        {
             if !prev_hyphen && !result.is_empty() {
                 result.push('-');
                 prev_hyphen = true;
@@ -605,5 +607,16 @@ mod tests {
     #[test]
     fn slugify_empty_input() {
         assert_eq!(slugify_label(""), "");
+    }
+
+    #[test]
+    fn slugify_em_dash_separator() {
+        // "P21 — 시맨틱 엣지" should collapse the em dash + surrounding spaces into one hyphen
+        assert_eq!(slugify_label("P21 — 시맨틱 엣지"), "p21-시맨틱-엣지");
+    }
+
+    #[test]
+    fn slugify_en_dash_separator() {
+        assert_eq!(slugify_label("Feature – sub item"), "feature-sub-item");
     }
 }

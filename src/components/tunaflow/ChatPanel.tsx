@@ -28,6 +28,7 @@ export function ChatPanel() {
   const scrollToMessageId = useChatStore((s) => s.scrollToMessageId);
 
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const virtuosoScrollerRef = useRef<HTMLElement | null>(null);
   // Ref to avoid recreating itemContent callback on every messages change
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
@@ -39,7 +40,26 @@ export function ChatPanel() {
   const [rtDialogCheckpoint, setRtDialogCheckpoint] = useState<string | null>(null);
   const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
   const [artifactContent, setArtifactContent] = useState<string | null>(null);
-  // atBottom tracking removed — was causing infinite re-render loop with Virtuoso
+  // Scroll-to-bottom button — use ref to track state without causing Virtuoso re-render loops
+  const isAtBottomRef = useRef(true);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+
+  const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
+    if (isAtBottomRef.current !== atBottom) {
+      isAtBottomRef.current = atBottom;
+      setShowScrollBtn(!atBottom);
+    }
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const scroller = virtuosoScrollerRef.current;
+    if (scroller) {
+      scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
+    } else {
+      // fallback
+      virtuosoRef.current?.scrollToIndex({ index: "LAST", behavior: "smooth" });
+    }
+  }, []);
 
   const currentConv = conversations.find((c) => c.id === selectedConversationId);
   const isRoundtable = currentConv?.mode === "roundtable";
@@ -108,9 +128,12 @@ export function ChatPanel() {
     prevConvRef.current = selectedConversationId;
     prevCountRef.current = messages.length;
     if ((convChanged || bulkLoad) && messages.length > 0) {
-      // Defer to allow Virtuoso to process new data
+      // Double rAF: first frame lets Virtuoso register new totalCount,
+      // second frame runs after Virtuoso has laid out the new items.
       requestAnimationFrame(() => {
-        virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, behavior: "auto" });
+        requestAnimationFrame(() => {
+          virtuosoRef.current?.scrollToIndex({ index: "LAST", behavior: "auto" });
+        });
       });
     }
   }, [selectedConversationId, messages.length]);
@@ -180,8 +203,10 @@ export function ChatPanel() {
   }
 
   const isRunning = runningThreadIds.includes(selectedConversationId);
+  // Guard: don't show typing indicator when messages are empty (e.g. during conversation switch
+  // or after delete re-render) — prevents dots appearing at wrong position in empty list.
   const showTyping =
-    isRunning && messages[messages.length - 1]?.status !== "streaming";
+    isRunning && messages.length > 0 && messages[messages.length - 1]?.status !== "streaming";
 
   return (
     <div
@@ -196,7 +221,7 @@ export function ChatPanel() {
       )}
 
       {/* Scrollable message area */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden relative">
         {view === "roundtable" && isRoundtable ? (
           <div className="h-full overflow-y-auto">
             <RoundtableView
@@ -232,11 +257,13 @@ export function ChatPanel() {
         ) : (
           <Virtuoso
             ref={virtuosoRef}
+            scrollerRef={(el) => { virtuosoScrollerRef.current = el as HTMLElement | null; }}
             totalCount={messages.length}
             context={{ msgs: messages, brs: branches }}
             itemContent={renderMessage}
             followOutput={followOutput}
-            atBottomThreshold={100}
+            atBottomThreshold={120}
+            atBottomStateChange={handleAtBottomStateChange}
             initialTopMostItemIndex={Math.max(0, messages.length - 1)}
             className="h-full"
             style={{ height: "100%" }}
@@ -253,9 +280,9 @@ export function ChatPanel() {
                 <>
                   {showTyping && (
                     <div className="flex items-center gap-1 px-4 py-3 text-muted-foreground text-xs">
-                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-muted-foreground" />
+                      <span className="typing-dot w-1 h-1 rounded-full bg-muted-foreground" />
+                      <span className="typing-dot w-1 h-1 rounded-full bg-muted-foreground" />
+                      <span className="typing-dot w-1 h-1 rounded-full bg-muted-foreground" />
                     </div>
                   )}
                   <div className="pb-1" />
@@ -264,11 +291,29 @@ export function ChatPanel() {
             }}
           />
         )}
+
       </div>
 
-      {/* Input — fixed at bottom, width-matched with messages */}
-      <div className="shrink-0 max-w-4xl mx-auto w-full">
-        <NewMessageInput onCreateRT={() => setRtDialogCheckpoint("")} />
+      {/* Input + scroll-to-bottom button above it */}
+      <div className="shrink-0 relative">
+        {showScrollBtn && (
+          <div className="absolute -top-10 inset-x-0 flex justify-center pointer-events-none">
+            <div className="max-w-4xl w-full flex justify-end pr-4 pointer-events-none">
+              <button
+                onClick={scrollToBottom}
+                className="pointer-events-auto w-8 h-8 rounded-full bg-background/90 hover:bg-accent border border-border text-muted-foreground hover:text-foreground flex items-center justify-center shadow-lg backdrop-blur-sm transition-all"
+                aria-label="최신 메시지로"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="max-w-4xl mx-auto w-full">
+          <NewMessageInput onCreateRT={() => setRtDialogCheckpoint("")} />
+        </div>
       </div>
       <CreateRoundtableDialog
         open={rtDialogCheckpoint !== null}
@@ -286,9 +331,9 @@ export function ChatPanel() {
           <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
           <div className="relative bg-background border border-border/40 rounded-lg shadow-xl px-8 py-6 flex flex-col items-center gap-3">
             <div className="flex gap-1">
-              <span className="typing-dot w-2 h-2 rounded-full bg-primary" />
-              <span className="typing-dot w-2 h-2 rounded-full bg-primary" />
-              <span className="typing-dot w-2 h-2 rounded-full bg-primary" />
+              <span className="typing-dot w-1.5 h-1.5 rounded-full bg-primary" />
+              <span className="typing-dot w-1.5 h-1.5 rounded-full bg-primary" />
+              <span className="typing-dot w-1.5 h-1.5 rounded-full bg-primary" />
             </div>
             <p className="text-tf-caption font-medium text-foreground">
               {projectLoading}

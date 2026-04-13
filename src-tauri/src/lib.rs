@@ -142,6 +142,9 @@ pub fn run() {
             commands::project_tools::ensure_rawq_index,
             commands::project_tools::ensure_project_workflow_templates,
             commands::projects::refresh_project_stack_info,
+            commands::project_onboarding::analyze_project_for_onboarding,
+            commands::project_onboarding::cancel_project_onboarding,
+            commands::project_onboarding::apply_project_onboarding,
             commands::project_tools::get_project_cli_permissions,
             commands::project_tools::set_project_cli_permissions,
             commands::project_tools::start_rawq_index,
@@ -187,6 +190,7 @@ pub fn run() {
             // Jobs
             commands::jobs::list_active_jobs,
             commands::jobs::cleanup_stale_jobs,
+            commands::jobs::on_run_completed,
             // Roundtable
             commands::roundtable::roundtable_run,
             commands::roundtable::roundtable_followup,
@@ -288,11 +292,14 @@ pub fn run() {
             commands::insight::get_insight_session,
             commands::insight::list_insight_sessions,
             commands::insight::update_insight_session_status,
+            commands::insight::delete_insight_session,
             commands::insight::create_insight_findings_batch,
             commands::insight::list_insight_findings,
             commands::insight::update_insight_finding_status,
             commands::insight::update_insight_findings_batch_status,
             commands::insight::resolve_insight_findings_by_plan,
+            commands::insight::link_insight_findings_to_branch,
+            commands::insight::resolve_insight_findings_by_branch,
             commands::insight::create_insight_report,
             commands::insight::list_insight_reports,
             commands::insight::export_insight_to_files,
@@ -315,11 +322,14 @@ pub fn run() {
             commands::pty::pty_list_gemini_files,
             commands::pty::pty_kill_all,
 
+            // Document Index (docs/ RAG)
             commands::document_index::index_project_docs,
             commands::document_index::search_project_docs,
             commands::document_index::get_project_document_graph,
             commands::document_index::get_orphan_documents,
             commands::document_index::get_document_index_status,
+            // Mobile pairing
+            commands::mobile::get_api_connection_info,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

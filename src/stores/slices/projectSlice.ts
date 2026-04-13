@@ -3,14 +3,22 @@ import { listen } from "@tauri-apps/api/event";
 import { errorMessage } from "@/lib/utils";
 import type { SetState, GetState, Project, CreateProjectInput, RawqStatus } from "./types";
 
+export interface OnboardingProject {
+  key: string;
+  path: string;
+  name: string;
+}
+
 export interface ProjectSlice {
   projects: Project[];
   selectedProjectKey: string | null;
   projectLoading: string | null; // loading message or null
+  onboardingProject: OnboardingProject | null;
   loadProjects: () => Promise<void>;
   createProject: (input: CreateProjectInput) => Promise<void>;
   hideProject: (key: string) => Promise<void>;
   selectProject: (key: string) => Promise<void>;
+  clearOnboardingProject: () => void;
 }
 
 // Cleanup function for previous rawq listeners
@@ -24,6 +32,7 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
   projects: [],
   selectedProjectKey: null,
   projectLoading: null,
+  onboardingProject: null,
 
   loadProjects: async () => {
     try {
@@ -38,9 +47,17 @@ export const createProjectSlice = (set: SetState, get: GetState): ProjectSlice =
     try {
       await invoke<Project>("create_project", { input });
       await get().loadProjects();
+      // Trigger onboarding analysis if path is available
+      if (input.path) {
+        set({ onboardingProject: { key: input.key, path: input.path, name: input.name } });
+      }
     } catch (e) {
       set({ error: errorMessage(e) });
     }
+  },
+
+  clearOnboardingProject: () => {
+    set({ onboardingProject: null });
   },
 
   hideProject: async (key: string) => {

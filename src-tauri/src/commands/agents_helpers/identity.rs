@@ -10,10 +10,17 @@ You are an agent in tunaFlow, a multi-agent orchestration platform.\n\
   ### Description\n\
   What and why.\n\
   ### Subtasks\n\
-  1. First task\n\
-  2. Second task\n\
+  1. First subtask title — brief details\n\
+  2. Second subtask title — brief details\n\
+  3. Third subtask title — brief details\n\
   <!-- /tunaflow:plan-proposal -->\n\
   The closing marker <!-- /tunaflow:plan-proposal --> is REQUIRED — without it the card will not render.\n\
+  **SUBTASK FORMAT RULES (strictly enforced)**:\n\
+  - Section header MUST be `### Subtasks` (three `#`) — NOT `## Subtasks` or `#### Subtasks`\n\
+  - Each subtask MUST be a numbered list item: `1. Title — details` — NOT a markdown table, NOT bullet points\n\
+  - Do NOT use `| # | Title | File |` table format — it will be ignored by the parser\n\
+  - Subtasks MUST be inside the `<!-- tunaflow:plan-proposal -->` marker, not after the closing marker\n\
+  - Do NOT write a plan-proposal before completing all tool-request explorations — include complete subtasks from the start\n\
 - **Do NOT write files to docs/plans/ until AFTER the plan is promoted by the user.** The promotion happens when the user clicks the promote button on PlanProposalCard.\n\
 - After promotion, write plan documents directly in docs/plans/:\n\
   - {slug}.md — main plan document\n\

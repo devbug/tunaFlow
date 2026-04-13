@@ -738,11 +738,85 @@ PWA IndexedDB에 캐싱된 마지막 상태는 읽기 전용으로 표시 가능
 
 ---
 
+---
+
+## 11. UI 레퍼런스: Mattermost 모바일 (2026-04-13)
+
+> 소스: `_research/_util/mattermost-mobile/` (sparse clone, screens + components만)
+
+### Mattermost 모바일 구조
+
+```
+Home
+  ├── tab_bar (하단 5탭)
+  │   ├── home       — 채널 목록 (사이드바 역할)
+  │   ├── search     — 검색
+  │   ├── mentions   — 멘션 알림
+  │   ├── saved      — 저장된 메시지
+  │   └── account    — 프로필/설정
+  │
+  ├── channel → 전체 화면 채팅
+  ├── thread  → 전체 화면 스레드 (뒤로가기로 채널 복귀)
+  └── servers → 서버 전환 (= tunaFlow 프로젝트 전환)
+```
+
+### tunaFlow 모바일에 가져올 패턴
+
+**1. 스레드 = 전체 화면 push (드로어 아님)**
+
+Mattermost는 스레드를 열면 전체 화면으로 push. 모바일에서는 드로어보다 자연스러움.
+
+```
+Chat 탭 (메인 채팅)
+  → Branch/RT 터치 → 전체 화면으로 전환
+  ← 뒤로가기 → 메인 채팅 복귀
+```
+
+PC에서는 드로어/고정 패널이지만, 모바일에서는 전체 화면 push가 맞음.
+
+**2. 탭 바 뱃지**
+
+```
+💬 Chat (●)     — 새 에이전트 응답
+📋 Status (2)   — 승인 대기 Plan 2개
+≡ Menu          — 뱃지 없음
+```
+
+**3. 서버 전환 패턴 → 프로젝트 전환**
+
+Mattermost의 서버 아바타 목록 UI를 프로젝트 전환에 적용. Menu 탭에 프로젝트 드롭다운.
+
+**4. 검색**
+
+Mattermost는 search 탭이 별도로 있지만, tunaFlow 모바일에서는:
+- **코드 검색(rawq)**: 모바일에서 불필요 (에이전트가 ContextPack으로 자동 검색)
+- **앱 내 네비게이션(cmdk)**: PC에서는 Cmd+K. 모바일에서는 Status 탭의 Branch/RT 목록이 이 역할
+- **대화 내 검색**: 필요하면 Chat 탭 상단에 간단한 텍스트 필터. 후순위.
+
+### tunaFlow ↔ Mattermost 매핑
+
+| Mattermost | tunaFlow PC | tunaFlow 모바일 |
+|-----------|-----------|---------------|
+| 채널 목록 | 사이드바 5섹션 | 불필요 (메��� 채팅 1개) |
+| 서버 전환 | 프로젝트 드롭다운 | Menu 탭 프로젝트 선택 |
+| 채널 채팅 | CenterPanel Chat | Chat 탭 |
+| 스레드 | Branch 드로어 | 전체 화면 push |
+| 멘션 알림 | 에이전트 완료 알림 | Status 탭 뱃지 |
+| 저장된 메시지 | Artifacts | Status 탭 또는 Menu |
+| 검색 | cmdk (앱 네비게이션) | Status의 Branch/RT 목록 |
+| 프로필/설정 | Settings | Menu 탭 (최소 설정만) |
+
+---
+
 ## 참고
 
-- Tauri 2 Mobile: https://v2.tauri.app/start/prerequisites/#mobile
+- Mattermost 모바일: `_research/_util/mattermost-mobile/` (sparse clone)
+  - 화면 구조: `app/screens/home/tab_bar/` (5탭)
+  - 채널 화면: `app/screens/channel/` (전체 화면 채팅)
+  - 스레드 화면: `app/screens/thread/` (전체 ��면 push)
+  - 서버 전환: `app/screens/home/channel_list/servers/`
 - Cloudflare Tunnel (Named): https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
-- cloudflared CLI: `brew install cloudflared`
+- cloudflared config: `~/.cloudflared/config.yml`
 - axum: https://github.com/tokio-rs/axum
 - HTTP API + 테스트 인프라: `docs/ideas/httpApiTestInfraIdea.md`
 - 현재 사이드바 구조: `src/components/tunaflow/Sidebar.tsx` (5섹션)

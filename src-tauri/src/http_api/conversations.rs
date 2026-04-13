@@ -24,20 +24,38 @@ pub async fn list_conversations(
     let conn = lock_conn(&state.db.read);
     let map_conv = |r: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
         Ok(serde_json::json!({
-            "id": r.get::<_, String>(0)?, "projectKey": r.get::<_, String>(1)?,
-            "label": r.get::<_, Option<String>>(2)?, "mode": r.get::<_, String>(3)?,
+            "id":         r.get::<_, String>(0)?,
+            "projectKey": r.get::<_, String>(1)?,
+            "label":      r.get::<_, Option<String>>(2)?,
+            "mode":       r.get::<_, String>(3)?,
+            "type":       r.get::<_, String>(4)?,
+            "updatedAt":  r.get::<_, i64>(5)?,
         }))
     };
+    // Only return top-level conversations (type='main' or 'rt'), ordered by most recently updated.
+    // Branch shadow conversations (id starts with 'branch:') are excluded.
     let rows: Vec<serde_json::Value> = if let Some(ref pk) = q.project_key {
         let mut stmt = match conn.prepare(
-            "SELECT id, project_key, label, mode FROM conversations WHERE project_key = ?1 AND usage_status != 'hidden' ORDER BY id"
+            "SELECT id, project_key, label, mode, type, updated_at FROM conversations \
+             WHERE project_key = ?1 AND type IN ('main','rt') AND id NOT LIKE 'branch:%' \
+             ORDER BY updated_at DESC"
         ) { Ok(s) => s, Err(e) => return db_error(e) };
-        stmt.query_map([pk], map_conv).unwrap().filter_map(|r| r.ok()).collect()
+        let result: Vec<serde_json::Value> = match stmt.query_map([pk], map_conv) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => return db_error(e),
+        };
+        result
     } else {
         let mut stmt = match conn.prepare(
-            "SELECT id, project_key, label, mode FROM conversations WHERE usage_status != 'hidden' ORDER BY id"
+            "SELECT id, project_key, label, mode, type, updated_at FROM conversations \
+             WHERE type IN ('main','rt') AND id NOT LIKE 'branch:%' \
+             ORDER BY updated_at DESC"
         ) { Ok(s) => s, Err(e) => return db_error(e) };
-        stmt.query_map([], map_conv).unwrap().filter_map(|r| r.ok()).collect()
+        let result: Vec<serde_json::Value> = match stmt.query_map([], map_conv) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => return db_error(e),
+        };
+        result
     };
     Json(serde_json::json!(rows)).into_response()
 }
@@ -50,12 +68,15 @@ pub async fn list_messages(
     let mut stmt = match conn.prepare(
         "SELECT id, role, content, engine, model, status, timestamp FROM messages WHERE conversation_id = ?1 ORDER BY timestamp ASC"
     ) { Ok(s) => s, Err(e) => return db_error(e) };
-    let rows: Vec<serde_json::Value> = stmt.query_map([&conv_id], |r| Ok(serde_json::json!({
+    let rows: Vec<serde_json::Value> = match stmt.query_map([&conv_id], |r| Ok(serde_json::json!({
         "id": r.get::<_, String>(0)?, "role": r.get::<_, String>(1)?,
         "content": r.get::<_, String>(2)?, "engine": r.get::<_, Option<String>>(3)?,
         "model": r.get::<_, Option<String>>(4)?, "status": r.get::<_, String>(5)?,
         "timestamp": r.get::<_, i64>(6)?,
-    }))).unwrap().filter_map(|r| r.ok()).collect();
+    }))) {
+        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+        Err(e) => return db_error(e),
+    };
     Json(serde_json::json!(rows)).into_response()
 }
 
@@ -108,12 +129,15 @@ pub async fn list_branches(
     let mut stmt = match conn.prepare(
         "SELECT id, label, custom_label, status, checkpoint_id, mode, parent_branch_id, created_at FROM branches WHERE conversation_id = ?1 ORDER BY created_at ASC"
     ) { Ok(s) => s, Err(e) => return db_error(e) };
-    let rows: Vec<serde_json::Value> = stmt.query_map([&conv_id], |r| Ok(serde_json::json!({
+    let rows: Vec<serde_json::Value> = match stmt.query_map([&conv_id], |r| Ok(serde_json::json!({
         "id": r.get::<_, String>(0)?, "label": r.get::<_, String>(1)?,
         "customLabel": r.get::<_, Option<String>>(2)?, "status": r.get::<_, String>(3)?,
         "checkpointId": r.get::<_, Option<String>>(4)?, "mode": r.get::<_, String>(5)?,
         "parentBranchId": r.get::<_, Option<String>>(6)?, "createdAt": r.get::<_, i64>(7)?,
-    }))).unwrap().filter_map(|r| r.ok()).collect();
+    }))) {
+        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+        Err(e) => return db_error(e),
+    };
     Json(serde_json::json!(rows)).into_response()
 }
 
@@ -204,14 +228,17 @@ pub async fn adopt_branch(
         let mut stmt = match conn.prepare(
             "SELECT content, persona, engine FROM messages WHERE conversation_id = ?1 AND role = 'assistant' ORDER BY timestamp ASC"
         ) { Ok(s) => s, Err(e) => return db_error(e) };
-        let parts: Vec<String> = stmt.query_map([&shadow_id], |r| {
+        let parts: Vec<String> = match stmt.query_map([&shadow_id], |r| {
             let content: String = r.get(0)?;
             let persona: Option<String> = r.get(1)?;
             let engine: Option<String> = r.get(2)?;
             let label = persona.or(engine).unwrap_or_default();
             let truncated = if content.len() > 300 { format!("{}...", &content[..300]) } else { content };
             Ok(if label.is_empty() { truncated } else { format!("**[{}]** {}", label, truncated) })
-        }).unwrap().filter_map(|r| r.ok()).collect();
+        }) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => return db_error(e),
+        };
         if parts.is_empty() { "(no summary available)".to_string() } else { parts.join("\n\n") }
     };
 
@@ -289,11 +316,14 @@ pub async fn list_session_links(
     let mut stmt = match conn.prepare(
         "SELECT id, linked_conv_id, score, method, created_at FROM session_links WHERE conversation_id = ?1 ORDER BY score DESC"
     ) { Ok(s) => s, Err(e) => return db_error(e) };
-    let rows: Vec<serde_json::Value> = stmt.query_map([&conv_id], |r| Ok(serde_json::json!({
+    let rows: Vec<serde_json::Value> = match stmt.query_map([&conv_id], |r| Ok(serde_json::json!({
         "id": r.get::<_, String>(0)?, "linkedConvId": r.get::<_, String>(1)?,
         "score": r.get::<_, f64>(2)?, "method": r.get::<_, String>(3)?,
         "createdAt": r.get::<_, i64>(4)?,
-    }))).unwrap().filter_map(|r| r.ok()).collect();
+    }))) {
+        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+        Err(e) => return db_error(e),
+    };
     Json(serde_json::json!(rows)).into_response()
 }
 
@@ -369,12 +399,15 @@ pub async fn list_conv_traces(
     let mut stmt = match conn.prepare(
         "SELECT id, trace_id, span_id, engine, context_mode, context_length, input_tokens, output_tokens, cost_usd, created_at FROM trace_log WHERE conversation_id = ?1 ORDER BY created_at DESC LIMIT 20"
     ) { Ok(s) => s, Err(e) => return db_error(e) };
-    let rows: Vec<serde_json::Value> = stmt.query_map([&conv_id], |r| Ok(serde_json::json!({
+    let rows: Vec<serde_json::Value> = match stmt.query_map([&conv_id], |r| Ok(serde_json::json!({
         "id": r.get::<_, String>(0)?, "traceId": r.get::<_, Option<String>>(1)?,
         "engine": r.get::<_, Option<String>>(3)?, "contextMode": r.get::<_, Option<String>>(4)?,
         "contextLength": r.get::<_, i64>(5)?, "inputTokens": r.get::<_, i64>(6)?,
         "outputTokens": r.get::<_, i64>(7)?, "costUsd": r.get::<_, f64>(8)?,
         "createdAt": r.get::<_, i64>(9)?,
-    }))).unwrap().filter_map(|r| r.ok()).collect();
+    }))) {
+        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+        Err(e) => return db_error(e),
+    };
     Json(serde_json::json!(rows)).into_response()
 }

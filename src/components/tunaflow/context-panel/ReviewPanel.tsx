@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
-import { FileSearch, Gavel, CheckCircle2, XCircle, X, ChevronDown, ChevronRight } from "lucide-react";
+import { FileSearch, Gavel, CheckCircle2, XCircle, X } from "lucide-react";
 import type { Artifact } from "@/types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -249,8 +249,6 @@ function ReviewDetailPanel({
 export function ReviewPanel() {
   const artifacts = useChatStore((s) => s.artifacts);
   const [detailArtifact, setDetailArtifact] = useState<Artifact | null>(null);
-  const [findingsCollapsed, setFindingsCollapsed] = useState(false);
-  const [decisionsCollapsed, setDecisionsCollapsed] = useState(false);
 
   const VERDICT_ORDER: Record<string, number> = { FAIL: 0, CONDITIONAL: 1, PASS: 2 };
   const reviewFindings = artifacts
@@ -261,95 +259,33 @@ export function ReviewPanel() {
       const orderDiff = (VERDICT_ORDER[va] ?? 9) - (VERDICT_ORDER[vb] ?? 9);
       return orderDiff !== 0 ? orderDiff : b.updatedAt - a.updatedAt;
     });
-  const decisions = artifacts
-    .filter((a) => a.type === "architect-decision")
-    .sort((a, b) => b.updatedAt - a.updatedAt);
-
-  const hasContent = reviewFindings.length > 0 || decisions.length > 0;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-3 py-2 border-b border-border/20 shrink-0 text-[9px] text-sidebar-foreground/50">
-        <span className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest">Review</span>
-        <span className="flex-1" />
-        {reviewFindings.length > 0 && (
-          <span className="flex items-center gap-1">
-            <FileSearch className="w-3 h-3 text-status-draft/60" />
-            {reviewFindings.length} finding{reviewFindings.length > 1 ? "s" : ""}
-          </span>
-        )}
-        {decisions.length > 0 && (
-          <span className="flex items-center gap-1">
-            <Gavel className="w-3 h-3 text-status-approved/60" />
-            {decisions.length} decision{decisions.length > 1 ? "s" : ""}
-          </span>
-        )}
-      </div>
-
-      {/* Master-detail */}
-      <div className="flex-1 flex min-h-0">
-        {/* Left: list */}
-        <div className={cn(
-          "overflow-y-auto p-3 space-y-4",
-          detailArtifact ? "w-[42%] shrink-0" : "flex-1",
-        )}>
-          {/* Findings */}
-          {reviewFindings.length > 0 && (
-            <div>
-              <button
-                onClick={() => setFindingsCollapsed(!findingsCollapsed)}
-                className="flex items-center gap-1 text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-2 hover:text-foreground/60 transition-colors"
-              >
-                {findingsCollapsed ? <ChevronRight className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
-                Findings
-              </button>
-              {!findingsCollapsed && (
-                <div className="space-y-2">
-                  {reviewFindings.map((a) => (
-                    <VerdictCard key={a.id} artifact={a} active={a.id === detailArtifact?.id} onOpen={setDetailArtifact} />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Decisions */}
-          {decisions.length > 0 && (
-            <div>
-              <button
-                onClick={() => setDecisionsCollapsed(!decisionsCollapsed)}
-                className="flex items-center gap-1 text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-2 hover:text-foreground/60 transition-colors"
-              >
-                {decisionsCollapsed ? <ChevronRight className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
-                Decisions
-              </button>
-              {!decisionsCollapsed && (
-                <div className="space-y-2">
-                  {decisions.map((a) => (
-                    <DecisionCard key={a.id} artifact={a} active={a.id === detailArtifact?.id} onOpen={setDetailArtifact} />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {!hasContent && (
-            <div className="text-center py-6">
-              <FileSearch className="w-5 h-5 text-muted-foreground/20 mx-auto mb-2" />
-              <p className="text-[11px] text-muted-foreground/40">No review findings or decisions yet</p>
-            </div>
-          )}
-        </div>
-
-        {/* Right: detail */}
-        {detailArtifact && (
-          <ReviewDetailPanel
-            artifact={detailArtifact}
-            onClose={() => setDetailArtifact(null)}
-          />
+    <div className="flex min-h-0">
+      {/* Left: findings list */}
+      <div className={cn(
+        "overflow-y-auto p-3 space-y-2",
+        detailArtifact ? "w-[42%] shrink-0" : "flex-1",
+      )}>
+        {reviewFindings.length === 0 ? (
+          <div className="text-center py-6">
+            <FileSearch className="w-5 h-5 text-muted-foreground/20 mx-auto mb-2" />
+            <p className="text-[11px] text-muted-foreground/40">No review findings yet</p>
+          </div>
+        ) : (
+          reviewFindings.map((a) => (
+            <VerdictCard key={a.id} artifact={a} active={a.id === detailArtifact?.id} onOpen={setDetailArtifact} />
+          ))
         )}
       </div>
+
+      {/* Right: detail */}
+      {detailArtifact && (
+        <ReviewDetailPanel
+          artifact={detailArtifact}
+          onClose={() => setDetailArtifact(null)}
+        />
+      )}
     </div>
   );
 }

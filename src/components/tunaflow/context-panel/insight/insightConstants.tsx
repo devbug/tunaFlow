@@ -1,9 +1,9 @@
-import { Zap, CheckSquare, Box, Gauge, Lock, Trash2, XCircle, AlertTriangle, Info } from "lucide-react";
+import { Zap, FlaskConical, Box, Gauge, Lock, Trash2, XCircle, AlertTriangle, Info } from "lucide-react";
 import type { InsightCategory, InsightFinding, InsightSeverity } from "@/types";
 
 export const CATEGORY_META: Record<InsightCategory, { label: string; icon: React.ReactNode; color: string }> = {
   stability: { label: "안정성", icon: <Zap className="w-3 h-3" />, color: "text-yellow-500" },
-  test: { label: "테스트", icon: <CheckSquare className="w-3 h-3" />, color: "text-blue-500" },
+  test: { label: "테스트", icon: <FlaskConical className="w-3 h-3" />, color: "text-blue-500" },
   architecture: { label: "아키텍처", icon: <Box className="w-3 h-3" />, color: "text-purple-500" },
   performance: { label: "성능", icon: <Gauge className="w-3 h-3" />, color: "text-orange-500" },
   security: { label: "보안", icon: <Lock className="w-3 h-3" />, color: "text-red-500" },

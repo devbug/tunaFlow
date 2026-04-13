@@ -189,6 +189,8 @@ export interface SendWithClaudeInput {
   contextModeOverride?: string;
   /** Total context budget cap override (chars). undefined = default (60000) */
   contextBudgetCap?: number;
+  /** Serialized user profile JSON — injected as ## User section in ContextPack */
+  userProfileJson?: string;
 }
 
 export interface RoundtableParticipant {

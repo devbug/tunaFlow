@@ -16,7 +16,7 @@ import type {
 } from "./types";
 
 const DEFAULT_PROFILES: AgentProfile[] = [
-  { id: "architect-claude", label: "Architect Claude", engine: "claude", defaultSkills: [], personaId: "persona_architect" },
+  { id: "architect-claude", label: "Architect Claude", engine: "claude", model: "claude-opus-4-6", defaultSkills: [], personaId: "persona_architect" },
   { id: "reviewer-codex", label: "Reviewer Codex", engine: "codex", defaultSkills: [], personaId: "persona_reviewer" },
   { id: "tester-gemini", label: "Tester Gemini", engine: "gemini", defaultSkills: [], personaId: "persona_tester" },
   { id: "general-opencode", label: "General OpenCode", engine: "opencode", defaultSkills: [], personaId: "persona_implementer" },

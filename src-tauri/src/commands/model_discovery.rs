@@ -44,9 +44,9 @@ lazy_static::lazy_static! {
 fn fallback_models(engine: &str) -> Vec<(&'static str, &'static str, bool)> {
     match engine {
         "claude" => vec![
-            ("claude-sonnet-4-6", "Sonnet 4.6", false),
+            ("claude-sonnet-4-6", "Sonnet 4.6", true),
             ("claude-opus-4-6", "Opus 4.6", false),
-            ("claude-haiku-4-5-20251001", "Haiku 4.5", true),
+            ("claude-haiku-4-5-20251001", "Haiku 4.5", false),
             ("sonnet", "Sonnet (latest)", false),
             ("opus", "Opus (latest)", false),
             ("haiku", "Haiku (latest)", false),

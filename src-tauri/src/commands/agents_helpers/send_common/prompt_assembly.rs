@@ -26,7 +26,7 @@ pub fn build_normalized_prompt(
     cross_session_ids: &[String],
     persona_fragment: Option<&str>,
 ) -> (String, ContextPackMeta) {
-    let (assembled, _, meta) = build_normalized_prompt_with_budget(conn, conversation_id, prompt, project_path, active_skills, cross_session_ids, persona_fragment, None, None);
+    let (assembled, _, meta) = build_normalized_prompt_with_budget(conn, conversation_id, prompt, project_path, active_skills, cross_session_ids, persona_fragment, None, None, None);
     (assembled, meta)
 }
 
@@ -147,6 +147,38 @@ pub fn assemble_prompt(
         if let Some(p) = &persona_block {
             sections.push(p.clone());
             included_sections.push("persona".into());
+        }
+    }
+
+    // User profile section — injected right after identity/persona
+    if let Some(profile_json) = &data.user_profile {
+        if let Ok(p) = serde_json::from_str::<serde_json::Value>(profile_json) {
+            let mut lines: Vec<String> = Vec::new();
+            if let Some(v) = p.get("name").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                lines.push(format!("Name: {}", v));
+            }
+            if let Some(v) = p.get("title").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                lines.push(format!("Role: {}", v));
+            }
+            if let Some(v) = p.get("bio").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                lines.push(format!("Background: {}", v));
+            }
+            if let Some(v) = p.get("preferredLanguages").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                lines.push(format!("Preferred languages: {}", v));
+            }
+            if let Some(v) = p.get("gitName").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                lines.push(format!("Git name: {}", v));
+            }
+            if let Some(v) = p.get("gitEmail").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                lines.push(format!("Git email: {}", v));
+            }
+            if let Some(v) = p.get("githubOrg").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                lines.push(format!("GitHub org: {}", v));
+            }
+            if !lines.is_empty() {
+                sections.push(format!("## User\n\n{}", lines.join("\n")));
+                included_sections.push("user-profile".into());
+            }
         }
     }
 
@@ -565,11 +597,12 @@ pub fn build_normalized_prompt_with_budget(
     persona_fragment: Option<&str>,
     context_mode_override: Option<&str>,
     context_budget_cap: Option<usize>,
+    user_profile_json: Option<&str>,
 ) -> (String, Option<String>, ContextPackMeta) {
     let data = load_context_data(
         conn, conversation_id, prompt, project_path,
         active_skills, cross_session_ids, persona_fragment,
-        context_mode_override, context_budget_cap,
+        context_mode_override, context_budget_cap, user_profile_json,
     );
     assemble_prompt(&data, persona_fragment)
 }

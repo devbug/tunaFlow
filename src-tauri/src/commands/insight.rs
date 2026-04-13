@@ -173,6 +173,17 @@ pub fn update_insight_session_status(
         .map_err(|_| AppError::NotFound("insight session not found".into()))
 }
 
+#[tauri::command]
+pub fn delete_insight_session(
+    session_id: String,
+    state: State<DbState>,
+) -> Result<(), AppError> {
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    conn.execute("DELETE FROM insight_findings WHERE session_id = ?1", [&session_id])?;
+    conn.execute("DELETE FROM insight_sessions WHERE id = ?1", [&session_id])?;
+    Ok(())
+}
+
 // ─── Finding commands ────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -288,6 +299,40 @@ pub fn resolve_insight_findings_by_plan(
         "UPDATE insight_findings SET status = 'resolved'
          WHERE plan_id = ?1 AND status IN ('open', 'selected', 'in_progress')",
         params![plan_id],
+    )?;
+    Ok(count)
+}
+
+/// Link insight findings to the Architect Review branch they were sent to.
+#[tauri::command]
+pub fn link_insight_findings_to_branch(
+    finding_ids: Vec<String>,
+    branch_id: String,
+    state: State<DbState>,
+) -> Result<usize, AppError> {
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    let mut count = 0usize;
+    for id in &finding_ids {
+        count += conn.execute(
+            "UPDATE insight_findings SET review_branch_id = ?1 WHERE id = ?2",
+            params![branch_id, id],
+        )?;
+    }
+    Ok(count)
+}
+
+/// Auto-resolve in_progress findings linked to a branch when it is adopted/archived.
+#[tauri::command]
+pub fn resolve_insight_findings_by_branch(
+    branch_id: String,
+    state: State<DbState>,
+) -> Result<usize, AppError> {
+    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    let count = conn.execute(
+        "UPDATE insight_findings SET status = 'resolved',
+         resolution = COALESCE(resolution, 'Architect Review 브랜치 완료로 자동 처리')
+         WHERE review_branch_id = ?1 AND status = 'in_progress'",
+        params![branch_id],
     )?;
     Ok(count)
 }

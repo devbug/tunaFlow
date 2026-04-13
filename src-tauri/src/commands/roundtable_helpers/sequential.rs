@@ -8,7 +8,7 @@ use crate::CancelRegistry;
 
 use super::executor::{
     RtContextCache, RtVectorIndex, RtParticipantStatus, RoundtableParticipant,
-    ParticipantResult, SessionMap, stream_participant, participant_identity,
+    SessionMap, stream_participant, participant_identity,
 };
 use super::prompt::{build_round_prompt_with_identity, build_round_prompt_with_vector_context, PromptSources};
 use super::persist::{persist_streaming_start, persist_streaming_done};
