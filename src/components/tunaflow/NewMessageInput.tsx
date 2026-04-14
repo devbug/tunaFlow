@@ -80,6 +80,9 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
       if (saved.profileId) {
         const profile = profiles.find((p) => p.id === saved.profileId);
         if (profile) applyProfile(profile);
+        else useChatStore.setState({ personaLabel: null, personaFragment: null });
+      } else {
+        useChatStore.setState({ personaLabel: null, personaFragment: null });
       }
     } else {
       const defaultProfile = profiles[0];
