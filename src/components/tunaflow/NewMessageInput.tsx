@@ -92,7 +92,8 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
         });
       }
     }
-  }, [effectiveConvForRestore, profiles]);
+  // threadBranchConvIdForRestore 포함: 브랜치 드로어가 닫힐 때(null로 변경) 메인챗 프로필 재복원
+  }, [effectiveConvForRestore, profiles, threadBranchConvIdForRestore]);
 
   const handleProfileSelect = (profileId: string | null) => {
     if (!profileId) {
