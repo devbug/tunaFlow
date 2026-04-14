@@ -134,6 +134,7 @@
 | [liveRuntimeTraceParityValidationPlan_2026-03-30](./liveRuntimeTraceParityValidationPlan_2026-03-30.md) | P1 — 4-engine trace/meta parity 실제 확인 |
 | [realWorkflowMemoryQualityValidationPlan_2026-03-30](./realWorkflowMemoryQualityValidationPlan_2026-03-30.md) | P1 — memory/retrieval 응답 품질 검증 |
 | [contextBudgetScalingPlan](./contextBudgetScalingPlan.md) | P2 — 단계적 context budget 상향 실험 |
+| [i18nPlan](./i18nPlan.md) | P1 — UI 한/영 분리 (react-i18next) + 프롬프트 영어 통일 + ContextPack 응답 언어 주입 |
 
 ### 기타 (IA/검토/가이드)
 
@@ -233,6 +234,8 @@
 - [evaluationUiConnectionPlan_2026-03-30](./evaluationUiConnectionPlan_2026-03-30.md)
 - [evaluationUnderTestPlan_2026-03-30](./evaluationUnderTestPlan_2026-03-30.md)
 - [evaluationUsabilityPassPlan_2026-03-30](./evaluationUsabilityPassPlan_2026-03-30.md)
+- [betaReleaseReadinessPlan](./betaReleaseReadinessPlan.md)
+- [cicdReleasePlan](./cicdReleasePlan.md)
 - [geminiSdkIntegrationPlan](./geminiSdkIntegrationPlan.md)
 - [gitAwareBranchModelPlan](./gitAwareBranchModelPlan.md)
 - [gitBranchDefaultingPlan_2026-03-30](./gitBranchDefaultingPlan_2026-03-30.md)
@@ -293,6 +296,7 @@
 - [sidebarWorkspaceHierarchyPlan_2026-03-29](./sidebarWorkspaceHierarchyPlan_2026-03-29.md)
 - [sidecarMigrationPlan](./sidecarMigrationPlan.md)
 - [skillRegistryPlan](./skillRegistryPlan.md)
+- [skillSelectorAgentPlan](./skillSelectorAgentPlan.md)
 - [skillsEngineParityPlan](./skillsEngineParityPlan.md)
 - [skillsUiVisibilityPlan](./skillsUiVisibilityPlan.md)
 - [streamingEngineParityPlan](./streamingEngineParityPlan.md)
