@@ -50,9 +50,9 @@ export function MessageActions({ messageId, messageContent, isUser, onBranch, on
     return () => document.removeEventListener("mousedown", handle);
   }, [showFollowupMenu]);
 
-  // Vertical pill toolbar — no absolute positioning, caller handles sticky placement
+  // Horizontal pill toolbar — absolute overlay at top-right of message bubble
   return (
-    <div className="flex flex-col gap-px px-0.5 py-0.5 rounded-md bg-card border border-border/30 shadow-sm opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-data-[state=open]:opacity-100 group-data-[state=open]:pointer-events-auto transition-opacity duration-100">
+    <div className="flex flex-row gap-px px-0.5 py-0.5 rounded-md bg-card border border-border/30 shadow-sm opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-data-[state=open]:opacity-100 group-data-[state=open]:pointer-events-auto transition-opacity duration-100">
       {onBranch && !isUser && (
         <button onClick={() => onBranch(messageId)} title="Thread"
           className="p-1 rounded hover:bg-accent hover:text-foreground text-muted-foreground/50 transition-colors">
@@ -90,8 +90,8 @@ export function MessageActions({ messageId, messageContent, isUser, onBranch, on
             <Forward className="w-3.5 h-3.5" />
           </button>
           {showFollowupMenu && (
-            // pop to the left so it doesn't go off-screen
-            <div className="absolute right-full top-0 mr-1 bg-popover border border-border/40 rounded-md shadow-lg p-0.5 min-w-[100px] z-50">
+            // pop downward from the button
+            <div className="absolute right-0 top-full mt-1 bg-popover border border-border/40 rounded-md shadow-lg p-0.5 min-w-[100px] z-50">
               {FOLLOWUP_ENGINES.map((eng) => (
                 <button key={eng.id}
                   onClick={() => { onFollowup(eng.id, messageContent); setShowFollowupMenu(false); }}

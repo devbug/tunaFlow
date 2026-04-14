@@ -29,12 +29,14 @@ function hasMarkdownSignal(content: string): boolean {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const REMARK_PLUGINS: any[] = [[remarkGfm, { singleTilde: false }]];
 
-function MarkdownBody({ content, className, conversationId, isStreaming }: { content: string; className?: string; conversationId?: string; isStreaming?: boolean }) {
+function MarkdownBody({ content, className, conversationId, isStreaming, isUser }: { content: string; className?: string; conversationId?: string; isStreaming?: boolean; isUser?: boolean }) {
   // Skip expensive marker processing during streaming — apply only on final render
   const processed = useMemo(() => isStreaming ? content : vizMarkers(content), [content, isStreaming]);
+  // Plan proposal markers are only valid in assistant messages — never parse user messages
+  // (user feedback text may quote marker strings which would falsely trigger PlanProposalCard)
   const segments = useMemo(
-    () => (hasPlanProposal(processed) ? splitPlanProposals(processed) : null),
-    [processed],
+    () => (!isUser && hasPlanProposal(processed) ? splitPlanProposals(processed) : null),
+    [processed, isUser],
   );
 
   if (segments && conversationId) {
@@ -130,7 +132,7 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
           grouped ? "py-1" : "py-2",
           isCompact && "pl-4 py-1",
           "hover:border-l-primary/40 hover:bg-accent/30",
-          showActions ? "pr-1" : "pr-4",
+          showActions ? "pr-16" : "pr-4",
         )}
       >
         {/* Content */}
@@ -154,7 +156,7 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
           <div className={cn("text-foreground leading-relaxed overflow-x-auto", isCompact ? "text-xs" : "text-sm")}>
             {isUser ? (
               <div className={cn("rounded-lg px-3 py-2 inline-block", isCompact && "line-clamp-3")} style={{ background: "var(--user-bubble)" }}>
-                <MarkdownBody content={message.content} conversationId={message.conversationId} />
+                <MarkdownBody content={message.content} conversationId={message.conversationId} isUser />
               </div>
             ) : isStreaming && !message.content ? (
               <TypingIndicator />
@@ -166,9 +168,9 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
           </div>
         </div>
 
-        {/* Hover actions — sticky sidebar, follows viewport as you scroll long messages */}
+        {/* Hover actions — absolute overlay at top-right of bubble */}
         {showActions && (
-          <div className="sticky top-2 self-start flex-shrink-0 ml-1">
+          <div className="absolute top-1 right-1">
             <MessageActions
               messageId={message.id}
               messageContent={message.content}

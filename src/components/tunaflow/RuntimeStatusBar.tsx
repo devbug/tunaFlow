@@ -7,9 +7,7 @@ import { Activity, Loader2, Zap, Terminal, Settings, Moon, Sun } from "lucide-re
 import { SettingsPanel } from "./SettingsPanel";
 import { TraceModal } from "./TraceModal";
 import type { Message } from "@/types";
-import { lazy, Suspense } from "react";
 import { getSetting, setSetting } from "@/lib/appStore";
-const TerminalPanel = lazy(() => import("./TerminalPanel").then((m) => ({ default: m.TerminalPanel })));
 
 function ThemeToggleButton() {
   const [themeMode, setThemeMode] = useState<"dark" | "light">("dark");
@@ -91,16 +89,9 @@ export function RuntimeStatusBar() {
   const [lastContextPct, setLastContextPct] = useState<number | null>(null);
   const [gitStatus, setGitStatus] = useState<{ branch: string | null; dirty: boolean; added: number; modified: number; untracked: number } | null>(null);
   const [traceOpen, setTraceOpen] = useState(false);
-  const [terminalOpen, setTerminalOpen] = useState(false);
+  const terminalOpen = usePtyStore((s) => s.terminalOpen);
+  const toggleTerminal = usePtyStore((s) => s.toggleTerminal);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // Sync terminal toggle with CenterPanel via custom event
-  const toggleTerminal = useCallback(() => {
-    setTerminalOpen((v) => {
-      const next = !v;
-      window.dispatchEvent(new CustomEvent("tunaflow:terminal-toggle", { detail: next }));
-      return next;
-    });
-  }, []);
   const hasPtySession = usePtyStore((s) => s.sessions.size > 0);
 
   const isRunning = runningThreadIds.length > 0;
@@ -340,22 +331,23 @@ export function RuntimeStatusBar() {
           )}
         </div>
 
-        {/* PTY terminal toggle — right edge */}
-        {hasPtySession && (
-          <>
-            <span className="w-px h-3 bg-border/30" />
-            <button
-              onClick={toggleTerminal}
-              className={cn(
-                "flex items-center gap-1 px-2 h-full transition-colors",
-                terminalOpen ? "text-primary" : "text-muted-foreground/50 hover:text-muted-foreground"
-              )}
-              title="PTY Terminal"
-            >
-              <Terminal className="w-3 h-3" />
-            </button>
-          </>
-        )}
+        {/* PTY terminal toggle — right edge (항상 표시) */}
+        <>
+          <span className="w-px h-3 bg-border/30" />
+          <button
+            onClick={toggleTerminal}
+            className={cn(
+              "flex items-center gap-1 px-2 h-full transition-colors",
+              terminalOpen ? "text-primary" : "text-muted-foreground/50 hover:text-muted-foreground"
+            )}
+            title="PTY Terminal"
+          >
+            <Terminal className="w-3 h-3" />
+            {hasPtySession && (
+              <span className={cn("w-1 h-1 rounded-full", terminalOpen ? "bg-primary" : "bg-muted-foreground/40")} />
+            )}
+          </button>
+        </>
       </div>
 
       {traceOpen && <TraceModal onClose={() => setTraceOpen(false)} />}

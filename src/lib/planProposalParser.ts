@@ -106,17 +106,35 @@ function parseProposalBody(raw: string): ParsedPlanProposal {
 
   for (const [header, body] of sections) {
     const h = header.toLowerCase();
-    if (h.includes("description")) {
+    if (h.includes("description") || h.includes("설명") || h.includes("개요")) {
       result.description = body.trim();
-    } else if (h.includes("expected outcome") || h.includes("outcome")) {
+    } else if (h.includes("expected outcome") || h.includes("outcome") || h.includes("기대") || h.includes("성과") || h.includes("목표")) {
       result.expectedOutcome = body.trim();
-    } else if (h.includes("subtask") || h.includes("tasks")) {
-      result.subtasks = parseNumberedList(body);
-    } else if (h.includes("constraint")) {
+    } else if (h.includes("subtask") || h.includes("tasks") || h.includes("서브태스크") || h.includes("작업") || h.includes("태스크")) {
+      // 1) 숫자 목록 "1. Title"
+      const numbered = parseNumberedList(body);
+      if (numbered.length > 0) {
+        result.subtasks = numbered;
+      } else {
+        // 2) 마크다운 테이블 "| 01 | ... | 제목 | ..."
+        const table = parseMarkdownTableAsSubtasks(body);
+        if (table.length > 0) {
+          result.subtasks = table;
+        } else {
+          // 3) 불릿 목록 "- title"
+          result.subtasks = parseBulletListAsSubtasks(body);
+        }
+      }
+    } else if (h.includes("constraint") || h.includes("제약")) {
       result.constraints = parseBulletList(body);
-    } else if (h.includes("non-goal") || h.includes("nongoal")) {
+    } else if (h.includes("non-goal") || h.includes("nongoal") || h.includes("제외") || h.includes("비목표")) {
       result.nonGoals = parseBulletList(body);
     }
+  }
+
+  // 4) Fallback: subtasks still empty — extract from "### Task NN — Title" section headers
+  if (result.subtasks.length === 0) {
+    result.subtasks = extractSubtasksFromTaskSections(sections);
   }
 
   // Validate against schema
@@ -202,6 +220,93 @@ function parseBulletList(text: string): string[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     items.push(m[1].trim());
+  }
+  return items;
+}
+
+/**
+ * Markdown table parser for subtasks.
+ * Handles: "| 01 | #23 | 제목 | ... |" format produced by Architect.
+ * Finds the "제목/title/task/name" column in the header row, falls back to column index 2.
+ */
+function parseMarkdownTableAsSubtasks(text: string): { title: string; details?: string }[] {
+  const tableLines = text.split("\n").filter((l) => l.trim().startsWith("|"));
+  if (tableLines.length < 3) return []; // need header + separator + ≥1 data row
+
+  // Parse header to find title column index
+  const headerCols = tableLines[0]
+    .split("|")
+    .map((c) => c.trim())
+    .filter(Boolean); // remove empty strings from leading/trailing "|"
+  const titleColIdx = headerCols.findIndex((c) => {
+    const lc = c.toLowerCase();
+    return lc.includes("제목") || lc.includes("title") || lc.includes("task") || lc.includes("name");
+  });
+
+  // Data rows start at index 2 (skip header + separator)
+  const items: { title: string; details?: string }[] = [];
+  for (const row of tableLines.slice(2)) {
+    // Split on "|" and strip the empty first/last elements (from leading/trailing "|")
+    const cols = row.split("|").map((c) => c.trim());
+    // cols[0] is empty (before first |), cols[last] is empty (after last |)
+    const dataCols = cols.slice(1, cols.length - 1);
+    if (dataCols.length === 0) continue;
+
+    // Use detected title column, or fall back to index 2 (after # and issue columns)
+    const idx = titleColIdx >= 0 ? titleColIdx : Math.min(2, dataCols.length - 1);
+    const title = dataCols[idx]?.replace(/`/g, "").trim();
+    if (title && title !== "---" && !/^-+$/.test(title)) {
+      items.push({ title });
+    }
+  }
+  return items;
+}
+
+/**
+ * Extract subtasks from "### Task NN — Title" or "### Task NN: Title" section headers.
+ * Last-resort fallback when neither numbered list, table, nor bullet list is found.
+ */
+function extractSubtasksFromTaskSections(sections: [string, string][]): { title: string; details?: string }[] {
+  const items: { title: string; details?: string }[] = [];
+  for (const [header, body] of sections) {
+    // Match "Task 01 — Title" / "Task 01: Title" / "Task 01. Title"
+    const match = header.match(/^Task\s+\d+\s*[—\-:.]\s*(.+)$/i);
+    if (match) {
+      const title = match[1].trim();
+      // Use first non-empty line of body as details if available
+      const firstLine = body.split("\n").find((l) => l.trim())?.trim();
+      items.push({ title, details: firstLine || undefined });
+    }
+  }
+  return items;
+}
+
+/**
+ * Bullet list fallback for subtasks.
+ * Handles: "- Title", "- Title: details", "- Title — details"
+ * Used when the agent uses bullets instead of numbered list.
+ */
+function parseBulletListAsSubtasks(text: string): { title: string; details?: string }[] {
+  const items: { title: string; details?: string }[] = [];
+  const lines = text.split("\n");
+  let current: { title: string; detailLines: string[] } | null = null;
+
+  for (const line of lines) {
+    const bulletMatch = line.match(/^[-*]\s+(.+?)(?:\s*[—:]\s*(.+))?$/);
+    if (bulletMatch) {
+      if (current) {
+        items.push({ title: current.title, details: current.detailLines.join("\n").trim() || undefined });
+      }
+      const title = bulletMatch[1].trim().replace(/\*\*/g, "");
+      const inlineDetails = bulletMatch[2]?.trim();
+      current = { title, detailLines: inlineDetails ? [inlineDetails] : [] };
+    } else if (current) {
+      const trimmed = line.trim();
+      if (trimmed) current.detailLines.push(trimmed);
+    }
+  }
+  if (current) {
+    items.push({ title: current.title, details: current.detailLines.join("\n").trim() || undefined });
   }
   return items;
 }

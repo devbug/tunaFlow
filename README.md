@@ -29,15 +29,15 @@
 
 ### 왜 이렇게 설계했나
 
-멀티 에이전트 오케스트레이션에는 [세 가지 근본 문제](https://shalomeir.substack.com/p/multi-agent-orchestration-problems)가 있습니다:
+멀티 에이전트 오케스트레이션에는 세 가지 근본 문제가 있습니다:
 
-| 문제 | 비율 | tunaFlow 대응 |
-|------|------|--------------|
-| **맥락 붕괴** — 위임 단계마다 원래 의도 변질, 토큰 10배+ 증가 | 41.8% | ContextPack이 매 요청마다 전체 맥락 재조립 (Plan + 메모리 + 역할 문서) |
-| **유령 위임** — DONE 신호 보냈지만 인수인계 실패, 무한 대기 | 36.9% | orphan 자동 복구 + doom loop 감지 (3회 실패 → Architect 에스컬레이션) |
-| **검증 오류** — 자기가 쓴 답을 자기가 채점 → 환각 통과 | 21.3% | Developer ≠ Reviewer 역할 분리 + Review RT 교차 검증 + 기계적 테스트 |
+| 문제 | tunaFlow 대응 |
+|------|--------------|
+| **맥락 붕괴** — 위임 단계마다 원래 의도가 변질되고 토큰 소비가 폭증 | ContextPack이 매 요청마다 전체 맥락 재조립 (Plan + 메모리 + 역할 문서) |
+| **유령 위임** — DONE 신호를 보냈지만 인수인계가 실패하거나 무한 대기 | orphan 자동 복구 + doom loop 감지 (3회 실패 → Architect 에스컬레이션) |
+| **자기 검증 오류** — 자기가 쓴 답을 자기가 채점 → 환각이 리뷰를 통과 | Developer ≠ Reviewer 역할 분리 + Review RT 교차 검증 + 기계적 테스트 |
 
-tunaFlow는 "에이전트 여러 개를 회사처럼 돌리는" 접근이 아니라, **총괄-워커 패턴**(Architect가 Plan 유지, Developer/Reviewer는 워커)과 **블랙보드 패턴**(DB가 공유 상태)으로 이 문제들을 구조적으로 회피합니다. DeepMind 연구에 따르면 에이전트 4개를 넘으면 조율 이득이 사라지는데, tunaFlow는 3-role + RT 2-agent로 이 범위 안에서 동작합니다.
+tunaFlow는 **총괄-워커 패턴**(Architect가 Plan 유지, Developer/Reviewer는 워커)과 **블랙보드 패턴**(DB가 공유 상태)으로 이 문제들을 구조적으로 회피합니다. 에이전트 수는 3-role + RT 2-agent로 조율 오버헤드를 최소화합니다.
 
 ---
 
@@ -49,7 +49,7 @@ tunaFlow는 "에이전트 여러 개를 회사처럼 돌리는" 접근이 아니
 - [기술 스택](#기술-스택)
 - [사전 준비](#사전-준비)
 - [시작하기](#시작하기)
-- [DB 스키마](#db-스키마-v29)
+- [DB 스키마](#db-스키마-v30)
 - [프로젝트 구조](#프로젝트-구조)
 - [개발 이력](#개발-이력)
 - [참고 문헌](#참고-문헌)
@@ -76,8 +76,20 @@ tunaFlow는 "에이전트 여러 개를 회사처럼 돌리는" 접근이 아니
 - **Tool Steps 가시화**: Claude/Codex/Gemini의 중간 작업(thinking, tool_use, file_change)을 실시간 표시
 - **Model Discovery**: 각 엔진의 사용 가능한 모델 자동 탐색
 - **CLI 자동 탐색**: fnm/nvm 경로까지 포함한 바이너리 자동 resolve
+- **User Profile**: 사용자 역할/배경 설정 → ContextPack에 자동 주입
 
-### 2. Roundtable (RT) — 멀티에이전트 토론
+### 2. PTY Terminal — 인터랙티브 CLI 모드
+
+`-p` 플래그의 제약 없이 에이전트와 완전한 인터랙티브 세션을 유지합니다.
+
+- **PTY subprocess**: Claude Code를 터미널 세션으로 직접 연결, 파일 읽기/수정/명령 실행 등 full tool use
+- **하단 상태바 토글**: 터미널 아이콘으로 열기/닫기, 도킹/플로팅 모드 전환
+- **JSONL 응답 수집**: 스트리밍 완료 자동 감지 + `impl-complete` 마커 지원
+- **Write queue (FIFO)**: 여러 메시지 순서 보장, per-conversation spawn lock
+- **Stuck 복구 버튼**: 15초 이상 스피너 유지 시 DB 강제 reload + `_endRun` 호출
+- **우클릭 컨텍스트 메뉴**: 화면 지우기 등 터미널 내 액션
+
+### 3. Roundtable (RT) — 멀티에이전트 토론
 
 여러 에이전트가 하나의 주제에 대해 토론합니다.
 
@@ -87,7 +99,7 @@ tunaFlow는 "에이전트 여러 개를 회사처럼 돌리는" 접근이 아니
 - **ContextPack RT 주입**: 상용 엔진은 auto context, 로컬 엔진은 lite(15k cap) + RtContextCache 캐싱
 - **Branch 확장 모드**: 모든 RT는 Branch의 확장이며 드로어에서 동작
 
-### 3. Branch & Adopt — 대화 분기
+### 4. Branch & Adopt — 대화 분기
 
 대화 중간 지점에서 분기하여 독립 실험 후 요약을 채택합니다.
 
@@ -97,23 +109,23 @@ tunaFlow는 "에이전트 여러 개를 회사처럼 돌리는" 접근이 아니
 - 모든 Branch는 오른쪽 드로어(슬라이더)로 열림 (최대 80% 너비)
 - Branch 내 Branch 중첩 지원 (parent_branch_id chain)
 
-### 4. 오케스트레이션 워크플로우 파이프라인
+### 5. 오케스트레이션 워크플로우 파이프라인
 
 Plan 기반 3-role 자동화 파이프라인입니다.
 
 ```
 Chat → Plan 승격 → Approval(승인/검토/보류)
-  → Implementation Branch → Developer 자동 호출
+  → Implementation Branch → Developer 자동 호출 (PTY 또는 -p)
   → Review RT(2-agent) → Verdict(pass/fail/conditional)
-  → Done 또는 Rework 루프
+  → Done / Rework(코드 재작성) / Redesign(원안 폐기 → rev.N+1) 루프
 ```
 
 **3-Role 시스템**:
 
 | 역할 | 책임 | 에이전트 |
 |------|------|---------|
-| **Architect** | Plan 설계, subtask 분할, task 파일 작성 | 메인 채팅 에이전트 |
-| **Developer** | task 파일 기반 구현, 검증 명령 실행 | Implementation Branch |
+| **Architect** | Plan 설계, subtask 분할, task 파일 작성, 실패 시 재설계 | 메인 채팅 에이전트 |
+| **Developer** | task 파일 기반 구현, 검증 명령 실행 | Implementation Branch / PTY |
 | **Reviewer** | 코드 읽기 기반 리뷰, verdict 판정 | Review RT (2-agent) |
 
 **주요 기능**:
@@ -121,10 +133,11 @@ Chat → Plan 승격 → Approval(승인/검토/보류)
 - **PlanProposalCard / ApprovalGate / ImplPlanCard / ReviewVerdictCard** UI 컴포넌트
 - **Doom Loop 감지**: review 3회 실패 시 자동 에스컬레이션 → Architect 재설계 요청
 - **subtask 타겟 rework**: failed_subtask_ids로 실패한 subtask만 재작업
+- **Plan 재설계 흐름**: Reviewer 판정 fail → 원안 abandoned → Architect가 findings 분석 후 rev.N+1 제안
 - **zod 스키마 검증**: 5개 워크플로우 스키마 (graceful degradation)
 - **후속 Plan**: parent_plan_id로 Plan 계보 추적
 
-### 5. Failure Learning — 실패 학습 시스템
+### 6. Failure Learning — 실패 학습 시스템
 
 Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 
@@ -133,9 +146,9 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 - Review pass 시 미해결 lessons에 resolution 자동 채움
 - 프로젝트 범위 내 검색 (다른 프로젝트의 실패는 포함하지 않음)
 
-### 6. Insight — 프로젝트 품질 분석
+### 7. Insight — 프로젝트 품질 분석
 
-기존 Test 탭을 대체한 프로젝트 전체 품질 분석 시스템입니다. Review 탭은 워크플로우 verdict/findings 전용으로 유지됩니다.
+기존 Test 탭을 대체한 프로젝트 전체 품질 분석 시스템입니다.
 
 **핵심 원칙**: 에이전트에게 "프로젝트 전체를 읽어봐"가 아니라, **시스템이 사전 추출한 데이터만** 분석하게 하여 토큰을 절감합니다 (50k~200k → 5k~20k).
 
@@ -160,7 +173,7 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 
 **Auto Fix 파이프라인** (CodeCureAgent 패턴):
 - `auto` 난이도 findings → 에이전트 자동 수정 → 테스트 검증 → rawq 재스캔 → 패턴 사라짐 확인
-- 실패 시 사용자에게 보고 (git revert 필요)
+- 실패 시 사용자에게 보고
 
 **Quadrant 우선순위** (SQALE + Impact×Cost):
 - **Quick Wins**: auto + critical/major → "Run All" 버튼으로 일괄 자동 수정
@@ -168,14 +181,14 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 - **Fill-ins**: low impact → 여유 있을 때 수정
 - **Deprioritize**: manual → 메모 또는 무시
 
-
-### 7. ContextPack — 4-engine 공통 프롬프트 조립
+### 8. ContextPack — 4-engine 공통 프롬프트 조립
 
 매 요청마다 동일한 구조의 normalized prompt를 조립하여 모든 엔진에 전달합니다.
 
 ```
 ┌─ Identity ────────────────────────────┐
 │ Profile → Engine → Model → Persona    │
+│ User Profile (역할/배경)              │
 │ 한국어 응답 규칙                        │
 ├─ Context ─────────────────────────────┤
 │ Recent messages (author attribution)  │
@@ -189,6 +202,7 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 │ rawq code search results              │
 │ context-hub library docs              │
 │ code-review-graph dependency info     │
+│ Document RAG (docs/ 인덱싱)           │
 │ Failure lessons (rework only)         │
 ├─ Agent Role Document ─────────────────┤
 │ docs/agents/{architect|developer|     │
@@ -196,19 +210,41 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 └───────────────────────────────────────┘
 ```
 
-- **Context modes**: Lite / Standard / Full / Auto (대화 길이 기반 자동 선택)
+- **Tiering**: Lite / Standard / Full / Auto (대화 길이 기반 자동 선택, RT ~70% 절감)
 - **Budget control**: section별 압축 목표, total cap 조정 (Settings에서 설정)
 - **Multi-agent context**: participants meta + budget-based dynamic window + per-agent last-message guarantee
 - **마커 기반 멀티턴 도구 호출**: `<!-- tunaflow:tool-request:TYPE:QUERY -->` — docs/rawq/graph/plans 4종
 
-### 8. 장기기억 & 벡터 검색
+### 9. 장기기억 & 벡터 검색
 
 - **주제별 메모리**: 12+ 메시지 시 JSON 배열 토픽 분할 저장 (1-5개 토픽/대화), provenance/model 기록
 - **자동 세션 발견**: FTS5 + Vector 하이브리드로 관련 대화 자동 연결 (session_links 테이블)
-- **Vector DB**: rawq embed CLI 활용 (snowflake-arctic-embed-s 384차원), conversation_chunks BLOB 임베딩, brute-force cosine 검색
-- **수동 핀**: 사용자가 관련 대화를 직접 연결 가능
+- **Vector DB**: sqlite-vec 활용 (bge-m3 384차원), conversation_chunks 임베딩, 코사인 검색 (18x 성능)
+- **Document RAG**: docs/ 마크다운 자동 인덱싱 → 그래프 구조 + 벡터 검색
+- **자동 트리거**: 에이전트 완료 시 메모리 압축 + 벡터 재인덱싱 자동 실행
 
-### 9. rawq — 코드 검색 엔진
+### 10. HTTP API & MCP 서버
+
+외부 도구나 스크립트에서 tunaFlow 데이터에 접근할 수 있는 인터페이스입니다.
+
+**HTTP API** (16개 엔드포인트):
+- 대화/메시지/플랜/아티팩트 CRUD
+- WebSocket 스트리밍 (실시간 에이전트 출력 구독)
+- 쿼리 파라미터 기반 인증
+
+**MCP 서버** (`tunaflow-mcp`):
+
+| 도구 | 기능 |
+|------|------|
+| `list_conversations` | 프로젝트별 대화 목록 |
+| `get_messages` | 대화 메시지 조회 |
+| `list_projects` | 프로젝트 목록 |
+| `search_documents` | 문서 RAG 검색 |
+| `get_document_graph` | 문서 그래프 조회 |
+| `run_roundtable` | RT 실행 트리거 |
+| `query_db` | 직접 DB 쿼리 |
+
+### 11. rawq — 코드 검색 엔진
 
 - **Sidecar binary**: 앱 시작 시 daemon 자동 실행, 임베딩 모델 상주 (30분 idle timeout)
 - `.gitignore` 존중 인덱싱 (node_modules, target 등 자동 제외)
@@ -216,15 +252,16 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 - 개념 쿼리 vs 코드 쿼리 자동 감지 → 가중치 자동 조정
 - `prompt_needs_rawq()` 게이트: 10자+ 프롬프트에 자동 포함
 - 에이전트 완료 시 자동 re-index (fs watcher)
+- **bge-m3 임베딩**: ONNX 스레드 제한 + 세마포어 + 점진적 인덱싱 (CPU 스파이크 방지)
 
-### 10. code-review-graph 통합
+### 12. code-review-graph 통합
 
 - CLI query/impact 명령으로 의존성/영향도 분석
 - Rust sidecar 통합 + ContextPack 자동 주입
 - `agent:completed` 시 auto update
 - 마커 기반 도구 호출: `<!-- tunaflow:tool-request:graph:QUERY -->`
 
-### 11. Skills — 스킬 시스템
+### 13. Skills — 스킬 시스템
 
 4-layer 스킬 아키텍처:
 
@@ -240,7 +277,7 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 - **멀티툴 스킬 스캔**: 12개 도구 경로 + Claude 플러그인 수집
 - **워크플로우 phase별 자동 주입**: 각 phase에 맞는 스킬 자동 포함
 
-### 12. Artifacts — 산출물 관리
+### 14. Artifacts — 산출물 관리
 
 - **Plan별 그룹핑**: 각 artifact가 plan_id로 자동 연결, Artifacts 탭에서 Plan별 접힘/펼침 그룹 표시
 - **워크플로우 자동 생성**: Plan 승인 → architect-decision, Review RT → test-report, Review verdict → review-findings
@@ -248,7 +285,7 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 - **Harness 타입**: task-brief, test-report, review-findings, architect-decision
 - **Forward**: 다른 에이전트에게 artifact 전달 가능
 
-### 13. UI/UX
+### 15. UI/UX
 
 - **Linear-inspired 레이아웃**: 사이드바 + 5-tab CenterPanel (Chat/Plan/Artifacts/Review/Insight) + 드로어 + RuntimeStatusBar
 - **react-virtuoso**: 대량 메시지 가상 스크롤 (followOutput + scrollToIndex)
@@ -259,6 +296,7 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 - **Settings**: Agents / Personas / Runtime 섹션 분리
 - **Project-first startup**: 프로젝트 미선택 시 ProjectStartup 화면
 - **스마트 scaffold**: 프로젝트 생성 시 스택 자동 감지 → CLAUDE.md + docs/ 자동 생성
+- **라이트/다크 모드**: oklch 기반 토큰 시스템, Settings에서 전환
 
 ---
 
@@ -270,27 +308,30 @@ Review fail에서 학습하여 같은 실수 반복을 방지합니다.
 │ ├─ Sidebar — Project selector / Chats / Artifacts / Skills  │
 │ ├─ CenterPanel — Chat / Plan / Artifacts / Review / Insight  │
 │ ├─ Drawers — Branch / RT (오른쪽 슬라이더)                    │
+│ ├─ Terminal — PTY 패널 (도킹/플로팅)                         │
 │ ├─ Settings — Agents / Personas / Runtime                   │
 │ └─ RuntimeStatusBar + TraceModal + CommandPalette           │
 ├──────────────────────────────────────────────────────────────┤
 │ Tauri 2 Host (Rust + Tokio async)                           │
 │ ├─ Commands — CRUD + background agent execution             │
-│ ├─ Agents — claude, codex, gemini, opencode, ollama + SDKs  │
-│ ├─ Context — ContextPack, compression, vector search        │
+│ ├─ Agents — claude, codex, gemini, opencode, ollama + PTY   │
+│ ├─ Context — ContextPack (Tiering), compression, vector     │
 │ ├─ Workflow — Plan/Approval/Review/Verdict pipeline         │
 │ ├─ Failure Learning — FTS5 search + rework injection        │
 │ ├─ Insight — pre-extraction + agent analysis pipeline        │
-│ └─ DB — SQLite WAL, dual read/write, v29 schema            │
+│ ├─ HTTP API — 16 endpoints + WebSocket streaming            │
+│ └─ DB — SQLite WAL, dual read/write, v30 schema            │
 ├──────────────────────────────────────────────────────────────┤
-│ CLI Agents / Sidecars                                       │
-│ ├─ claude (Anthropic) — CLI subprocess                      │
+│ CLI Agents / Sidecars / MCP                                 │
+│ ├─ claude (Anthropic) — CLI subprocess + PTY                │
 │ ├─ codex (OpenAI) — CLI subprocess                          │
 │ ├─ gemini (Google) — CLI subprocess                         │
 │ ├─ opencode — CLI subprocess                                │
 │ ├─ ollama/LM Studio/vLLM — OpenAI-compatible HTTP           │
-│ ├─ rawq — code retrieval + embedding sidecar                │
+│ ├─ rawq — code retrieval + bge-m3 embedding sidecar         │
 │ ├─ code-review-graph — dependency analysis sidecar          │
-│ └─ context-hub — knowledge search sidecar                   │
+│ ├─ context-hub — knowledge search sidecar                   │
+│ └─ tunaflow-mcp — MCP 서버 (7개 도구)                        │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -356,7 +397,7 @@ cd src-tauri && cargo test --lib  # Rust unit (232 tests)
 
 ---
 
-## DB 스키마 (v29)
+## DB 스키마 (v30)
 
 | 테이블 | 용도 |
 |--------|------|
@@ -365,7 +406,7 @@ cd src-tauri && cargo test --lib  # Rust unit (232 tests)
 | `messages` | 메시지 (role, content, engine, model, persona) |
 | `messages_fts` | FTS5 전문 검색 (트리거 동기화) |
 | `branches` | 대화 분기 (chat/roundtable mode, parent chain, git_branch) |
-| `plans` | 워크플로우 플랜 (phase, 3-role engines, parent_plan_id, slug) |
+| `plans` | 워크플로우 플랜 (phase, 3-role engines, parent_plan_id, revision, slug) |
 | `plan_subtasks` | 플랜 하위 작업 (depends_on, parallel_group) |
 | `plan_events` | 플랜 이벤트 타임라인 |
 | `artifacts` | 산출물 (type, status, subtask/plan 연결) |
@@ -379,9 +420,11 @@ cd src-tauri && cargo test --lib  # Rust unit (232 tests)
 | `agent_jobs` | 에이전트 작업 레지스트리 |
 | `conversation_memory` | 주제별 압축 메모리 (topic, provenance, model) |
 | `session_links` | 자동 세션 발견 링크 (score, method) |
-| `conversation_chunks` | 벡터 임베딩 (BLOB, 384차원) |
+| `conversation_chunks` | 벡터 임베딩 (sqlite-vec, 384차원) |
+| `document_nodes` | 문서 RAG 노드 (docs/ 마크다운) |
+| `document_edges` | 문서 그래프 엣지 (링크 관계) |
 
-29개 migration + FTS5 가상 테이블 2개.
+30개 migration + FTS5 가상 테이블 2개.
 
 ---
 
@@ -395,38 +438,43 @@ tunaFlow/
 │   │   ├── agents/           # CLI adapters (claude, codex, gemini, opencode, ollama, rawq)
 │   │   ├── commands/         # Tauri commands + helpers
 │   │   │   ├── agents.rs               # 5-engine background stream commands
-│   │   │   ├── agents_helpers/         # ContextPack, identity, send_common
-│   │   │   ├── roundtable.rs           # RT orchestration
-│   │   │   ├── roundtable_helpers/     # RT executor, prompt, persist
+│   │   │   ├── agents_helpers/         # ContextPack, identity, send_common (4파일)
+│   │   │   ├── roundtable_helpers/     # RT executor, prompt, persist, sequential
+│   │   │   ├── pty/                    # PTY subprocess 관리
 │   │   │   ├── failure_lessons.rs      # 실패 학습 CRUD + FTS5 검색
 │   │   │   ├── conversation_memory.rs  # 주제별 압축 메모리
 │   │   │   ├── session_discovery.rs    # FTS5+Vector 세션 발견
-│   │   │   ├── vector_search.rs        # 벡터 임베딩/검색
-│   │   │   └── ...
-│   │   ├── db/               # SQLite schema, migrations (v1-v29), models
+│   │   │   ├── vector_search.rs        # sqlite-vec 임베딩/검색
+│   │   │   ├── document_index.rs       # 문서 RAG 인덱싱
+│   │   │   └── insight.rs              # Insight 분석 파이프라인
+│   │   ├── http_api/         # HTTP API + WebSocket (16 endpoints)
+│   │   ├── db/               # SQLite schema, migrations (v1-v30), models
 │   │   ├── errors.rs         # AppError enum
 │   │   └── guardrail.rs      # Context budget limits
 │   ├── binaries/             # rawq sidecar (gitignored)
 │   └── Cargo.toml
 ├── src/                      # React frontend
 │   ├── components/tunaflow/
-│   │   ├── chat/             # Markdown rendering, FileViewer
-│   │   ├── context-panel/    # Plans, Review, Insight, Trace, Skills, Artifacts, Evaluation
+│   │   ├── chat/             # Markdown rendering, PlanProposalCard
+│   │   ├── context-panel/    # Plans, Review, Insight, Trace, Skills, Artifacts
+│   │   │   └── plans/        # ReviewVerdictCard, ImplPlanCard, ApprovalGate
 │   │   ├── settings/         # Agents, Personas, Runtime sections
 │   │   ├── input/            # EngineSelector, ModelSelector, RoundtableControls
-│   │   ├── message/          # MessageMeta, MessageActions, ProgressSurface
+│   │   ├── message/          # MessageMeta, MessageActions, ProgressSurface, ToolStepsView
 │   │   ├── sidebar/          # Chats, TreeRow, Artifacts, Files
 │   │   ├── CenterPanel.tsx   # 5-tab center (Chat/Plan/Artifacts/Review/Insight)
+│   │   ├── TerminalFloatingPanel.tsx  # PTY 터미널 (도킹/플로팅)
 │   │   └── RuntimeStatusBar.tsx
-│   ├── stores/slices/        # Zustand slices (6개)
-│   ├── lib/                  # utils, schemas, parsers, api/, engineConfig
+│   ├── stores/slices/        # Zustand slices (threadSlice, branchSlice, runtimeSlice, ptyStore 등)
+│   ├── lib/                  # utils, schemas, parsers, api/, engineConfig, workflowOrchestration
 │   └── tests/                # vitest tests
 ├── docs/
+│   ├── agents/               # Architect/Developer/Reviewer 역할 문서
 │   ├── plans/                # 구현 계획 (~100개, index.md 참조)
 │   ├── prompts/              # 실행 프롬프트
-│   ├── reference/            # SSOT 문서
-│   ├── ideas/                # 아이디어 (Insight 탭 설계 등)
-│   └── how-to/               # 운영 가이드
+│   ├── reference/            # SSOT 문서 (dataModel, sessionHistory 등)
+│   ├── ideas/                # 아이디어 문서
+│   └── how-to/               # 운영 가이드 (rawq, skills)
 ├── scripts/                  # build-rawq.sh, publish-skills.sh
 ├── CLAUDE.md                 # Claude Code handoff document
 └── package.json
@@ -460,24 +508,36 @@ tunaInsight (분석 서비스) ──────────────┘ (In
 
 ### 세션별 성과
 
-12일, 415 commits, 42k lines — 모든 코드는 Claude Code가 작성했습니다.
+약 18일, 500+ commits — 모든 코드는 Claude Code가 작성했습니다.
 
 | 세션 | 날짜 | 핵심 성과 |
 |------|------|----------|
 | 1 | 2026-03-28~29 | Linear UI, 4-engine parity, Branch/RT 통합, Skills, Agent Profile/Persona |
 | 2 | 2026-03-30 | ContextPack 전체 파이프라인, identity, compressed memory |
-| 3 | 2026-03-30 | Claude parity fix, agents.rs 1168→260줄 리팩토링 |
+| 3 | 2026-03-30 | Claude parity fix (통합 `build_normalized_prompt_with_budget()`), agents.rs 1168→260줄 |
 | 4 | 2026-03-31 | Multi-agent context 3-layer, project scaffold, rawq fs watcher |
 | 5 | 2026-04-01 | 오케스트레이션 워크플로우 Phase A-E 전체 완료 |
 | 6 | 2026-04-02 | zod 스키마, Ollama 엔진, Tool Steps 가시화 |
 | 7 | 2026-04-02~03 | 장기기억 4단계, Vector DB, virtuoso, cmdk, 실사용 검증 50+ 버그 수정 |
-| 8-9 | 2026-04-03~04 | 이벤트 격리, RT 전면 수정, 스트리밍 race condition 해결 |
-| 10 | 2026-04-04 | 스킬 4-layer + 레지스트리, CRG 통합, 마커 기반 도구 호출, DB v25 |
+| 8-9 | 2026-04-03~04 | 이벤트 격리, RT 전면 수정, 스트리밍 race condition 해결, DB v23 |
+| 10 | 2026-04-04 | Trace Phase 1, 스킬 4-layer + 레지스트리, CRG 통합, 마커 기반 도구 호출, DB v25 |
 | 11 | 2026-04-04 | 전수조사, 문서 정합성 복구, expect 패닉 제거 |
-| 12 | 2026-04-05 | 테스트 180→352, 3-role 프롬프트 근본 수정, 에스컬레이션 경로 완성 |
+| 12 | 2026-04-05 | 테스트 180→352, 3-role 프롬프트 근본 수정, 에스컬레이션 경로 완성, DB v26 |
 | 13 | 2026-04-05~06 | Review 자동 감지, doom loop 안정화, 코드 품질 감사 7항목 |
-| 14 | 2026-04-06 | Failure Learning, Artifacts Plan 그룹핑, Insight 탭 설계 |
-| 15 | 2026-04-07 | **Insight 탭 구현** (Phase A~G), 사전 추출 파이프라인, Auto Fix, 5탭→5탭 (Test→Insight) |
+| 14 | 2026-04-06~07 | Failure Learning (DB v27-28), Artifacts Plan 그룹핑, Insight 탭 설계 |
+| 15 | 2026-04-07~08 | **Insight 탭 구현** (Phase A~G, DB v29), 디자인 시스템 Phase 1 |
+| 16 | 2026-04-10 | RT 중간 스트리밍, ContextPack Tiering Tier 0+1 (RT ~70% 절감), **PTY Phase 1-2**, MCP 서버, JSONL 응답 수집 |
+| 17 | 2026-04-11 | PTY Phase 3-5 (delta 주입, Codex/Gemini resume, ToolSteps 고도화, TerminalPanel) |
+| 18 | 2026-04-11 | ContextPack Tiering 8항목 완료, sqlite-vec 18x, Structured Memory, WIP Limits, **HTTP API Phase 1**, DB v30 |
+| 19 | 2026-04-11 | HTTP API E2E 테스트 + Phase 2 (16개 엔드포인트) |
+| 20 | 2026-04-11 | 문서 RAG, 장기기억 자동 트리거, Document Graph |
+| 22 | 2026-04-12 | CPU 수정(bge-m3 증분), PTY 터미널 표시, 사이드바 리사이즈 5섹션 재설계 |
+| 25 | 2026-04-12 | 버그 9건 수정, MarkdownComponents, adoptBranch 충돌, Insight 우측 패널 |
+| 26-27 | 2026-04-13 | **리팩토링 v3 전체** — god-file 5개 → 18모듈 분리, threadSlice 609→481줄 |
+| 28 | 2026-04-13 | 사이드바 폰트, Tailwind 4 JIT arbitrary value 이슈 해결 |
+| 29-31 | 2026-04-13 | Insight Phase I (tool-request:insight), 모바일 웹 초안, plan-proposal 파서/에이전트 수정 |
+| 32-34 | 2026-04-13 | 우클릭 메뉴, 라이트모드, 알림벨, 사용자 프로필→ContextPack, InsightPanel 재설계 |
+| 35 | 2026-04-13 | PTY Enter 3중 수정, **bge-m3 CPU 스파이크 수정** (ONNX 스레드 제한+세마포어+점진적 인덱싱) |
 
 ---
 
@@ -488,20 +548,13 @@ tunaInsight (분석 서비스) ──────────────┘ (In
 | [CLAUDE.md](./CLAUDE.md) | Claude Code용 상세 handoff (아키텍처, 스키마, 컨벤션) |
 | [Data Model](./docs/reference/dataModelRevised.md) | 도메인 모델 SSOT |
 | [Implementation Status](./docs/reference/implementationStatus.md) | 기능별 구현 현황 |
+| [Session History](./docs/reference/sessionHistory.md) | 세션별 전체 이력 |
 | [Plans Index](./docs/plans/index.md) | 구현 계획 인덱스 (~100개) |
-| [Insight Design](./docs/ideas/insightTabDesign.md) | Insight 탭 설계 (카테고리 기반 프로젝트 분석) |
-| [Multi-Agent Analysis](./docs/reference/multiAgentOrchestrationAnalysis.md) | 오케스트레이션 문제 분석 + tunaFlow 대응 |
-| [Known Issues](./docs/reference/knownIssues_2026-04-05.md) | 미해결 이슈 |
+| [Architecture Detail](./docs/reference/architecture-detail.md) | RT 흐름, Store 구조, DB 스키마, 이벤트 모델 |
 
 ---
 
 ## 참고 문헌
-
-이 프로젝트의 설계에 참고한 연구 및 방법론입니다.
-
-### 멀티 에이전트 오케스트레이션
-
-0. shalomeir, "Multi-Agent Orchestration Problems", 2025. — 맥락 붕괴(41.8%), 유령 위임(36.9%), 검증 오류(21.3%) 분석. 총괄-워커/블랙보드 패턴 권장. [Substack](https://shalomeir.substack.com/p/multi-agent-orchestration-problems)
 
 ### 에이전트 코드 수정 성공률 연구
 

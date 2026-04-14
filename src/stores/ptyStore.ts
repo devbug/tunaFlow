@@ -50,6 +50,11 @@ interface PtyStoreState {
   completionSeen: boolean;
   responseStarted: boolean;
 
+  /** Terminal panel visibility */
+  terminalOpen: boolean;
+  /** "docked" = fixed at bottom of chat area; "float" = draggable popup */
+  terminalMode: "docked" | "float";
+
   getSession: (engine: string) => number | null;
   getJsonlPath: (engine: string) => string | undefined;
   getModel: (engine: string) => string | undefined;
@@ -57,6 +62,9 @@ interface PtyStoreState {
   setJsonlPath: (engine: PtyEngine, jsonlPath: string) => void;
   clearSession: (engine: PtyEngine) => void;
   clearAllSessions: () => void;
+
+  toggleTerminal: () => void;
+  setTerminalMode: (mode: "docked" | "float") => void;
 
   startCapture: (messageId: string, engine: PtyEngine) => void;
   updateScreen: (screenText: string) => void;   // pty:screen — completion detection
@@ -71,6 +79,8 @@ export const usePtyStore = create<PtyStoreState>((set, get) => ({
   isCapturing: false,
   completionSeen: false,
   responseStarted: false,
+  terminalOpen: false,
+  terminalMode: "docked",
 
   getSession: (engine) => get().sessions.get(engine as PtyEngine)?.sessionId ?? null,
 
@@ -99,6 +109,13 @@ export const usePtyStore = create<PtyStoreState>((set, get) => ({
   }),
 
   clearAllSessions: () => set({ sessions: new Map() }),
+
+  toggleTerminal: () => set((s) => ({
+    terminalOpen: !s.terminalOpen,
+    // 닫을 때 항상 docked로 리셋 — 다음에 열면 docked로 시작
+    terminalMode: s.terminalOpen ? "docked" : s.terminalMode,
+  })),
+  setTerminalMode: (mode) => set({ terminalMode: mode }),
 
   startCapture: (messageId, engine) => set({
     activeMessageId: messageId,

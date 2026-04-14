@@ -85,6 +85,11 @@ export async function sendMessageViaPty(
   const pollConfig = getPtyPollConfig(engine);
 
   // Get current JSONL line count (baseline — poll for lines after this)
+  // forceNewJsonl: branch first message needs a fresh baseline.
+  // Interactive PTY always appends to the SAME JSONL file — no new file is created.
+  // Old approach (reset to null + snapshot diff) never detects a "new" file → infinite hang.
+  // Correct fix: keep the current JSONL path, but re-snapshot the current line count as baseline
+  // so we only see lines written AFTER this message is sent.
   let trackedJsonl = jsonlPath ?? null;
   let baselineLines = 0;
   if (trackedJsonl) {
@@ -100,7 +105,8 @@ export async function sendMessageViaPty(
     } catch { /* ok */ }
   }
 
-  // Snapshot existing files for JSONL detection after prompt
+  // Snapshot existing files for JSONL detection — only needed when no tracked path yet
+  // (e.g. very first message ever in this PTY session before any JSONL file exists)
   let snapshotBefore: Set<string> | null = null;
   if (!trackedJsonl) {
     try {
@@ -144,7 +150,18 @@ export async function sendMessageViaPty(
   const START_TIMEOUT_MS = 90_000;  // 90s: must see ANY activity (screen or JSONL) after write
   // No hard TOTAL_TIMEOUT: we keep waiting as long as the PTY process is alive.
   // The loop checks pty_is_alive every 30s; if the process exits, we finalize.
-  const POLL_INTERVAL_MS = 200;
+
+  // Adaptive poll interval — backs off when no new JSONL lines are seen.
+  // Under RAM pressure (e.g. ollama running), reduces disk I/O and avoids thrashing.
+  // Thresholds: idle<5s → 200ms, idle 5~20s → 400ms, idle>20s → 800ms
+  // Resets to 200ms immediately on any new activity.
+  let lastActivityAt = Date.now();
+  const getPollInterval = () => {
+    const idle = Date.now() - lastActivityAt;
+    if (idle > 20_000) return 800;
+    if (idle > 5_000) return 400;
+    return 200;
+  };
 
   // Send prompt via bracket paste + Enter
   try {
@@ -194,7 +211,7 @@ export async function sendMessageViaPty(
       // If we see ⏺ (response indicator) or thinking symbols, delivery is confirmed
       if (/⏺|[✻✢✳✶✽]/.test(e.payload.data)) {
         deliveryConfirmed = true;
-        activitySeen = true; // Screen activity counts — resets start timeout
+        activitySeen = true; lastActivityAt = Date.now(); // Screen activity — reset poll backoff
         ulDelivery();
         console.log("[pty] delivery confirmed via screen indicator");
       }
@@ -202,7 +219,7 @@ export async function sendMessageViaPty(
 
     // Poll JSONL for assistant messages
     for (let attempt = 0; ; attempt++) {
-      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      await new Promise((r) => setTimeout(r, getPollInterval()));
       if (finalized) break;
 
       const elapsed = Date.now() - now;
@@ -222,8 +239,8 @@ export async function sendMessageViaPty(
         return;
       }
 
-      // ── Process alive check: every 30s verify PTY is still running ──
-      if (elapsed > 0 && attempt % Math.round(30_000 / POLL_INTERVAL_MS) === 0) {
+      // ── Process alive check: every ~30s verify PTY is still running ──
+      if (elapsed > 0 && attempt % 150 === 0) {
         const alive = await invoke<boolean>("pty_is_alive", { sessionId }).catch(() => false);
         if (!alive) {
           finalized = true;
@@ -257,7 +274,7 @@ export async function sendMessageViaPty(
               );
             }
             console.log(`[pty-jsonl] detected JSONL: ${trackedJsonl} (session: ${claudeSessionId})`);
-            activitySeen = true;
+            activitySeen = true; lastActivityAt = Date.now();
             try {
               const blArgs: Record<string, unknown> = engine === "gemini"
                 ? { jsonPath: trackedJsonl, afterMessageCount: 0 }
@@ -288,9 +305,9 @@ export async function sendMessageViaPty(
         const result = await invoke<PtyResult | null>(pollConfig.pollCmd, mainPollArgs);
 
         if (result) {
-          // Mark JSONL activity seen (resets start timeout concern)
+          // Mark JSONL activity seen — resets start timeout + poll backoff
           if (result.totalLines > baselineLines || result.text.length > 0) {
-            activitySeen = true;
+            activitySeen = true; lastActivityAt = Date.now();
           }
 
           // Show tool steps progress during streaming

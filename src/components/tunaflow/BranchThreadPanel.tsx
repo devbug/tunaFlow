@@ -334,10 +334,12 @@ export function BranchThreadPanel() {
               );
             })}
             {runningThreadIds.length > 0 && threadMessages[threadMessages.length - 1]?.status !== "streaming" && (
-              <div className="flex items-center gap-1 px-4 py-2 text-muted-foreground text-xs">
+              <div className="flex items-center gap-2 px-4 py-2">
                 <span className="typing-dot w-1 h-1 rounded-full bg-muted-foreground" />
                 <span className="typing-dot w-1 h-1 rounded-full bg-muted-foreground" />
                 <span className="typing-dot w-1 h-1 rounded-full bg-muted-foreground" />
+                {/* PTY hang recovery: if PTY shows done but spinner keeps running */}
+                <StuckRecoveryButton convId={threadBranchConvId} />
               </div>
             )}
             <div ref={bottomRef} />
@@ -355,6 +357,49 @@ export function BranchThreadPanel() {
         checkpointId={rtDialogCheckpoint}
       />
     </div>
+  );
+}
+
+// ─── Stuck Recovery Button ────────────────────────────────────────────────
+
+/**
+ * PTY hang recovery: when the PTY has finished but the frontend spinner keeps running,
+ * this button reloads messages from DB and force-ends the stuck run.
+ * Appears after 15s of spinning with no streaming activity.
+ */
+function StuckRecoveryButton({ convId }: { convId: string | null }) {
+  const [visible, setVisible] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), 15_000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!visible || !convId) return null;
+
+  const handleRecover = async () => {
+    setRecovering(true);
+    try {
+      const msgs = await invoke<Message[]>("list_messages", { conversationId: convId });
+      useChatStore.setState({ threadMessages: msgs });
+      useChatStore.getState()._endRun(convId);
+    } catch (e) {
+      console.error("[recovery]", e);
+    } finally {
+      setRecovering(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleRecover}
+      disabled={recovering}
+      className="ml-2 text-[9px] text-muted-foreground/40 hover:text-muted-foreground transition-colors disabled:opacity-30"
+      title="PTY가 완료되었는데 스피너가 멈추지 않을 때 클릭"
+    >
+      {recovering ? "불러오는 중..." : "응답 불러오기"}
+    </button>
   );
 }
 
