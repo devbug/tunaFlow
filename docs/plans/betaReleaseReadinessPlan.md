@@ -113,24 +113,29 @@ related: cicdReleasePlan.md, skillSelectorAgentPlan.md
 
 ## 5. 배포 전 체크리스트
 
-### 필수 (배포 불가 블로커)
+### 🤖 Claude가 할 일 — 필수 (배포 불가 블로커)
 - [ ] `tauri.conf.json` 아이콘 경로 연결
-- [ ] `build.yml` 작성 (rawq 빌드 포함)
+- [ ] `.github/workflows/build.yml` 작성 (rawq 빌드 포함)
 - [ ] `install.sh` 작성 (xattr 자동 실행 포함)
 - [ ] `INSTALL.md` 작성 (에이전트용 + 에이전트 설치 안내)
-- [ ] HTTP API 포트 변경
-- [ ] 버전 태그 자동화
-- [ ] 샌드박스 빌드 테스트 + DB migration 검증
+- [ ] HTTP API 포트 변경 (충돌 없는 고정 포트)
+- [ ] 버전 태그 자동화 (workflow에서 tauri.conf.json 주입)
 
-### 권장 (배포 후 빠르게)
-- [ ] 앱 내 에이전트 진단 UI
-- [ ] rawq 인덱싱 진행률 표시 (스플래시 여부는 테스트 후 결정)
+### 👤 사용자가 할 일 — 필수
+- [ ] 샌드박스에서 빌드 버전 실행 + cold start 시간 측정
+- [ ] 신규 DB(빈 상태) migration v1~v30 순차 적용 확인
+- [ ] GitHub Secrets 설정 (`GITHUB_TOKEN` 외 필요 항목)
+- [ ] 베타 태그 발행 (`git tag v0.1.0-beta.1 && git push --tags`)
+
+### 🤖 Claude가 할 일 — 권장 (배포 후 빠르게)
+- [ ] 앱 내 에이전트 진단 UI (설치된 CLI 감지 → 없으면 안내)
+- [ ] rawq 인덱싱 진행률 표시 (스플래시 여부는 사용자 테스트 후 결정)
 - [ ] 스킬 선택 메타에이전트 (`skillSelectorAgentPlan.md`)
 
-### 보류
-- [ ] DOOM 이스터에그 제외 방법
-- [ ] Windows 빌드
-- [ ] Apple 코드 서명 (유료)
+### ⏸ 보류
+- [ ] DOOM 이스터에그 릴리즈 제외 방법
+- [ ] Windows 빌드 (macOS 배포 후)
+- [ ] Apple 코드 서명 (유료, 정식 배포 시)
 - [ ] 자동 업데이트 (`tauri-plugin-updater`)
 
 ---

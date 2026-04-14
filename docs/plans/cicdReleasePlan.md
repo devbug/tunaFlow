@@ -204,20 +204,23 @@ tunaflow
 
 ## 6. 구현 순서
 
-### Phase 1 — 빌드 가능 상태 만들기 (선행 필요)
-- [ ] `tauri.conf.json` 아이콘 경로 설정 (`public/icon.icns` 등 연결)
+### Phase 1 — 빌드 가능 상태 (🤖 Claude)
+- [ ] `tauri.conf.json` 아이콘 경로 연결
 - [ ] rawq sidecar 빌드 자동화 (`build-rawq.sh` → GitHub Actions 연동)
-- [ ] `tauri.conf.json` 버전 자동화 준비
+- [ ] `tauri.conf.json` 버전 자동화 (태그에서 주입)
 
-### Phase 2 — Release workflow
-- [ ] `.github/workflows/build.yml` 작성 (위 설계 기반)
+### Phase 2 — Release workflow (🤖 Claude)
+- [ ] `.github/workflows/build.yml` 작성
 - [ ] `install.sh` 작성
 - [ ] `INSTALL.md` (에이전트용) 작성
-- [ ] 베타 태그 `v0.1.0-beta.1` 발행 + 검증
 
-### Phase 3 — 정식 배포 준비
+### Phase 2 — 검증 (👤 사용자)
+- [ ] 베타 태그 `v0.1.0-beta.1` 발행
+- [ ] 샌드박스에서 빌드된 앱 실행 + 동작 확인
+
+### Phase 3 — 정식 배포 (👤 사용자 결정)
 - [ ] Apple Developer Program 가입 + 코드 서명
-- [ ] Windows build + 서명 (또는 서명 없이 배포)
+- [ ] Windows 빌드 (macOS 배포 후)
 - [ ] 자동 업데이트 (`tauri-plugin-updater`) 연동
 
 ---
