@@ -32,8 +32,6 @@ jobs:
         include:
           - runner: macos-latest
             triple: aarch64-apple-darwin
-          - runner: macos-13
-            triple: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -75,8 +73,6 @@ jobs:
         include:
           - runner: macos-latest
             triple: aarch64-apple-darwin
-          - runner: macos-13
-            triple: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -131,9 +127,6 @@ jobs:
           - runner: macos-latest
             triple: aarch64-apple-darwin
             pkg_target: node18-macos-arm64
-          - runner: macos-13
-            triple: x86_64-apple-darwin
-            pkg_target: node18-macos-x64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -170,8 +163,6 @@ jobs:
         include:
           - runner: macos-latest
             triple: aarch64-apple-darwin
-          - runner: macos-13
-            triple: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -249,8 +240,6 @@ jobs:
         include:
           - runner: macos-latest
             triple: aarch64-apple-darwin
-          - runner: macos-13
-            triple: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
