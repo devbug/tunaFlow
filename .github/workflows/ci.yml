@@ -37,14 +37,22 @@ jobs:
       - name: Install frontend dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Create sidecar placeholder
-        # aarch64-apple-darwin filename is retained so Tauri's bundleResource
-        # path resolution doesn't complain at config load. Content is a stub
-        # and never executed on this Linux-only check job.
+      - name: Create sidecar placeholders
+        # Tauri's build script resolves sidecar paths against the CURRENT
+        # target triple (TAURI_ENV_TARGET_TRIPLE). On Linux self-hosted CI
+        # that's x86_64-unknown-linux-gnu, not aarch64-apple-darwin — so we
+        # create stubs for both the macOS name (kept for config validation
+        # safety) and the host target. Content is never executed on this
+        # Linux-only check job; only file existence matters.
         run: |
           mkdir -p src-tauri/binaries
-          touch src-tauri/binaries/rawq-aarch64-apple-darwin
-          chmod +x src-tauri/binaries/rawq-aarch64-apple-darwin
+          TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
+          for name in rawq crg chub; do
+            touch "src-tauri/binaries/${name}-aarch64-apple-darwin"
+            chmod +x "src-tauri/binaries/${name}-aarch64-apple-darwin"
+            touch "src-tauri/binaries/${name}-${TRIPLE}"
+            chmod +x "src-tauri/binaries/${name}-${TRIPLE}"
+          done
 
       - name: Cargo check
         working-directory: src-tauri
