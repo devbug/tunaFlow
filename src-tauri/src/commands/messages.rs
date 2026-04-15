@@ -66,17 +66,26 @@ pub fn list_messages(
 ) -> Result<Vec<Message>, AppError> {
     let conn = state.read.lock().map_err(|_| AppError::Lock)?;
     // Try JOIN with trace_log.message_id (v23+), fallback to plain query if column missing
+    // JOIN trace_log for run-time metadata (durationMs / tokens / cost).
+    // Previously this query referenced `m.duration_ms` via COALESCE, but the
+    // `messages` table has no such column — the prepare() failed silently and
+    // every request fell through to the fallback below, stripping all meta
+    // from message headers whenever the cache was dropped (app restart,
+    // conversation switch, HMR).
+    //
+    // Picking the latest trace row per message_id (a message may have multiple
+    // if re-run or error+retry); NOT EXISTS is cheap thanks to idx_trace_log_message_id.
     let result = conn.prepare(
         "SELECT m.id, m.conversation_id, m.role, m.content, m.timestamp, m.status,
                 (m.progress_content IS NOT NULL) as has_progress,
                 m.engine, m.model, m.persona,
-                COALESCE(t.duration_ms, m.duration_ms), t.input_tokens, t.output_tokens, t.cost_usd
+                t.duration_ms, t.input_tokens, t.output_tokens, t.cost_usd
          FROM messages m
-         LEFT JOIN (
-           SELECT message_id, duration_ms, input_tokens, output_tokens, cost_usd
-           FROM trace_log WHERE message_id IS NOT NULL
-           GROUP BY message_id
-         ) t ON t.message_id = m.id
+         LEFT JOIN trace_log t ON t.message_id = m.id
+           AND NOT EXISTS (
+             SELECT 1 FROM trace_log t2
+             WHERE t2.message_id = t.message_id AND t2.recorded_at > t.recorded_at
+           )
          WHERE m.conversation_id = ?1 ORDER BY m.timestamp ASC",
     );
     match result {
