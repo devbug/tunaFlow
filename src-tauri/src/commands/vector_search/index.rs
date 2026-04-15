@@ -225,18 +225,22 @@ pub async fn index_conversation_chunks(
 
         if chunks.is_empty() { return Ok(0); }
 
-        // Phase 1b: find already-indexed root_message_ids (incremental — skip re-embedding)
+        // Phase 1b: find chunks that ALREADY have an embedding. NULL embeddings
+        // (e.g. from v32 migration that cleared all 384dim embeddings before bge-m3
+        // upgrade) MUST be re-embedded — without `IS NOT NULL` they were treated as
+        // "already indexed" and skipped forever.
         let already_indexed: std::collections::HashSet<String> = {
             let conn = db.read.lock().map_err(|_| AppError::Lock)?;
             let mut stmt = conn.prepare(
-                "SELECT root_message_id FROM conversation_chunks WHERE conversation_id = ?1"
+                "SELECT root_message_id FROM conversation_chunks
+                 WHERE conversation_id = ?1 AND embedding IS NOT NULL"
             ).unwrap_or_else(|_| conn.prepare("SELECT ''").unwrap());
             stmt.query_map([&conversation_id], |r| r.get::<_, String>(0))
                 .map(|rows| rows.filter_map(|r| r.ok()).collect())
                 .unwrap_or_default()
         };
 
-        // Phase 2: embed only NEW chunks (not yet indexed)
+        // Phase 2: embed only NEW chunks (not yet indexed) or chunks needing recovery (NULL embedding)
         let new_chunks: Vec<_> = chunks.iter()
             .filter(|(root_id, _, _)| !already_indexed.contains(root_id))
             .collect();
@@ -257,11 +261,33 @@ pub async fn index_conversation_chunks(
 
         if embedded.is_empty() { return Ok(0); }
 
-        // Phase 3: write only new results (short lock) — do NOT delete existing chunks
+        // Phase 3: write only new results (short lock).
+        // Delete any pre-existing NULL-embedding row for the same root_message_id first
+        // (recovery path) so we don't end up with duplicate rows after INSERT.
         let conn = db.write.lock().map_err(|_| AppError::Lock)?;
         let now = now_epoch_ms();
         let mut indexed = 0;
+        let mut recovered = 0;
         for (root_id, kind, text, blob) in &embedded {
+            // Cleanup NULL-embedding rows for this root_message_id (vec_chunks linked by rowid).
+            let stale_rowids: Vec<i64> = conn.prepare(
+                "SELECT rowid FROM conversation_chunks
+                 WHERE conversation_id = ?1 AND root_message_id = ?2 AND embedding IS NULL"
+            ).and_then(|mut s| s.query_map(rusqlite::params![conversation_id, root_id], |r| r.get(0))
+                .map(|rows| rows.filter_map(|r| r.ok()).collect()))
+                .unwrap_or_default();
+            for rid in &stale_rowids {
+                conn.execute("DELETE FROM vec_chunks WHERE rowid = ?1", [rid]).ok();
+            }
+            if !stale_rowids.is_empty() {
+                conn.execute(
+                    "DELETE FROM conversation_chunks
+                     WHERE conversation_id = ?1 AND root_message_id = ?2 AND embedding IS NULL",
+                    rusqlite::params![conversation_id, root_id],
+                )?;
+                recovered += 1;
+            }
+
             let id = Uuid::new_v4().to_string();
             conn.execute(
                 "INSERT INTO conversation_chunks (id, project_key, conversation_id, kind, root_message_id, text_preview, embedding, created_at)
@@ -280,7 +306,9 @@ pub async fn index_conversation_chunks(
             }
             indexed += 1;
         }
-        eprintln!("[vector] indexed {} new chunks for {} ({} already indexed)", indexed, conversation_id, already_indexed.len());
+        eprintln!("[vector] indexed {} new chunks for {} ({} already indexed{})",
+            indexed, conversation_id, already_indexed.len(),
+            if recovered > 0 { format!(", {} recovered from NULL", recovered) } else { String::new() });
         Ok(indexed)
     }).await.map_err(|_| AppError::Lock)?
 }
@@ -303,16 +331,18 @@ pub fn index_chunks_blocking(db: &crate::db::DbState, conversation_id: &str) -> 
     };
     if chunks.is_empty() { return Ok(0); }
 
-    // Phase 1b: find already-indexed root_message_ids (read lock, incremental skip)
+    // Phase 1b: find chunks that ALREADY have an embedding. NULL embeddings (e.g.
+    // from v32 migration) MUST be re-embedded, so we exclude them from `already_indexed`.
     let already_indexed: std::collections::HashSet<String> = {
         let conn = db.read.lock().map_err(|_| AppError::Lock)?;
-        conn.prepare("SELECT root_message_id FROM conversation_chunks WHERE conversation_id = ?1")
+        conn.prepare("SELECT root_message_id FROM conversation_chunks
+                      WHERE conversation_id = ?1 AND embedding IS NOT NULL")
             .and_then(|mut s| s.query_map([conversation_id], |r| r.get::<_, String>(0))
                 .map(|rows| rows.filter_map(|r| r.ok()).collect()))
             .unwrap_or_default()
     };
 
-    // Phase 2: embed only NEW chunks (no lock held — ONNX inference is the slow part)
+    // Phase 2: embed NEW chunks + recover NULL chunks (no lock held — ONNX inference is slow)
     let new_chunks: Vec<_> = chunks.iter()
         .filter(|(root_id, _, _)| !already_indexed.contains(root_id))
         .collect();
@@ -321,17 +351,40 @@ pub fn index_chunks_blocking(db: &crate::db::DbState, conversation_id: &str) -> 
 
     let mut embedded: Vec<(String, String, String, Vec<u8>)> = Vec::new();
     for (root_id, kind, text) in &new_chunks {
-        if let Ok(v) = crate::agents::embedder::embed_text(text, false) {
-            embedded.push((root_id.clone(), kind.clone(), text.clone(), embedding_to_blob(&v)));
+        match crate::agents::embedder::embed_text(text, false) {
+            Ok(v) => embedded.push((root_id.clone(), kind.clone(), text.clone(), embedding_to_blob(&v))),
+            // Fix 3: Parity with index_conversation_chunks — log embed failures
+            // instead of silent drop so users can see why indexing isn't progressing.
+            Err(e) => eprintln!("[vector] embed failed for chunk {}: {:?}", root_id, e),
         }
     }
     if embedded.is_empty() { return Ok(0); }
 
-    // Phase 3: insert only new results (write lock — fast)
+    // Phase 3: insert results with NULL-row recovery (write lock — fast)
     let conn = db.write.lock().map_err(|_| AppError::Lock)?;
     let now = now_epoch_ms();
     let mut indexed = 0;
+    let mut recovered = 0;
     for (root_id, kind, text, blob) in &embedded {
+        // Cleanup NULL-embedding rows for this root_message_id (recovery path).
+        let stale_rowids: Vec<i64> = conn.prepare(
+            "SELECT rowid FROM conversation_chunks
+             WHERE conversation_id = ?1 AND root_message_id = ?2 AND embedding IS NULL"
+        ).and_then(|mut s| s.query_map(rusqlite::params![conversation_id, root_id], |r| r.get(0))
+            .map(|rows| rows.filter_map(|r| r.ok()).collect()))
+            .unwrap_or_default();
+        for rid in &stale_rowids {
+            conn.execute("DELETE FROM vec_chunks WHERE rowid = ?1", [rid]).ok();
+        }
+        if !stale_rowids.is_empty() {
+            conn.execute(
+                "DELETE FROM conversation_chunks
+                 WHERE conversation_id = ?1 AND root_message_id = ?2 AND embedding IS NULL",
+                rusqlite::params![conversation_id, root_id],
+            )?;
+            recovered += 1;
+        }
+
         let id = Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO conversation_chunks (id, project_key, conversation_id, kind, root_message_id, text_preview, embedding, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -342,7 +395,9 @@ pub fn index_chunks_blocking(db: &crate::db::DbState, conversation_id: &str) -> 
         indexed += 1;
     }
     if indexed > 0 {
-        eprintln!("[vector] indexed {} new chunks for {} ({} already indexed)", indexed, conversation_id, already_indexed.len());
+        eprintln!("[vector] indexed {} new chunks for {} ({} already indexed{})",
+            indexed, conversation_id, already_indexed.len(),
+            if recovered > 0 { format!(", {} recovered from NULL", recovered) } else { String::new() });
     }
     Ok(indexed)
 }

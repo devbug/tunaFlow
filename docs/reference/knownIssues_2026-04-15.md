@@ -21,13 +21,16 @@ related:
 
 ## 🔴 P0 — 베타 공개 차단
 
-### I1. 인덱싱 파이프라인 3중 버그 (v32 이후 embedding 복구 실패)
+### I1. 인덱싱 파이프라인 3중 버그 (v32 이후 embedding 복구 실패) ✅ 해결
 
 - **문서**: `docs/reference/indexingPipelineBug_P0_2026-04-15.md` (상세)
 - **증상**: Vector 검색 사실상 기능 정지 — gemento 프로젝트 327 chunks 중 12개만 embedding, 문서 chunk 6877개 전부 NULL
 - **원인**: v32 migration이 embedding을 NULL로 초기화만 하고, `already_indexed` 쿼리에 `AND embedding IS NOT NULL` 누락 → 영구 skip + document 자동 재인덱싱 트리거 부재
-- **Fix**: 1+2 치명, 3+5 보조 (5개 후보 모두 문서 정리)
-- **진행 상태**: secall PR 처리 후 브랜치 `fix/indexing-pipeline-recovery` 착수 예정
+- **수정 (브랜치 `fix/indexing-pipeline-recovery`)**:
+  - Fix 1: `index_chunks_blocking` / `index_conversation_chunks` 두 함수의 `already_indexed` 쿼리에 `AND embedding IS NOT NULL` 추가 + INSERT 직전 동일 root_message_id의 NULL row 정리 (중복 방지)
+  - Fix 2 + 5: 신규 `vector_search/backfill.rs` — 앱 시작 후 15초 뒤 백그라운드로 NULL embedding 보유 conversation/project 자동 재인덱싱. 200~500ms throttle로 CPU 폭주 방지
+  - Fix 3: blocking embed 실패 로깅 추가 (async 버전과 parity)
+- **검증**: cargo test --lib 232 passed. 실측은 사용자 빌드 후 `[backfill]` 로그로 확인 예정
 
 ### I2. README "2-agent 교차 검증" 문구와 코드 불일치
 
