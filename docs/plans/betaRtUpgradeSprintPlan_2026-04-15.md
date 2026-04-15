@@ -62,6 +62,14 @@ Gemini 외부 리뷰(2026-04-15)에서 Reviewer 허상 지적. README의 "2-agen
 - **Deep**: Multi-engine RT + S1 루브릭 + S2 Agent-as-Judge — 정합성 + 실행 검증
 - **저장**: plan 메타에 \`review_track: 'quick' | 'deep'\` 필드 추가
 
+### S3.5. Document retrieval threshold 하향 (I10)
+
+- **출처**: `docs/reference/knownIssues_2026-04-15.md` I10
+- **변경 위치**: `src-tauri/src/commands/agents_helpers/send_common/context_loading.rs:365` — `.filter(|r| r.3 > 0.5)` → `.filter(|r| r.3 > 0.35)`
+- **이유**: 인덱싱 P0 복구(I1) 후 document 1278/1278 embedded 상태에서도 0.5 임계 때문에 쿼리에 한 번도 기여 못함. 대화 vec threshold 0.3 대비 과다
+- **추가 (선택)**: 쿼리에 파일명/경로가 직접 언급되면 FTS5 file_path 매칭 병행 bypass
+- **작업량**: 1줄 (+ 선택 옵션 20줄 정도)
+
 ### S4. README 전면 재작성
 
 - **출처**: \`docs/reference/geminiCriticReview_2026-04-15.md\` §5 (Reviewer 허상)

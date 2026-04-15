@@ -95,12 +95,43 @@ related:
   - 주제 세그먼테이션(복잡)
 - **상태**: Vector 복구(I1) 후 자연 보완 가능성 높음. 관찰 후 결정
 
-### I8. `index_chunks_blocking` embed 실패 silent drop
+### I8. `index_chunks_blocking` embed 실패 silent drop ✅ 해결 (I1 Fix 3에 포함)
 
 - **원인 파일**: `src-tauri/src/commands/vector_search/index.rs:322-327`
 - **증상**: bge-m3 embed 실패 시 로그조차 없이 drop. `index_conversation_chunks` (async 버전)엔 `eprintln!("[vector] embed failed ...")` 있음
-- **Fix**: async 버전과 parity 맞추기. 1줄 추가
-- **처리**: I1 Fix 3에 포함 예정
+- **처리**: `fix/indexing-pipeline-recovery` 머지에 포함
+
+### I9. 브랜치 작업이 메인챗 retrieval에 충분히 반영되지 않음 🆕
+
+- **증상**: 오늘 하루 P26→P27 작업 대부분이 branch 안에서 진행됐는데, 메인챗에서 "최근 대화 정리해줘" 쿼리 시 Architect 요약에 P27 누락. FTS에는 과거 branch review/rework 메시지가 떠오르지만 최신 진행 상황은 반영 안 됨
+- **원인 추정**:
+  - compressed-memory가 branch 작업 후 메인챗에 압축 주입되지 않음 (경계 누락)
+  - `current_messages`(20)는 메인챗 한정이라 branch 내부 대화 못 보임
+  - retrieval은 branch shadow conv를 hit 하긴 하지만 최신 작업 서사 전체를 못 담음
+- **영향**: "오늘 뭐 했어" 같은 요약 쿼리 정확도 저하. 사용자가 직접 맥락 제공해야 하는 경우 발생
+- **Fix 후보**:
+  - Branch adopt 시 상위 메인챗 compressed-memory에 branch 요약 주입
+  - 메인챗 retrieval이 자기 conv의 branches(shadow) 메시지도 포함하도록 확장 (현재는 project 전체 범위)
+  - branch별 `done` 이벤트 시 한 줄 요약을 메인챗 메타 필드로 기록
+- **우선순위**: P2 — 베타 후. Vector 복구(I1) 영향 재관찰 후 결정
+
+### I10. Document retrieval threshold 0.5 과다 🆕
+
+- **원인 파일**: `src-tauri/src/commands/agents_helpers/send_common/context_loading.rs:365`
+  ```rust
+  .filter(|r| r.3 > 0.5).take(5).collect()
+  ```
+- **증상**: 문서 관련 쿼리(예: "adr-blocking-io-in-async 문서에 뭐라고 써있지", "README 중국어 버전에 ... 키워드")에서 `[retrieval] Document chunks: N results` 로그 아예 안 찍힘. bge-m3 문서 매칭 점수가 일반적으로 0.4~0.5 구간인데 전부 필터됨.
+- **실증**: 인덱싱 P0 복구 후 document 1278/1278 (100%) embedded 상태에서도 document retrieval이 쿼리에 **한 번도 기여 못함**. Claude가 Read/Grep 도구로 우회하면서 사용자 경험상 티가 안 남
+- **대화 chunks vs document 임계 비교**:
+  - 대화 vec threshold 0.3 (`context_loading.rs:318`)
+  - document threshold 0.5 — **2배 엄격**. 정당한 이유 없음
+- **Fix 후보**:
+  - (a) threshold 0.5 → 0.35 (대화와 비슷한 수준). 1줄 수정
+  - (b) file_path 직접 언급 쿼리는 FTS5로 병행 매칭 (파일명이 쿼리에 나오면 bypass)
+  - (c) (a)+(b) 둘 다
+- **우선순위**: P1 — 베타 전 권장. 1줄 수정이라 RT 고도화 sprint 작은 sub-task로 포함 가능
+- **영향**: 현재는 Claude tool-use가 우회하지만, 복잡한 문서 기반 쿼리(여러 파일 교차)에서는 제대로 기여 못함
 
 ---
 
