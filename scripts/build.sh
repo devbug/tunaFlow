@@ -280,10 +280,13 @@ fi
 
 step "5/6  Tauri build (release — this may take 5~10 minutes on first run)"
 
-TAURI_ARGS=()
-[[ $NO_BUNDLE -eq 1 ]] && TAURI_ARGS+=(-- --no-bundle)
-
-run npm run tauri build "${TAURI_ARGS[@]}"
+# Keep expansion explicit — macOS bash 3.2 + `set -u` trips on an empty
+# array expansion ("${arr[@]}: unbound variable").
+if [[ $NO_BUNDLE -eq 1 ]]; then
+  run npm run tauri build -- --no-bundle
+else
+  run npm run tauri build
+fi
 
 # ─── 6. Verify output ───────────────────────────────────────────────────────
 
