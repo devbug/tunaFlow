@@ -129,7 +129,12 @@ pub fn retrieve_relevant_chunks_with_overlap(
         return Vec::new();
     }
 
-    // Step 1: Broad FTS5 search (fetch more than needed for ranking headroom)
+    // Step 1: Broad FTS5 search (fetch more than needed for ranking headroom).
+    // Exclude current conversation — its recent context is already loaded via
+    // load_recent_messages_with_author(). Including it here re-surfaces old messages
+    // from the same thread and pollutes ContextPack with stale topic (e.g. earlier
+    // experiments leaking into current task). Branch shadow convs (branch:UUID) are
+    // likewise excluded — the parent thread is handled separately.
     let fetch_count = (limit * 4).max(20);
     let Ok(mut stmt) = conn.prepare(
         "SELECT m.id, m.role, m.conversation_id, m.timestamp, rank
@@ -138,14 +143,15 @@ pub fn retrieve_relevant_chunks_with_overlap(
          JOIN conversations c ON c.id = m.conversation_id
          WHERE messages_fts MATCH ?1
            AND c.project_key = ?2
+           AND m.conversation_id != ?3
          ORDER BY rank
-         LIMIT ?3",
+         LIMIT ?4",
     ) else {
         return Vec::new();
     };
 
     let hits: Vec<(String, String, String, i64, f64)> = stmt
-        .query_map(params![fts_query, project_key, fetch_count], |row| {
+        .query_map(params![fts_query, project_key, _current_conversation_id, fetch_count], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
         })
         .map(|mapped| mapped.filter_map(|r| r.ok()).collect())
@@ -184,15 +190,43 @@ pub fn retrieve_relevant_chunks_with_overlap(
             c.conversation_id = conv_id.clone();
             c.timestamp = *hit_ts;
 
-            // Scoring: combine FTS rank + recency + kind bonus
+            // Scoring: combine FTS rank + recency + kind bonus + query coverage.
             let fts_score = (-fts_rank).max(0.0).min(10.0) / 10.0; // normalize 0-1
             let age_hours = ((now_ts - hit_ts) as f64 / 3_600_000.0).max(0.0);
-            let recency_score = 1.0 / (1.0 + age_hours / 168.0); // decay over weeks (not days)
+            // Decay over 2 days (not weeks) — users working actively on a project
+            // see "last week" as old context, and 168h decay made 3-day-old chunks
+            // still score ~0.69, effectively no recency signal.
+            let recency_score = 1.0 / (1.0 + age_hours / 48.0);
             let kind_bonus = match c.kind {
                 "pair" => 0.25,  // full Q&A is most useful
                 "brief" => 0.2,  // RT briefs are curated
                 "anchor" => 0.15, // anchors provide context
                 _ => 0.0,
+            };
+
+            // Query coverage bonus (D): FTS5 with OR'd terms hits any chunk containing
+            // ANY query word. A chunk that contains MULTIPLE query words is usually far
+            // more relevant than one that repeats a single common word. Rerank by how
+            // many meaningful query terms are actually present in the chunk text.
+            let coverage_bonus = {
+                let chunk_text_lower: String = c.messages.iter()
+                    .map(|(_, content, _, _)| content.to_lowercase())
+                    .collect::<Vec<_>>().join(" ");
+                let query_terms: Vec<String> = fts_query
+                    .split(" OR ")
+                    .map(|w| w.trim().to_lowercase())
+                    .filter(|w| !w.is_empty())
+                    .collect();
+                if query_terms.is_empty() {
+                    0.0
+                } else {
+                    let hit_count = query_terms.iter()
+                        .filter(|t| chunk_text_lower.contains(t.as_str()))
+                        .count();
+                    let ratio = hit_count as f64 / query_terms.len() as f64;
+                    // 0 terms: 0.0, all terms: +0.3, smooth scaling
+                    ratio * 0.3
+                }
             };
 
             // Overlap penalty: if chunk content strongly overlaps existing context
@@ -205,7 +239,9 @@ pub fn retrieve_relevant_chunks_with_overlap(
                 0.0
             };
 
-            c.score = fts_score * 0.5 + recency_score * 0.2 + kind_bonus - overlap_penalty;
+            // Weight shift (A): recency 0.2 → 0.4. FTS alone dominated and old but
+            // keyword-heavy messages beat recent-but-quiet ones.
+            c.score = fts_score * 0.5 + recency_score * 0.4 + kind_bonus + coverage_bonus - overlap_penalty;
 
             seen_chunks.insert(chunk_key);
             chunks.push(c);
