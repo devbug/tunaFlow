@@ -123,7 +123,7 @@ feat/rt-upgrade-deep-track — S1 + S2 + S3
    ↓
 docs/readme-rewrite-honest — S4
    ↓
-v0.1.0-beta.1 태그
+v0.1.0-beta.4 태그 (이전: beta.1~3 선발행)
 \`\`\`
 
 ---
