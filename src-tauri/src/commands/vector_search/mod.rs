@@ -9,9 +9,12 @@
 //! - `index`: sliding-window chunking + index_conversation_chunks (Tauri command)
 //! - `query`: search_similar, vec0 KNN, brute-force, search_conversation_vectors (Tauri command)
 
+mod backfill;
 mod helpers;
 mod index;
 mod query;
+
+pub use backfill::spawn_startup_backfill;
 
 // Re-export all public and proc-macro generated symbols so callers
 // use `commands::vector_search::*` unchanged.

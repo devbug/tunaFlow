@@ -130,6 +130,13 @@ pub fn run() {
                 });
             }
 
+            // Backfill NULL-embedding chunks left over from v32 (bge-m3 migration).
+            // Sleeps 15s before starting to let embedder/rawq settle, then processes
+            // one conversation/project at a time with throttling.
+            crate::commands::vector_search::spawn_startup_backfill(
+                app.state::<DbState>().inner().clone(),
+            );
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
