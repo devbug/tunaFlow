@@ -217,7 +217,7 @@ fn extract_between<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str>
 // ─── AI call ─────────────────────────────────────────────────────────────────
 
 async fn call_claude(prompt: &str, cancel: &AtomicBool) -> Result<(String, String), String> {
-    let mut child = tokio::process::Command::new("claude")
+    let child = tokio::process::Command::new("claude")
         .args(["-p", prompt, "--max-turns", "1", "--output-format", "text"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
