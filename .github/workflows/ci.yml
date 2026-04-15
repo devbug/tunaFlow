@@ -8,7 +8,15 @@ on:
 
 jobs:
   check:
-    runs-on: macos-latest
+    # Moved off GitHub-hosted macos-latest (10× cost multiplier) to a
+    # self-hosted Linux runner — CI budget was hitting the 2000-min warning.
+    # Build / release workflow (build.yml) still targets macos-latest because
+    # Tauri app + sidecars are cross-compiled for aarch64-apple-darwin.
+    runs-on: [self-hosted, Linux]
+    # Runner prerequisite: Tauri 2 Linux build deps pre-installed on host
+    # (libwebkit2gtk-4.1-dev, libjavascriptcoregtk-4.1-dev, libsoup-3.0-dev,
+    # libappindicator3-dev, librsvg2-dev, patchelf, build-essential, pkg-config).
+    # Avoids per-run sudo/apt and keeps the runner user without elevated rights.
     steps:
       - uses: actions/checkout@v5
 
@@ -29,11 +37,22 @@ jobs:
       - name: Install frontend dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Create sidecar placeholder
+      - name: Create sidecar placeholders
+        # Tauri's build script resolves sidecar paths against the CURRENT
+        # target triple (TAURI_ENV_TARGET_TRIPLE). On Linux self-hosted CI
+        # that's x86_64-unknown-linux-gnu, not aarch64-apple-darwin — so we
+        # create stubs for both the macOS name (kept for config validation
+        # safety) and the host target. Content is never executed on this
+        # Linux-only check job; only file existence matters.
         run: |
           mkdir -p src-tauri/binaries
-          touch src-tauri/binaries/rawq-aarch64-apple-darwin
-          chmod +x src-tauri/binaries/rawq-aarch64-apple-darwin
+          TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
+          for name in rawq crg chub; do
+            touch "src-tauri/binaries/${name}-aarch64-apple-darwin"
+            chmod +x "src-tauri/binaries/${name}-aarch64-apple-darwin"
+            touch "src-tauri/binaries/${name}-${TRIPLE}"
+            chmod +x "src-tauri/binaries/${name}-${TRIPLE}"
+          done
 
       - name: Cargo check
         working-directory: src-tauri
