@@ -173,6 +173,8 @@ export interface SendWithClaudeInput {
   userMessageId?: string;
   prompt: string;
   model?: string;
+  /** Engine key for backend routing (e.g. "ollama" vs "lmstudio") */
+  engine?: string;
   /** Passed directly when no agent is selected */
   systemPrompt?: string;
   /** Agent name → loads docs/agents/{name}.md as system prompt (ContextPack step 1) */
