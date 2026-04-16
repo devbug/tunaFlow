@@ -45,6 +45,9 @@ pub struct SendWithClaudeInput {
     /// Serialized user profile JSON (from frontend settings store).
     #[serde(default)]
     pub user_profile_json: Option<String>,
+    /// Engine key from frontend (e.g. "ollama", "lmstudio") for backend routing.
+    #[serde(default)]
+    pub engine: Option<String>,
 }
 
 /// Wrap persona_fragment with identity framing block for a given engine.
@@ -418,11 +421,7 @@ pub async fn start_openai_compat_stream(
 ) -> Result<StartRunResult, AppError> {
     let db = state.inner().clone();
     let db_post = state.inner().clone();
-    // Detect engine: lmstudio uses a different base URL (port 1234 vs 11434)
-    let is_lmstudio = input.model.as_deref()
-        .map(|m| !m.contains(':'))  // Ollama models have "name:tag", LM Studio models don't
-        .unwrap_or(false)
-        || input.persona_label.as_deref().map(|l| l.to_lowercase().contains("lmstudio") || l.to_lowercase().contains("lm studio")).unwrap_or(false);
+    let is_lmstudio = input.engine.as_deref() == Some("lmstudio");
     let engine_label = if is_lmstudio { "lmstudio" } else { "ollama" };
     let id_frag = identity_fragment(&input, engine_label);
     let write_arc = db_write_arc(&state);

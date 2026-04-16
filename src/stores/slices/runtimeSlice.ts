@@ -311,6 +311,7 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
         projectKey: selectedProjectKey,
         conversationId: selectedConversationId,
         prompt, model, systemPrompt,
+        engine,
         activeSkills: effectiveSkills,
         crossSessionIds: get().crossSessionIds,
         personaFragment: get().personaFragment ?? undefined,
