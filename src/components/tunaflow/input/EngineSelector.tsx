@@ -2,14 +2,14 @@ import { useRef, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ChevronDown } from "lucide-react";
 
-type Engine = "claude" | "codex" | "gemini" | "opencode" | "ollama";
+type Engine = "claude" | "codex" | "gemini" | "ollama" | "lmstudio";
 
 const ENGINE_LIST: { id: Engine; label: string; color: string }[] = [
   { id: "claude", label: "Claude", color: "text-agent-claude" },
   { id: "codex", label: "Codex", color: "text-agent-codex" },
   { id: "gemini", label: "Gemini", color: "text-agent-gemini" },
-  { id: "opencode", label: "OpenCode", color: "text-agent-opencode" },
   { id: "ollama", label: "Ollama", color: "text-agent-ollama" },
+  { id: "lmstudio", label: "LM Studio", color: "text-agent-lmstudio" },
 ];
 
 interface EngineSelectorProps {

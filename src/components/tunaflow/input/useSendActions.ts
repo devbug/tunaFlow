@@ -51,12 +51,14 @@ const ENGINE_ALIASES: Record<string, string> = {
   "클로드": "claude", "클": "claude",
   "코덱스": "codex", "코": "codex",
   "제미나이": "gemini", "제미니": "gemini", "젬": "gemini",
-  "오픈코드": "opencode",
+  "올라마": "ollama",
+  "엘엠": "lmstudio",
   // 영어
   "claude": "claude",
   "codex": "codex",
   "gemini": "gemini",
-  "opencode": "opencode",
+  "ollama": "ollama",
+  "lmstudio": "lmstudio",
 };
 
 const GOAL_ALIASES: Record<string, string> = {

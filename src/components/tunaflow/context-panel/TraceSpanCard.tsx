@@ -33,7 +33,7 @@ export function formatDuration(ms: number | null): string {
 
 export function formatCost(usd: number, engine?: string | null): string {
   if (usd === 0) {
-    if (engine === "gemini" || engine === "opencode") return "N/A";
+    if (engine === "gemini" || engine === "ollama" || engine === "lmstudio") return "N/A";
     return "$0";
   }
   if (usd < 0.01) return `$${usd.toFixed(4)}`;
@@ -41,7 +41,7 @@ export function formatCost(usd: number, engine?: string | null): string {
 }
 
 export function formatTokens(tokens: number, engine?: string | null): string {
-  if (tokens === 0 && engine === "opencode") return "N/A";
+  if (tokens === 0 && (engine === "ollama" || engine === "lmstudio")) return "N/A";
   return tokens.toLocaleString();
 }
 
