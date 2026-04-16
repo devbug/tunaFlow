@@ -24,6 +24,7 @@ fn embed_semaphore() -> std::sync::Arc<tokio::sync::Semaphore> {
 use super::super::trace_log::{insert_trace_log, insert_trace_log_with_context, new_span_id, new_trace_id, SpanInfo, ContextPackMeta};
 use super::context_loading::{load_context_data, load_project_path};
 use super::prompt_assembly::assemble_prompt;
+use super::session_freshness;
 
 /// Persist a user message if no pre-existing user_message_id was provided.
 pub fn persist_user_message(
@@ -69,7 +70,7 @@ pub fn prepare_engine_run(
     state: &DbState,
 ) -> Result<PreparedRun, crate::errors::AppError> {
     // Phase A: DB operations under lock — persist user msg, load context data, pre-create streaming msg
-    let (data, project_path, msg_id) = {
+    let (mut data, project_path, msg_id) = {
         let conn = state.write.lock().map_err(|_| crate::errors::AppError::Lock)?;
         persist_user_message(&conn, &input.conversation_id, &input.prompt, &input.user_message_id)?;
         let pp = load_project_path(&conn, &input.project_key);
@@ -89,6 +90,21 @@ pub fn prepare_engine_run(
         (ctx_data, pp, mid)
         // lock released here
     };
+
+    // Session freshness: stateful 엔진(sdk-url, app-server)에서
+    // 같은 세션이 연속되면 ContextPack을 minimal(lite)로 전환.
+    let session_key = session_freshness::current_session_key(&input.conversation_id, engine_key);
+    if let Some(ref key) = session_key {
+        session_freshness::stash_pending(&msg_id, key);
+        if session_freshness::is_session_continuation(&input.conversation_id, engine_key) {
+            data.context_mode_override = Some("lite".into());
+            eprintln!("[session_freshness] continuation detected for conv={} engine={} → lite mode",
+                &input.conversation_id[..input.conversation_id.len().min(12)], engine_key);
+        } else {
+            eprintln!("[session_freshness] new session for conv={} engine={} → full mode",
+                &input.conversation_id[..input.conversation_id.len().min(12)], engine_key);
+        }
+    }
 
     // Phase B: Pure prompt assembly — no DB lock held
     let (enriched_prompt, system_context, ctx_meta) = assemble_prompt(&data, identity_frag);
@@ -119,6 +135,9 @@ pub fn finalize_engine_run(
     let now = now_epoch_ms();
     match result {
         Ok(out) => {
+            // Session freshness: 성공 시 pending → delivered 승격
+            session_freshness::promote_pending_to_delivered(msg_id, conversation_id, engine_key);
+
             let content = if out.content.is_empty() {
                 format!("({} returned no output)", engine_key)
             } else {
@@ -172,6 +191,9 @@ pub fn finalize_engine_run(
             }
         }
         Err(ref e) => {
+            // Session freshness: 실패 시 pending 정리 (delivered 승격 안 함)
+            session_freshness::discard_pending(msg_id);
+
             let em = crate::guardrail::fallback_error(engine_key, e);
             let _ = conn.execute(
                 "UPDATE messages SET content=?1,status='error',timestamp=?2 WHERE id=?3",
