@@ -5,30 +5,30 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export type AgentEngine = "claude" | "codex" | "gemini" | "opencode" | "ollama";
+export type AgentEngine = "claude" | "codex" | "gemini" | "ollama" | "lmstudio";
 
 export const AGENT_COLORS: Record<AgentEngine, string> = {
   claude: "text-agent-claude border-agent-claude/30 bg-agent-claude/10",
   codex: "text-agent-codex border-agent-codex/30 bg-agent-codex/10",
   gemini: "text-agent-gemini border-agent-gemini/30 bg-agent-gemini/10",
-  opencode: "text-agent-opencode border-agent-opencode/30 bg-agent-opencode/10",
   ollama: "text-agent-ollama border-agent-ollama/30 bg-agent-ollama/10",
+  lmstudio: "text-agent-lmstudio border-agent-lmstudio/30 bg-agent-lmstudio/10",
 };
 
 export const AGENT_DOT_COLORS: Record<AgentEngine, string> = {
   claude: "bg-agent-claude",
   codex: "bg-agent-codex",
   gemini: "bg-agent-gemini",
-  opencode: "bg-agent-opencode",
   ollama: "bg-agent-ollama",
+  lmstudio: "bg-agent-lmstudio",
 };
 
 export const AGENT_DISPLAY_NAMES: Record<AgentEngine, string> = {
   claude: "Claude",
   codex: "Codex",
   gemini: "Gemini",
-  opencode: "OpenCode",
   ollama: "Ollama",
+  lmstudio: "LM Studio",
 };
 
 export function formatTimestamp(ts: number): string {
@@ -44,8 +44,8 @@ export function normalizeEngine(s: string | undefined): AgentEngine | null {
   if (s === "claude" || s === "claude-code") return "claude";
   if (s === "codex") return "codex";
   if (s === "gemini") return "gemini";
-  if (s === "opencode") return "opencode";
   if (s === "ollama" || s === "openai-compat") return "ollama";
+  if (s === "lmstudio") return "lmstudio";
   return null;
 }
 
@@ -70,6 +70,6 @@ export const AGENT_TEXT_COLORS: Record<AgentEngine, string> = {
   claude: "text-agent-claude",
   codex: "text-agent-codex",
   gemini: "text-agent-gemini",
-  opencode: "text-agent-opencode",
   ollama: "text-agent-ollama",
+  lmstudio: "text-agent-lmstudio",
 };

@@ -6,7 +6,11 @@ const ENGINE_ICONS: Record<string, string> = {
   claude: "/_resource/claude.png",
   codex: "/_resource/gpt.png",
   gemini: "/_resource/gemini.png",
-  opencode: "/_resource/opencode.png",
+};
+
+const ENGINE_INITIALS: Record<string, string> = {
+  ollama: "O",
+  lmstudio: "L",
 };
 
 interface AgentAvatarProps {
@@ -38,6 +42,15 @@ export function AgentAvatar({ engine, isUser, size = "md", className }: AgentAva
         needsBg ? "bg-white" : "", className)}>
         <img src={iconSrc} alt={normalized ?? "agent"}
           className={cn(needsBg ? "w-[70%] h-[70%]" : "w-full h-full", "object-contain")} />
+      </div>
+    );
+  }
+
+  const initial = normalized ? ENGINE_INITIALS[normalized] : null;
+  if (initial) {
+    return (
+      <div className={cn(dim, "rounded-full bg-accent flex items-center justify-center shrink-0 text-foreground/70 text-[11px] font-semibold", className)}>
+        {initial}
       </div>
     );
   }

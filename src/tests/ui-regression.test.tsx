@@ -35,14 +35,14 @@ describe("TraceSpanCard — formatDuration", () => {
 describe("TraceSpanCard — formatCost", () => {
   it("returns $0 for zero cost", () => expect(formatCost(0)).toBe("$0"));
   it("returns N/A for gemini with zero cost", () => expect(formatCost(0, "gemini")).toBe("N/A"));
-  it("returns N/A for opencode with zero cost", () => expect(formatCost(0, "opencode")).toBe("N/A"));
+  it("returns N/A for ollama with zero cost", () => expect(formatCost(0, "ollama")).toBe("N/A"));
   it("formats small cost with 4 decimals", () => expect(formatCost(0.005)).toBe("$0.0050"));
   it("formats normal cost with 2 decimals", () => expect(formatCost(1.5)).toBe("$1.50"));
 });
 
 describe("TraceSpanCard — formatTokens", () => {
   it("formats with locale separators", () => expect(formatTokens(12345)).toBe("12,345"));
-  it("returns N/A for opencode with zero", () => expect(formatTokens(0, "opencode")).toBe("N/A"));
+  it("returns N/A for ollama with zero", () => expect(formatTokens(0, "ollama")).toBe("N/A"));
   it("formats zero for claude", () => expect(formatTokens(0, "claude")).toBe("0"));
 });
 
