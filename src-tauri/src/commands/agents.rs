@@ -423,6 +423,7 @@ pub async fn start_openai_compat_stream(
     let db_post = state.inner().clone();
     let is_lmstudio = input.engine.as_deref() == Some("lmstudio");
     let engine_label = if is_lmstudio { "lmstudio" } else { "ollama" };
+    eprintln!("[openai-compat] engine={:?} model={:?} is_lmstudio={}", input.engine, input.model, is_lmstudio);
     let id_frag = identity_fragment(&input, engine_label);
     let write_arc = db_write_arc(&state);
     let cid = input.conversation_id.clone();
