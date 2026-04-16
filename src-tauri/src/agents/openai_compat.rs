@@ -251,10 +251,15 @@ where
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
 
+    let mut first_chunk_logged = false;
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result
             .map_err(|e| AppError::Agent(format!("Stream read error: {}", e)))?;
         let chunk_str = String::from_utf8_lossy(&chunk);
+        if !first_chunk_logged {
+            eprintln!("[openai-compat] first SSE chunk ({}B): {}", chunk.len(), &chunk_str[..chunk_str.len().min(200)]);
+            first_chunk_logged = true;
+        }
         buffer.push_str(&chunk_str);
 
         while let Some(data_pos) = buffer.find("data: ") {
@@ -332,7 +337,7 @@ where
 
     if full_text.is_empty() {
         return Err(AppError::Agent(format!(
-            "Ollama ({}) returned empty response. 모델이 설치되어 있는지 확인: `ollama list`",
+            "OpenAI-compatible model ({}) returned empty response.",
             model
         )));
     }
