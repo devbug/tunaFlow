@@ -69,6 +69,25 @@ pub fn discover_models() -> Option<Vec<String>> {
 /// Function calling (tools) is included when supported.
 pub async fn stream_run<F, G>(
     input: RunInput,
+    on_progress: G,
+    on_chunk: F,
+) -> Result<RunOutput, AppError>
+where
+    F: FnMut(String) + Send,
+    G: FnMut(String) + Send,
+{
+    stream_run_with_base(input, ollama_base_url(), on_progress, on_chunk).await
+}
+
+/// LM Studio base URL (default: localhost:1234)
+pub fn lmstudio_base_url() -> String {
+    std::env::var("LMSTUDIO_ENDPOINT")
+        .unwrap_or_else(|_| "http://localhost:1234".into())
+}
+
+pub async fn stream_run_with_base<F, G>(
+    input: RunInput,
+    base: String,
     mut on_progress: G,
     mut on_chunk: F,
 ) -> Result<RunOutput, AppError>
@@ -76,7 +95,6 @@ where
     F: FnMut(String) + Send,
     G: FnMut(String) + Send,
 {
-    let base = ollama_base_url();
     let model = input.model.as_deref().unwrap_or("qwen3:8b");
     let url = format!("{}/v1/chat/completions", base);
 
@@ -108,23 +126,28 @@ where
         tools: Some(tools_json),
     };
 
-    on_progress(format!("Ollama ({}) initializing...", model));
+    let engine_name = if base.contains(":1234") || base.contains("lmstudio") { "LM Studio" } else { "Ollama" };
+    on_progress(format!("{} ({}) initializing...", engine_name, model));
 
     let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(600)) // Local models can be slow
+        .timeout(std::time::Duration::from_secs(600))
         .build()
         .map_err(|e| AppError::Agent(format!("HTTP client build failed: {}", e)))?;
 
-    let response = client
-        .post(&url)
-        .json(&body)
+    let mut req = client.post(&url).json(&body);
+    if let Ok(token) = std::env::var("LMSTUDIO_API_KEY") {
+        if engine_name == "LM Studio" {
+            req = req.header("Authorization", format!("Bearer {}", token));
+        }
+    }
+    let response = req
         .send()
         .await
         .map_err(|e| {
             if e.is_connect() {
                 AppError::Agent(format!(
-                    "Ollama에 연결할 수 없습니다 ({}). Ollama가 실행 중인지 확인하세요: `ollama serve`",
-                    base
+                    "{}에 연결할 수 없습니다 ({}). {}가 실행 중인지 확인하세요.",
+                    engine_name, base, engine_name
                 ))
             } else {
                 AppError::Agent(format!("OpenAI-compatible API 요청 실패: {}", e))

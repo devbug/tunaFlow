@@ -418,33 +418,42 @@ pub async fn start_openai_compat_stream(
 ) -> Result<StartRunResult, AppError> {
     let db = state.inner().clone();
     let db_post = state.inner().clone();
-    let id_frag = identity_fragment(&input, "ollama");
+    // Detect engine: lmstudio uses a different base URL (port 1234 vs 11434)
+    let is_lmstudio = input.model.as_deref()
+        .map(|m| !m.contains(':'))  // Ollama models have "name:tag", LM Studio models don't
+        .unwrap_or(false)
+        || input.persona_label.as_deref().map(|l| l.to_lowercase().contains("lmstudio") || l.to_lowercase().contains("lm studio")).unwrap_or(false);
+    let engine_label = if is_lmstudio { "lmstudio" } else { "ollama" };
+    let id_frag = identity_fragment(&input, engine_label);
     let write_arc = db_write_arc(&state);
     let cid = input.conversation_id.clone();
     let mo = input.model.clone();
 
     let prep = tokio::task::spawn_blocking(move || {
-        prepare_engine_run("ollama", &input, id_frag.as_deref(), &db)
+        prepare_engine_run(engine_label, &input, id_frag.as_deref(), &db)
     }).await.map_err(|_| AppError::Lock)??;
 
     let ret = prep.msg_id.clone();
     let PreparedRun { msg_id, job_id, enriched_prompt, project_path, ctx_meta, .. } = prep;
     let system_prompt = prep.system_context;
+    let base_url = if is_lmstudio { openai_compat::lmstudio_base_url() } else { std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".into()) };
 
     let cid2 = cid.clone();
+    let el = engine_label.to_string();
     tokio::spawn(async move {
         let pa = app.clone(); let pi = msg_id.clone(); let pc = cid2.clone();
         let c2 = app.clone(); let ci = msg_id.clone(); let cc = cid2.clone();
         let t0 = std::time::Instant::now();
-        let rr = openai_compat::stream_run(
+        let rr = openai_compat::stream_run_with_base(
             claude::RunInput { prompt: enriched_prompt, model: mo.clone(), system_prompt, resume_token: None, project_path },
+            base_url,
             move |t| { let _ = pa.emit("ollama:progress", ChunkPayload { message_id: pi.clone(), conversation_id: pc.clone(), text: t }); },
             move |t| { let _ = c2.emit("ollama:chunk", ChunkPayload { message_id: ci.clone(), conversation_id: cc.clone(), text: t }); },
         ).await;
         let dur = t0.elapsed().as_millis();
-        guardrail::log_run("ollama", mo.as_deref(), dur, 0, rr.is_ok());
+        guardrail::log_run(&el, mo.as_deref(), dur, 0, rr.is_ok());
         if let Ok(conn) = write_arc.lock() {
-            finalize_engine_run(&conn, "ollama", &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
+            finalize_engine_run(&conn, &el, &msg_id, &cid, &job_id, &rr, dur, &ctx_meta, &app);
         }
         if rr.is_ok() { spawn_post_completion_tasks(db_post, cid); }
     });
