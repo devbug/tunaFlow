@@ -69,16 +69,13 @@ fn fallback_models(engine: &str) -> Vec<(&'static str, &'static str, bool)> {
             ("gemini-3.1-pro-preview", "Gemini 3.1 Pro (preview, 용량 미보장)", false),
             ("gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite (preview, 용량 미보장)", false),
         ],
-        "opencode" => vec![
-            ("anthropic:claude-sonnet-4-6", "Claude Sonnet 4.6", true),
-            ("openai:gpt-4.1", "GPT-4.1", false),
-        ],
         "ollama" => vec![
             ("qwen3:8b", "Qwen 3 8B", true),
             ("llama3.3:latest", "Llama 3.3", false),
             ("gemma3:12b", "Gemma 3 12B", false),
             ("phi-4:latest", "Phi-4", false),
         ],
+        "lmstudio" => vec![],  // LM Studio models are always discovered live
         _ => vec![],
     }
 }
@@ -184,63 +181,34 @@ fn discover_claude() -> Option<Vec<String>> {
     None
 }
 
-/// OpenCode: run `opencode models` and parse provider/model lines.
-fn discover_opencode() -> Option<Vec<String>> {
-    // Find opencode binary — same search order as agents/opencode.rs
-    let bin = {
-        let mut found: Option<std::path::PathBuf> = None;
-        #[cfg(not(target_os = "windows"))]
-        {
-            // Check ~/.opencode/bin first (official installer default)
-            if let Ok(home) = std::env::var("HOME") {
-                let c = std::path::PathBuf::from(&home).join(".opencode").join("bin").join("opencode");
-                if c.exists() { found = Some(c); }
-            }
-            if found.is_none() {
-                for prefix in &["/usr/local/bin", "/usr/bin", "/opt/homebrew/bin"] {
-                    let c = std::path::PathBuf::from(prefix).join("opencode");
-                    if c.exists() { found = Some(c); break; }
-                }
-            }
-            if found.is_none() {
-                if let Ok(home) = std::env::var("HOME") {
-                    let c = std::path::PathBuf::from(&home).join(".npm-global").join("bin").join("opencode");
-                    if c.exists() { found = Some(c); }
-                }
-            }
-        }
-        #[cfg(target_os = "windows")]
-        {
-            if let Ok(appdata) = std::env::var("APPDATA") {
-                let c = std::path::PathBuf::from(&appdata).join("npm").join("opencode.cmd");
-                if c.exists() { found = Some(c); }
-            }
-        }
-        found.unwrap_or_else(|| std::path::PathBuf::from("opencode"))
-    };
+/// LMStudio: query OpenAI-compatible `/v1/models` endpoint.
+fn discover_lmstudio() -> Option<Vec<String>> {
+    let endpoint = std::env::var("LMSTUDIO_ENDPOINT")
+        .unwrap_or_else(|_| "http://localhost:1234".into());
+    let url = format!("{}/v1/models", endpoint.trim_end_matches('/'));
 
-    let output = std::process::Command::new(&bin)
-        .arg("models")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .output()
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
         .ok()?;
 
-    if !output.status.success() { return None; }
+    let resp = client.get(&url).send().ok()?;
+    if !resp.status().is_success() { return None; }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let models: Vec<String> = stdout
-        .lines()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty() && l.contains('/'))
+    let body: serde_json::Value = resp.json().ok()?;
+    let data = body.get("data")?.as_array()?;
+    let models: Vec<String> = data.iter()
+        .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
         .collect();
 
     if models.is_empty() { None } else { Some(models) }
 }
 
+// OpenCode discovery removed — engine dropped from active ENGINES list.
+
 // ─── Core API ───────────────────────────────────────────────────────────────
 
-const ENGINES: &[&str] = &["claude", "codex", "gemini", "opencode", "ollama"];
+const ENGINES: &[&str] = &["claude", "codex", "gemini", "ollama", "lmstudio"];
 
 fn get_models_for_engine(engine: &str, force: bool) -> (Vec<String>, String) {
     // Check cache
@@ -258,8 +226,8 @@ fn get_models_for_engine(engine: &str, force: bool) -> (Vec<String>, String) {
         "codex" => discover_codex(),
         "gemini" => discover_gemini(),
         "claude" => discover_claude(),
-        "opencode" => discover_opencode(),
         "ollama" => crate::agents::openai_compat::discover_models(),
+        "lmstudio" => discover_lmstudio(),
         _ => None,
     };
 
@@ -291,24 +259,6 @@ fn model_label(engine: &str, id: &str) -> String {
     // Check fallback registry for label
     for (fid, label, _) in fallback_models(engine) {
         if fid == id { return label.to_string(); }
-    }
-    // For opencode discovered models: "anthropic/claude-sonnet-4-6" → "Claude Sonnet 4.6 (anthropic)"
-    if engine == "opencode" && id.contains('/') {
-        let parts: Vec<&str> = id.splitn(2, '/').collect();
-        let provider = parts[0];
-        let model = parts[1];
-        // Title-case the model name: replace hyphens with spaces, capitalize words
-        let pretty: String = model.split('-')
-            .map(|w| {
-                let mut c = w.chars();
-                match c.next() {
-                    None => String::new(),
-                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-        return format!("{} ({})", pretty, provider);
     }
     id.to_string()
 }

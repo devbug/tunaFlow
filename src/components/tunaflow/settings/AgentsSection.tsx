@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Plus, Trash2 } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
@@ -21,6 +21,10 @@ export function AgentsSection() {
   const profiles = useChatStore((s) => s.agentProfiles);
   const saveProfiles = useChatStore((s) => s.saveProfiles);
   const [selectedId, setSelectedId] = useState<string | null>(profiles[0]?.id ?? null);
+  // Sync selectedId when profiles load asynchronously
+  useEffect(() => {
+    if (!selectedId && profiles.length > 0) setSelectedId(profiles[0].id);
+  }, [profiles, selectedId]);
   const engineModels = useChatStore((s) => s.engineModels);
   const skills = useChatStore((s) => s.skills);
 
