@@ -511,7 +511,8 @@ pub fn compress_memory_blocking(db: &crate::db::DbState, conversation_id: &str) 
     });
     let raw_output = match result {
         Ok(out) if !out.content.trim().is_empty() => out.content.trim().to_string(),
-        _ => { eprintln!("[memory] compression failed for {}", conversation_id); return Ok(false); }
+        Ok(_) => { eprintln!("[memory] compression returned empty content for {} (model: claude-haiku-4-5)", conversation_id); return Ok(false); }
+        Err(ref e) => { eprintln!("[memory] compression failed for {}: {}", conversation_id, e); return Ok(false); }
     };
     let topics = parse_topics(&raw_output);
     {
