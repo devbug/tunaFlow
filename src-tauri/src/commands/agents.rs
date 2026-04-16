@@ -430,6 +430,12 @@ pub async fn start_openai_compat_stream(
     let mo = input.model.clone();
 
     let prep = tokio::task::spawn_blocking(move || {
+        // Local models have limited context — cap budget to avoid exceeding model limits.
+        // Default 60k is for cloud models (200k+ context). Local models are typically 4k-32k.
+        let mut input = input;
+        if input.context_budget_cap.is_none() {
+            input.context_budget_cap = Some(8000); // ~2k tokens, safe for 4k context models
+        }
         prepare_engine_run(engine_label, &input, id_frag.as_deref(), &db)
     }).await.map_err(|_| AppError::Lock)??;
 
