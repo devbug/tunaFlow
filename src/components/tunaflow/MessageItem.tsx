@@ -17,6 +17,30 @@ import { hasPlanProposal, splitPlanProposals } from "@/lib/planProposalParser";
 import { vizMarkers } from "@/lib/vizMarkers";
 import { copyToClipboard } from "@/lib/clipboard";
 import { MessageContextMenu } from "./ContextMenu";
+import { ChevronRight } from "lucide-react";
+
+/** Collapsible display for tool-request follow-up results (auto-injected by tunaFlow). */
+function ToolResultCollapsible({ content, conversationId }: { content: string; conversationId?: string }) {
+  const [open, setOpen] = useState(false);
+  const lineCount = content.split("\n").length;
+  return (
+    <div className="rounded-lg border border-border/30 overflow-hidden text-[11px]">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-muted-foreground/70 hover:text-foreground hover:bg-accent/30 transition-colors"
+      >
+        <ChevronRight className={cn("w-3 h-3 transition-transform", open && "rotate-90")} />
+        <span className="font-medium">도구 호출 결과</span>
+        <span className="text-muted-foreground/40 ml-1">({lineCount}줄)</span>
+      </button>
+      {open && (
+        <div className="px-3 py-2 border-t border-border/20 text-xs">
+          <MarkdownBody content={content} conversationId={conversationId} isUser />
+        </div>
+      )}
+    </div>
+  );
+}
 
 const PROSE_CLS = "prose prose-invert prose-chat max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&>hr:last-child]:hidden [&>hr]:border-sidebar-foreground/20 [&>hr]:my-3";
 
@@ -176,9 +200,13 @@ export const MessageItem = memo(function MessageItem({ message, onBranch, onBran
           {/* Body */}
           <div className={cn("text-foreground leading-relaxed overflow-x-auto", isCompact ? "text-xs" : "text-sm")}>
             {isUser ? (
+              message.content.startsWith("### 🛠️ 도구 호출 결과") ? (
+                <ToolResultCollapsible content={message.content} conversationId={message.conversationId} />
+              ) : (
               <div className={cn("rounded-lg px-3 py-2 inline-block", isCompact && "line-clamp-3")} style={{ background: "var(--user-bubble)" }}>
                 <MarkdownBody content={message.content} conversationId={message.conversationId} isUser />
               </div>
+              )
             ) : isStreaming && !message.content ? (
               <TypingIndicator />
             ) : isStreaming ? (
