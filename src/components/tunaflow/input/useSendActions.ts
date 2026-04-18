@@ -2,6 +2,7 @@ import { useChatStore } from "@/stores/chatStore";
 import { ROUNDTABLE_PARTICIPANTS } from "@/lib/constants";
 import type { RtMode, RoundtableParticipant } from "@/types";
 import type { Engine } from "./EngineSelector";
+import { appendAttachmentsToPrompt, type Attachment } from "@/lib/attachments";
 
 // ─── RT config helpers ───────────────────────────────────────────────────────
 
@@ -117,12 +118,18 @@ interface UseSendActionsParams {
   setActiveParticipants: React.Dispatch<React.SetStateAction<Set<string>>>;
   /** When true, routes sends through sendThreadMessage instead of main send functions */
   threadMode?: boolean;
+  /** Attachments to include with this send — appended as `[첨부 파일]` section. */
+  attachments?: Attachment[];
+  /** Called after a successful send — used by caller to clear attachments. */
+  onSendComplete?: () => void;
 }
 
 export function useSendActions({
   text, setText, engine, selectedModel, rtMode,
   activeParticipants, setActiveParticipants,
   threadMode = false,
+  attachments = [],
+  onSendComplete,
 }: UseSendActionsParams) {
   const {
     selectedConversationId,
@@ -171,6 +178,12 @@ export function useSendActions({
   const handleSend = async () => {
     let prompt = text.trim();
     if (!prompt || !effectiveConvId) return;
+
+    // 첨부가 있으면 prompt 끝에 경로 섹션 append. 사용자가 직접 경로를 적지
+    // 않고도 에이전트가 Read 툴/vision 으로 확인하게 유도.
+    if (attachments.length > 0) {
+      prompt = appendAttachmentsToPrompt(prompt, attachments);
+    }
 
     // !models 명령 처리
     if (prompt === "!models" || prompt === "!models --refresh") {
@@ -278,6 +291,9 @@ export function useSendActions({
     }
 
     setText("");
+    // 메인 전송 경로 진입 직전에 첨부 clear. /help, /clear, handoff 등 특수
+    // 경로는 첨부와 무관하므로 clear 하지 않음 (첨부는 다음 일반 send 때 포함).
+    onSendComplete?.();
 
     if (isRoundtable) {
       // Determine participants: /follow override → RT config (DB) → warn on missing config

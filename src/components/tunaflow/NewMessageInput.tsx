@@ -5,7 +5,7 @@ import { useChatStore } from "@/stores/chatStore";
 import { getSetting, setSetting } from "@/lib/appStore";
 import { DEFAULT_PERSONAS } from "@/lib/defaultPersonas";
 import { ROUNDTABLE_PARTICIPANTS } from "@/lib/constants";
-import { SendHorizonal, Users, Loader2 } from "lucide-react";
+import { SendHorizonal, Users, Loader2, Paperclip, X, FileText } from "lucide-react";
 import type { RtMode, RoundtableParticipant, AgentProfile } from "@/types";
 
 import { EngineSelector, type Engine } from "./input/EngineSelector";
@@ -15,6 +15,9 @@ import { isPtyEngine, usePtyStore } from "@/stores/ptyStore";
 import { RoundtableControls } from "./input/RoundtableControls";
 import { ContextBadges } from "./input/ContextBadges";
 import { useSendActions } from "./input/useSendActions";
+import { saveAttachment, deleteAttachment, type Attachment, MAX_ATTACHMENT_SIZE } from "@/lib/attachments";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { readFile as readFsFile } from "@tauri-apps/plugin-fs";
 
 interface NewMessageInputProps {
   threadMode?: boolean;
@@ -36,6 +39,9 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
   const [text, setText] = useState("");
   const [engine, setEngine] = useState<Engine>("claude");
   const [selectedModel, setSelectedModel] = useState<string>("");
+  // 첨부 파일 state — 입력창 로컬. 전송 후 자동 clear.
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachBusy, setAttachBusy] = useState(false);
   const ptySessionId = usePtyStore((s) => s.getSession(engine));
   const [rtMode, setRtMode] = useState<RtMode>("sequential");
   const [ptyRespawning, setPtyRespawning] = useState(false);
@@ -208,7 +214,136 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
     text, setText, engine, selectedModel, rtMode,
     activeParticipants, setActiveParticipants,
     threadMode,
+    attachments,
+    onSendComplete: () => setAttachments([]),
   });
+
+  // ─── 첨부 파일 핸들러 ─────────────────────────────────────────────────
+  // 프로젝트 경로 해석: main chat 은 selectedProject, thread 도 동일 project
+  // 에 속해있다고 가정 (Rust 가 project_key → path 를 호환 저장).
+  const selectedProjectKey = useChatStore((s) => s.selectedProjectKey);
+  const resolveProjectPath = async (): Promise<string | null> => {
+    if (!selectedProjectKey) return null;
+    try {
+      const proj = await invoke<{ path?: string }>("get_project", { key: selectedProjectKey });
+      return proj?.path ?? null;
+    } catch { return null; }
+  };
+
+  const addFilesFromPaths = async (paths: string[]) => {
+    const projectPath = await resolveProjectPath();
+    if (!projectPath) {
+      const { toast } = await import("sonner");
+      toast.error("프로젝트가 선택되지 않아 첨부할 수 없습니다");
+      return;
+    }
+    setAttachBusy(true);
+    try {
+      for (const path of paths) {
+        try {
+          const bytes = await readFsFile(path);
+          if (bytes.byteLength > MAX_ATTACHMENT_SIZE) {
+            const { toast } = await import("sonner");
+            toast.error(`${path.split("/").pop()}: 20MB 초과 — 건너뜀`);
+            continue;
+          }
+          const name = path.split("/").pop() ?? "file";
+          const mimeType = guessMime(name);
+          const att = await saveAttachment(projectPath, name, new Uint8Array(bytes), mimeType);
+          setAttachments((prev) => [...prev, att]);
+        } catch (e) {
+          console.warn("[attach]", path, e);
+          const { toast } = await import("sonner");
+          toast.error(`첨부 실패: ${e}`);
+        }
+      }
+    } finally {
+      setAttachBusy(false);
+    }
+  };
+
+  const addFilesFromFileList = async (files: FileList | File[]) => {
+    const projectPath = await resolveProjectPath();
+    if (!projectPath) {
+      const { toast } = await import("sonner");
+      toast.error("프로젝트가 선택되지 않아 첨부할 수 없습니다");
+      return;
+    }
+    setAttachBusy(true);
+    try {
+      for (const f of Array.from(files)) {
+        if (f.size > MAX_ATTACHMENT_SIZE) {
+          const { toast } = await import("sonner");
+          toast.error(`${f.name}: 20MB 초과 — 건너뜀`);
+          continue;
+        }
+        try {
+          const bytes = new Uint8Array(await f.arrayBuffer());
+          const att = await saveAttachment(projectPath, f.name, bytes, f.type || guessMime(f.name));
+          setAttachments((prev) => [...prev, att]);
+        } catch (e) {
+          console.warn("[attach]", f.name, e);
+          const { toast } = await import("sonner");
+          toast.error(`첨부 실패: ${e}`);
+        }
+      }
+    } finally {
+      setAttachBusy(false);
+    }
+  };
+
+  const handleAttachClick = async () => {
+    try {
+      const selected = await openFileDialog({
+        multiple: true,
+        filters: [{ name: "Images and files", extensions: ["*"] }],
+      });
+      if (!selected) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      await addFilesFromPaths(paths.map(String));
+    } catch (e) {
+      console.warn("[attach dialog]", e);
+    }
+  };
+
+  const handleRemoveAttachment = async (id: string) => {
+    const target = attachments.find((a) => a.id === id);
+    if (!target) return;
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+    await deleteAttachment(target);
+  };
+
+  // Clipboard paste — 이미지가 clipboard 에 있으면 자동 첨부. text 는 textarea
+  // 기본 동작 유지.
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(e.clipboardData.items);
+    const imageItems = items.filter((it) => it.type.startsWith("image/"));
+    if (imageItems.length === 0) return; // 텍스트는 브라우저 기본 동작
+    e.preventDefault();
+    const files = imageItems
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => !!f);
+    if (files.length > 0) {
+      addFilesFromFileList(files);
+    }
+  };
+
+  // Drag & drop — textarea 전체 wrapper 에 걸림
+  const [isDragOver, setIsDragOver] = useState(false);
+  const handleDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes("Files")) {
+      e.preventDefault();
+      setIsDragOver(true);
+    }
+  };
+  const handleDragLeave = () => setIsDragOver(false);
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+    await addFilesFromFileList(files);
+  };
 
   const toggleParticipant = (name: string) => {
     setActiveParticipants((prev) => {
@@ -366,6 +501,10 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
           placeholder={
             !selectedConversationId
               ? "Select a conversation first"
@@ -373,15 +512,54 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
               ? hasRtMessages
                 ? "/follow codex,claude <prompt> or type…  ↵ send · ⇧↵ newline"
                 : "Start roundtable…  ↵ send · ⇧↵ newline"
-              : "Ask anything…  ↵ send · ⇧↵ newline"
+              : "Ask anything…  ↵ send · ⇧↵ newline · 이미지/파일 드래그·붙여넣기 가능"
           }
           disabled={!selectedConversationId}
           rows={1}
-          className="w-full px-2.5 py-2 text-[13px] bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground/40 leading-relaxed disabled:opacity-40"
+          className={cn(
+            "w-full px-2.5 py-2 text-[13px] bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground/40 leading-relaxed disabled:opacity-40 transition-colors",
+            isDragOver && "ring-2 ring-primary/40 rounded",
+          )}
         />
+
+        {/* Attachment chips — shown above action bar */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-2.5 pb-1.5">
+            {attachments.map((att) => (
+              <div
+                key={att.id}
+                className="flex items-center gap-1 pl-1 pr-0.5 py-0.5 rounded border border-border/40 bg-accent/40 text-[10px] max-w-[200px]"
+                title={`${att.relPath} · ${(att.size / 1024).toFixed(0)}KB`}
+              >
+                {att.isImage && att.previewUrl ? (
+                  <img src={att.previewUrl} alt={att.name} className="w-4 h-4 object-cover rounded-sm shrink-0" />
+                ) : (
+                  <FileText className="w-3 h-3 text-muted-foreground/60 shrink-0" />
+                )}
+                <span className="truncate text-foreground/70">{att.name}</span>
+                <button
+                  onClick={() => handleRemoveAttachment(att.id)}
+                  className="p-0.5 rounded hover:bg-destructive/20 text-muted-foreground/50 hover:text-destructive transition-colors shrink-0"
+                  aria-label="첨부 제거"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Action bar */}
         <div className="flex items-center gap-1.5 px-2.5 pb-2 pt-0.5">
+          <button
+            onClick={handleAttachClick}
+            disabled={!selectedConversationId || attachBusy}
+            className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="파일 첨부 (최대 20MB)"
+            aria-label="파일 첨부"
+          >
+            {attachBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
+          </button>
           <span className="flex-1" />
           {isCurrentThreadRunning && (
             <button
@@ -412,4 +590,29 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
       </div>
     </div>
   );
+}
+
+/** Simple extension → MIME mapping. plugin-dialog 로 받은 경로 문자열은
+ *  mimeType 정보가 없어서 확장자 기반 추정. File API 로 들어온 경우엔
+ *  File.type 을 우선 사용하고 빈 문자열일 때만 fallback 으로 씀. */
+function guessMime(name: string): string {
+  const ext = name.toLowerCase().split(".").pop() ?? "";
+  switch (ext) {
+    case "png": return "image/png";
+    case "jpg":
+    case "jpeg": return "image/jpeg";
+    case "gif": return "image/gif";
+    case "webp": return "image/webp";
+    case "heic": return "image/heic";
+    case "bmp": return "image/bmp";
+    case "svg": return "image/svg+xml";
+    case "pdf": return "application/pdf";
+    case "md": return "text/markdown";
+    case "txt":
+    case "log": return "text/plain";
+    case "json": return "application/json";
+    case "html": return "text/html";
+    case "csv": return "text/csv";
+    default: return "application/octet-stream";
+  }
 }
