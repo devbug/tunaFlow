@@ -196,12 +196,20 @@ ${lines.join("\n\n")}`;
 
       if (!newBranch) { toast.error("브랜치 생성 실패"); return; }
 
-      // Mark findings as in_progress and link to branch for auto-cleanup
+      // Handoff to Architect = findings done from Insight's perspective. Mark
+      // them resolved immediately so the user's "needs action" queue stays
+      // clean. The linked branch preserves the trail — user can revisit what
+      // happened via that branch. Previously these went to `in_progress` with
+      // no actionable UI, polluting the list indefinitely until the linked
+      // branch happened to archive.
       const ids = targetFindings.map((f) => f.id);
-      await insightApi.updateInsightFindingsBatchStatus(ids, "in_progress");
+      const resolution = `Sent to Architect via branch ${newBranch.id.slice(0, 8)}`;
+      await Promise.all(
+        ids.map((id) => insightApi.updateInsightFindingStatus(id, "resolved", resolution)),
+      );
       insightApi.linkInsightFindingsToBranch(ids, newBranch.id)
         .catch((e) => console.debug("[insight] link branch failed:", e));
-      setFindings((prev) => prev.map((f) => ids.includes(f.id) ? { ...f, status: "in_progress" as const } : f));
+      setFindings((prev) => prev.map((f) => ids.includes(f.id) ? { ...f, status: "resolved" as const } : f));
       setSelectedIds(new Set());
 
       // Open branch drawer and send message
