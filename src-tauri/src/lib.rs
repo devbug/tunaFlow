@@ -423,6 +423,7 @@ pub fn run() {
             commands::insight::delete_insight_session,
             commands::insight::create_insight_findings_batch,
             commands::insight::list_insight_findings,
+            commands::insight::count_open_insight_findings,
             commands::insight::update_insight_finding_status,
             commands::insight::update_insight_findings_batch_status,
             commands::insight::resolve_insight_findings_by_plan,

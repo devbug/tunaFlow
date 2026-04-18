@@ -123,11 +123,14 @@ export function CenterPanel() {
       .catch(() => setPlanCount(0));
   }, [canonicalConvId, planRefreshKey]);
 
-  // Fetch insight session count badge
+  // Fetch open finding count for Insight tab badge.
+  // Previously surfaced "completed session count" which only grew (every
+  // analysis added +1, processing findings never reduced it). Now surfaces
+  // "how many findings still need user action" = open findings only.
   useEffect(() => {
     if (!selectedProjectKey) { setInsightCount(0); return; }
-    invoke<{ status: string }[]>("list_insight_sessions", { projectKey: selectedProjectKey })
-      .then((sessions) => setInsightCount(sessions.filter((s) => s.status === "completed").length))
+    invoke<number>("count_open_insight_findings", { projectKey: selectedProjectKey })
+      .then(setInsightCount)
       .catch(() => setInsightCount(0));
   }, [selectedProjectKey]);
 

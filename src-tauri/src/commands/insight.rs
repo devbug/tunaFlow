@@ -148,6 +148,26 @@ pub fn list_insight_sessions(
     Ok(rows.filter_map(|r| r.ok()).collect())
 }
 
+/// Count "open" findings across all sessions in a project. Used by the
+/// Center tab badge — replaces the prior "completed session count" metric
+/// which didn't decrease as users processed findings (every analysis added
+/// to the count regardless of follow-through). Open = needs user action.
+#[tauri::command]
+pub fn count_open_insight_findings(
+    project_key: String,
+    state: State<DbState>,
+) -> Result<i64, AppError> {
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM insight_findings f
+         JOIN insight_sessions s ON s.id = f.session_id
+         WHERE s.project_key = ?1 AND f.status = 'open'",
+        [&project_key],
+        |row| row.get(0),
+    ).unwrap_or(0);
+    Ok(count)
+}
+
 #[tauri::command]
 pub fn update_insight_session_status(
     session_id: String,
