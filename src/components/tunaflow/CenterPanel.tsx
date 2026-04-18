@@ -24,9 +24,10 @@ const TABS: { id: CenterTab; label: string }[] = [
   { id: "notes", label: "Notes" },
 ];
 
-/** Map PlanPhase → WorkflowStageId for auto-switching the HarnessSummary sub-tab */
+/** Map PlanPhase → WorkflowStageId for auto-switching the HarnessSummary sub-tab.
+ *  drafting + subtask_review 는 모두 "Plan Check" 단계로 통합 (s37). */
 const PHASE_TO_STAGE: Record<string, WorkflowStageId> = {
-  drafting: "plan", subtask_review: "subtask",
+  drafting: "plan-check", subtask_review: "plan-check",
   approval: "dev",
   implementation: "dev", rework: "dev",
   review: "review", done: "done",
@@ -34,7 +35,7 @@ const PHASE_TO_STAGE: Record<string, WorkflowStageId> = {
 
 export function CenterPanel() {
   const [activeTab, setActiveTab] = useState<CenterTab>("chat");
-  const [activeStage, setActiveStage] = useState<WorkflowStageId>("plan");
+  const [activeStage, setActiveStage] = useState<WorkflowStageId>("plan-check");
   const [planRefreshKey, setPlanRefreshKey] = useState(0);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(320);
@@ -260,7 +261,7 @@ export function CenterPanel() {
                 }}
                 onStatusChanged={() => {
                   setPlanRefreshKey((k) => k + 1);
-                  setActiveStage("plan");
+                  setActiveStage("plan-check");
                 }}
                 onSwitchToChat={() => setActiveTab("chat")}
               />

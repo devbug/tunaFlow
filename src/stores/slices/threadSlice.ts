@@ -129,7 +129,8 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
           window.dispatchEvent(new CustomEvent("tunaflow:switch-tab", { detail: "workflow" }));
           // Also switch to the correct workflow stage based on plan phase
           const PHASE_TO_STAGE: Record<string, string> = {
-            drafting: "plan", subtask_review: "subtask", approval: "dev",
+            // drafting + subtask_review → "plan-check" 로 통합 (s37)
+            drafting: "plan-check", subtask_review: "plan-check", approval: "dev",
             implementation: "dev", rework: "dev", review: "review", done: "done",
           };
           const stage = PHASE_TO_STAGE[plan.phase];

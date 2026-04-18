@@ -228,9 +228,9 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
         );
       }
 
-      // Switch Workflow tab to subtask stage so newly promoted plan is visible
+      // Switch Workflow tab to plan-check stage so newly promoted plan is visible
       window.dispatchEvent(new CustomEvent("tunaflow:switch-tab", { detail: "workflow" }));
-      window.dispatchEvent(new CustomEvent("tunaflow:switch-stage", { detail: "subtask" }));
+      window.dispatchEvent(new CustomEvent("tunaflow:switch-stage", { detail: "plan-check" }));
 
       setStatus("promoted");
     } catch {

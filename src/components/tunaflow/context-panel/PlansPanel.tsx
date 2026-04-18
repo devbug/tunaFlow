@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "@/stores/chatStore";
 import { ClipboardList } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { Plan, PlanPhase, PlanStatus } from "@/types";
 import * as planApi from "@/lib/api/plans";
 import { SubtaskReviewView } from "./SubtaskReviewView";
@@ -10,13 +11,14 @@ import { PlanCard } from "./plans/PlanCard";
 
 // ─── PlansPanel (main export) ────────────────────────────────────────────────
 
-/** Phase filter mapping for stage IDs */
+/** Phase filter mapping for stage IDs.
+ *  `plan-check` = drafting + subtask_review 통합 (s37) — "사용자가 plan 을
+ *  검토·확정하는" 동일 맥락의 두 phase 를 하나의 stage 로. */
 const STAGE_PHASE_MAP: Record<string, { phases: PlanPhase[]; includeAbandoned?: boolean; empty: string }> = {
-  plan:    { phases: ["drafting"],                              empty: "Chat 탭에서 Architect와 대화하여 Plan을 생성하세요." },
-  subtask: { phases: ["subtask_review"],                       empty: "Subtask 검토 중인 Plan이 없습니다." },
-  dev:     { phases: ["approval", "implementation", "rework"], empty: "구현 중인 Plan이 없습니다." },
-  review:  { phases: ["review"],                               empty: "리뷰 중인 Plan이 없습니다." },
-  done:    { phases: ["done"], includeAbandoned: true,         empty: "완료된 Plan이 없습니다." },
+  "plan-check": { phases: ["drafting", "subtask_review"],          empty: "검토 중인 Plan이 없습니다. Chat에서 Architect와 대화해 Plan을 제안받으세요." },
+  dev:          { phases: ["approval", "implementation", "rework"], empty: "구현 중인 Plan이 없습니다." },
+  review:       { phases: ["review"],                               empty: "리뷰 중인 Plan이 없습니다." },
+  done:         { phases: ["done"], includeAbandoned: true,         empty: "완료된 Plan이 없습니다." },
 };
 
 interface PlansPanelProps {
@@ -128,16 +130,35 @@ export function PlansPanel({ activeStage, onPhaseChanged, onStatusChanged, onSwi
         </div>
       )}
 
-      {activeStage === "subtask" ? (() => {
-        // Separate: new plans (never implemented) vs plans that went through Dev→Review cycle
-        // Plans with implementationBranchId have been through at least one implementation round
-        const normalPlans = filteredPlans.filter((p) => !p.implementationBranchId);
-        const escalatedPlans = filteredPlans.filter((p) => !!p.implementationBranchId);
+      {activeStage === "plan-check" ? (() => {
+        // plan-check = drafting + subtask_review 통합 (s37).
+        // - drafting: 아직 subtask 가 채워지지 않은 상태 → 일반 PlanCard 로 노출
+        // - subtask_review (normal): 새로 생성돼 검토 대기 중 → SubtaskReviewView
+        // - subtask_review (escalated, 이미 impl branch 존재): 설계 재검토 필요 → 별도 섹션
+        const draftingPlans = filteredPlans.filter((p) => p.phase === "drafting");
+        const normalPlans = filteredPlans.filter((p) => p.phase === "subtask_review" && !p.implementationBranchId);
+        const escalatedPlans = filteredPlans.filter((p) => p.phase === "subtask_review" && !!p.implementationBranchId);
         return (
           <>
-            {normalPlans.length > 0 && (
+            {draftingPlans.length > 0 && (
               <div className="space-y-2">
-                {normalPlans.length > 0 && escalatedPlans.length > 0 && (
+                {(normalPlans.length > 0 || escalatedPlans.length > 0) && (
+                  <p className="text-[9px] font-medium text-muted-foreground/40 uppercase tracking-wider px-1">작성 중</p>
+                )}
+                {draftingPlans.map((plan) => (
+                  <PlanCard
+                    key={plan.id}
+                    plan={plan}
+                    onStatusChange={handlePlanStatus}
+                    onPlanUpdated={handlePlanUpdated}
+                    onSwitchToChat={onSwitchToChat}
+                  />
+                ))}
+              </div>
+            )}
+            {normalPlans.length > 0 && (
+              <div className={cn("space-y-2", draftingPlans.length > 0 && "mt-4")}>
+                {(draftingPlans.length > 0 || escalatedPlans.length > 0) && (
                   <p className="text-[9px] font-medium text-muted-foreground/40 uppercase tracking-wider px-1">검토 대기</p>
                 )}
                 {normalPlans.map((plan) => (

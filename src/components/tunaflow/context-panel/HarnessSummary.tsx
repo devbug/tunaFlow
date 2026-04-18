@@ -28,9 +28,11 @@ function deriveStages(
   const hasReview = artifacts.some((a) => a.type === "review-findings");
   const hasDone = artifacts.some((a) => a.type === "architect-decision") || phase === "done";
 
+  // Plan + Subtask stages unified into "Plan Check" (s37) —
+  // drafting 은 승인 즉시 subtask_review 로 넘어가 거의 빈 탭이었고,
+  // 두 phase 모두 "사용자가 plan 을 검토·확정하는" 동일 맥락. UX 간소화.
   return [
-    { id: "plan", label: "Plan", active: !!plan },
-    { id: "subtask", label: "Subtask", active: phaseIdx >= 1 },
+    { id: "plan-check", label: "Plan Check", active: !!plan },
     { id: "dev", label: "Dev", active: phaseIdx >= 2 },
     { id: "review", label: "Review", active: phaseIdx >= 5 || hasReview },
     { id: "done", label: "Done", active: phaseIdx >= 6 || hasDone },
@@ -39,7 +41,7 @@ function deriveStages(
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export type WorkflowStageId = "all" | "plan" | "subtask" | "dev" | "review" | "done";
+export type WorkflowStageId = "all" | "plan-check" | "dev" | "review" | "done";
 
 interface HarnessSummaryProps {
   conversationId: string;
@@ -95,11 +97,10 @@ export function HarnessSummary({ conversationId, activeStage, onStageClick, refr
 
   const stages = deriveStages(activePlan, subtasks, branches, artifacts);
 
-  // Per-stage plan counts
+  // Per-stage plan counts — "plan-check" 는 drafting + subtask_review 합산.
   const livePlans = allPlans.filter((p) => p.status !== "abandoned");
   const stageCounts: Record<string, number> = {
-    plan: livePlans.filter((p) => p.phase === "drafting").length,
-    subtask: livePlans.filter((p) => p.phase === "subtask_review").length,
+    "plan-check": livePlans.filter((p) => p.phase === "drafting" || p.phase === "subtask_review").length,
     dev: livePlans.filter((p) => p.phase === "approval" || p.phase === "implementation" || p.phase === "rework").length,
     review: livePlans.filter((p) => p.phase === "review").length,
     done: livePlans.filter((p) => p.phase === "done").length,
