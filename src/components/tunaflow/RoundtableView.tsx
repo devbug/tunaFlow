@@ -3,8 +3,26 @@ import type { Message, RoundtableParticipant } from "@/types";
 import { Users, Loader2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useState, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useChatStore } from "@/stores/chatStore";
 import type { RtParticipantStatus } from "@/stores/slices/threadSlice";
+import { markdownComponents } from "./chat/MarkdownComponents";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const REMARK_PLUGINS: any[] = [[remarkGfm, { singleTilde: false }]];
+
+/** RT topic 렌더러 — Review RT 프롬프트는 마크다운 + HTML 주석 마커를 포함하므로
+ *  raw text 로 출력하면 가독성 급락. 채팅과 동일한 마크다운 파이프라인 재사용. */
+function TopicMarkdown({ text }: { text: string }) {
+  return (
+    <div className="prose prose-invert prose-chat prose-sm max-w-none text-[13px] leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
 
 import { groupIntoRounds, getParticipants, parsePromptSources } from "./roundtable/rtUtils";
 import { RtMessageCard } from "./roundtable/RtMessageCard";
@@ -71,7 +89,7 @@ export function RoundtableView({ messages, conversationId, onBranch, onBranchRT,
           <div className="mb-5 pb-3 border-b border-border/30 space-y-2">
             <div className="rounded-md bg-accent/30 p-2.5">
               <p className="text-[9px] font-semibold text-muted-foreground/40 uppercase tracking-widest mb-0.5">Topic</p>
-              <p className="text-[13px] text-foreground/90 leading-relaxed">{originalTopic}</p>
+              <TopicMarkdown text={originalTopic} />
             </div>
           </div>
           <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground/50 text-sm">
@@ -114,7 +132,7 @@ export function RoundtableView({ messages, conversationId, onBranch, onBranchRT,
             <p className="text-[9px] font-semibold text-muted-foreground/40 uppercase tracking-widest mb-0.5">
               {rounds.length > 1 ? "Original Topic" : "Topic"}
             </p>
-            <p className="text-[13px] text-foreground/90 leading-relaxed">{originalTopic}</p>
+            <TopicMarkdown text={originalTopic} />
           </div>
         )}
 
