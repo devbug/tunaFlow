@@ -214,7 +214,7 @@ export function CenterPanel() {
       </div>
 
       {/* ── Content zone ── */}
-      <div className="flex-1 min-h-0 rounded-xl border-[0.5px] border-border bg-background overflow-hidden flex flex-col mx-2 mb-2">
+      <div className="flex-1 min-h-0 rounded-xl border-[0.5px] border-border bg-background overflow-hidden flex flex-col mx-2">
 
         {/* Chat — stays mounted to preserve Virtuoso scroll */}
         <div className="flex-1 min-h-0 flex flex-col" style={{ display: effectiveTab === "chat" ? "flex" : "none" }}>
