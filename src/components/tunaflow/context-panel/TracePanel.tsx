@@ -317,27 +317,31 @@ export function TracePanel() {
 
       {/* ═══ TRACE HISTORY ═══ */}
       <div className="border-t border-border/20 pt-2">
-        <button
-          onClick={() => { setHistoryOpen(!historyOpen); if (!historyOpen) refresh(); }}
-          className="flex items-center gap-1.5 w-full text-left hover:bg-accent/30 rounded px-1 py-0.5 transition-colors"
-        >
-          {historyOpen
-            ? <ChevronDown className="w-3 h-3 text-muted-foreground/50" />
-            : <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
-          }
-          <span className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider flex-1">
-            Trace History
-          </span>
-          <span className="text-[9px] text-muted-foreground/30">{spans.length}</span>
+        {/* 두 개 독립 버튼(펼침 토글 + refresh)을 flex 컨테이너에 나란히 배치.
+            예전엔 refresh 버튼이 외곽 button 안에 중첩돼 DOM nesting 경고가 나왔음. */}
+        <div className="flex items-center gap-1.5 w-full hover:bg-accent/30 rounded px-1 py-0.5 transition-colors">
           <button
-            onClick={(e) => { e.stopPropagation(); refresh(); }}
+            onClick={() => { setHistoryOpen(!historyOpen); if (!historyOpen) refresh(); }}
+            className="flex items-center gap-1.5 flex-1 text-left"
+          >
+            {historyOpen
+              ? <ChevronDown className="w-3 h-3 text-muted-foreground/50" />
+              : <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
+            }
+            <span className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider flex-1">
+              Trace History
+            </span>
+            <span className="text-[9px] text-muted-foreground/30">{spans.length}</span>
+          </button>
+          <button
+            onClick={() => refresh()}
             disabled={loading}
-            className="p-0.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+            className="p-0.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors shrink-0"
             title="Refresh"
           >
             <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
           </button>
-        </button>
+        </div>
 
         {historyOpen && (
           <div className="mt-1.5 space-y-1">
