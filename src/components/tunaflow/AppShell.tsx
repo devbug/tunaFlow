@@ -166,7 +166,10 @@ export function AppShell() {
     openFile: (path: string, line?: number) => setViewerFile({ path, line }),
   }), []);
 
-  if (!loaded) return null;
+  // 로딩 전에는 UI 를 뿌리지 않지만, null 을 반환하면 webview 기본 배경이
+  // 한순간 보인 뒤 bg-sidebar 가 덮여 플래시처럼 느껴짐. sidebar 와 같은
+  // 어두운 색으로 화면 전체를 미리 칠해 깜빡임 완화.
+  if (!loaded) return <div className="fixed inset-0 bg-sidebar" />;
 
   // Project-first startup: show selector if no project is selected
   if (!selectedProjectKey) {
