@@ -242,6 +242,58 @@ pub(crate) fn extract_claude_model_ids(bytes: &[u8]) -> BTreeSet<String> {
     out
 }
 
+/// Parse a `claude-(opus|sonnet|haiku)-X[-Y][-YYYYMMDD]` ID into
+/// (family, version_tuple, has_date). Returns None if the ID doesn't match.
+///
+/// `version_tuple` is (major, minor) with minor defaulting to 0 when absent
+/// (e.g. `claude-opus-4` → (4, 0)). Allows numeric sort across forms.
+fn parse_claude_id(id: &str) -> Option<(&'static str, (u32, u32), bool)> {
+    let rest = id.strip_prefix("claude-")?;
+    let family = if rest.starts_with("opus-") { "opus" }
+        else if rest.starts_with("sonnet-") { "sonnet" }
+        else if rest.starts_with("haiku-") { "haiku" }
+        else { return None; };
+    let tail = &rest[family.len() + 1..]; // skip "family-"
+    let parts: Vec<&str> = tail.split('-').collect();
+    let has_date = parts.last()
+        .map(|last| last.len() == 8 && last.chars().all(|c| c.is_ascii_digit()))
+        .unwrap_or(false);
+    let version_parts: Vec<&str> = if has_date { parts[..parts.len() - 1].to_vec() } else { parts };
+    if version_parts.is_empty() { return None; }
+    let major: u32 = version_parts[0].parse().ok()?;
+    let minor: u32 = version_parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    Some((family, (major, minor), has_date))
+}
+
+/// Trim the raw extracted set down to a presentable list:
+///   1. drop date-suffixed variants (`claude-opus-4-5-20251101`) — the
+///      canonical `claude-opus-4-5` already represents them
+///   2. per family (opus/sonnet/haiku), keep only the top N versions by
+///      (major, minor) descending. Default N=2 (latest + one prior)
+///
+/// Exposed `pub(crate)` for unit tests. Pure function.
+pub(crate) fn trim_claude_model_list(ids: &BTreeSet<String>, per_family_limit: usize) -> Vec<String> {
+    use std::collections::HashMap;
+    // Group non-dated IDs by family, each with its parsed version.
+    let mut by_family: HashMap<&'static str, Vec<(String, (u32, u32))>> = HashMap::new();
+    for id in ids {
+        let Some((family, version, has_date)) = parse_claude_id(id) else { continue };
+        if has_date { continue; }
+        by_family.entry(family).or_default().push((id.clone(), version));
+    }
+    // Sort each family by version desc and truncate.
+    // Result order: families in canonical order (opus, sonnet, haiku) for stable UI.
+    let mut out: Vec<String> = Vec::new();
+    for family in ["opus", "sonnet", "haiku"] {
+        if let Some(mut items) = by_family.remove(family) {
+            items.sort_by(|a, b| b.1.cmp(&a.1));
+            items.truncate(per_family_limit);
+            for (id, _) in items { out.push(id); }
+        }
+    }
+    out
+}
+
 /// Discover Claude models by scanning the native CLI binary for embedded
 /// model-ID strings. Returns (models, binary_path, binary_mtime) so the caller
 /// can cache with mtime-based invalidation.
@@ -261,11 +313,13 @@ fn discover_claude_with_stamp() -> Option<(Vec<String>, PathBuf, SystemTime)> {
         eprintln!("[model_discovery] claude binary scan found 0 model IDs at {:?}", path);
         return None;
     }
-    // Order: most recent canonical IDs first (e.g. 4-7 before 4-6), then dated variants.
-    // Sort lexicographically descending so higher version numbers win.
-    let mut list: Vec<String> = ids.into_iter().collect();
-    list.sort_by(|a, b| b.cmp(a));
-    Some((list, path, mtime))
+    // Trim to "latest + 1 prior per family" and drop date-suffixed variants.
+    let trimmed = trim_claude_model_list(&ids, 2);
+    if trimmed.is_empty() {
+        eprintln!("[model_discovery] claude binary scan: no canonical models after trim (raw={})", ids.len());
+        return None;
+    }
+    Some((trimmed, path, mtime))
 }
 
 /// Claude: scan installed CLI binary for embedded model IDs.
@@ -495,9 +549,71 @@ mod tests {
 
     #[test]
     fn extract_model_ids_with_dated_variant() {
+        // extract still captures dated form — trim_claude_model_list drops it later.
         let haystack = b"\"claude-haiku-4-5-20251001\"";
         let ids = extract_claude_model_ids(haystack);
         assert!(ids.contains("claude-haiku-4-5-20251001"));
+    }
+
+    fn mk_set(items: &[&str]) -> BTreeSet<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn parse_claude_id_shapes() {
+        assert_eq!(parse_claude_id("claude-opus-4-7"),  Some(("opus",   (4, 7), false)));
+        assert_eq!(parse_claude_id("claude-sonnet-4"),   Some(("sonnet", (4, 0), false)));
+        assert_eq!(parse_claude_id("claude-opus-4-0"),   Some(("opus",   (4, 0), false)));
+        assert_eq!(parse_claude_id("claude-haiku-4-5-20251001"), Some(("haiku", (4, 5), true)));
+        assert_eq!(parse_claude_id("claude-foo-1"), None);
+        assert_eq!(parse_claude_id("random-string"), None);
+    }
+
+    #[test]
+    fn trim_drops_dated_variants() {
+        let ids = mk_set(&["claude-opus-4-7", "claude-opus-4-7-20260417", "claude-opus-4-6", "claude-opus-4-6-20260301"]);
+        let out = trim_claude_model_list(&ids, 10);
+        assert!(out.iter().all(|id| !id.chars().rev().take(8).all(|c| c.is_ascii_digit())),
+            "dated variants should be dropped: {:?}", out);
+        assert_eq!(out, vec!["claude-opus-4-7", "claude-opus-4-6"]);
+    }
+
+    #[test]
+    fn trim_keeps_only_top_n_per_family() {
+        let ids = mk_set(&[
+            "claude-opus-4",   "claude-opus-4-0", "claude-opus-4-1",
+            "claude-opus-4-5", "claude-opus-4-6", "claude-opus-4-7",
+            "claude-sonnet-4-5", "claude-sonnet-4-6",
+            "claude-haiku-3-5", "claude-haiku-4", "claude-haiku-4-5",
+        ]);
+        let out = trim_claude_model_list(&ids, 2);
+        // Opus: 4.7, 4.6 (top 2 by version desc)
+        // Sonnet: 4.6, 4.5
+        // Haiku: 4.5, 4 (== 4.0)
+        assert_eq!(out, vec![
+            "claude-opus-4-7",
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-sonnet-4-5",
+            "claude-haiku-4-5",
+            "claude-haiku-4",
+        ]);
+    }
+
+    #[test]
+    fn trim_family_order_stable() {
+        // Even if parsed in arbitrary order, result groups opus → sonnet → haiku.
+        let ids = mk_set(&["claude-haiku-4-5", "claude-opus-4-7", "claude-sonnet-4-6"]);
+        let out = trim_claude_model_list(&ids, 1);
+        assert_eq!(out, vec!["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5"]);
+    }
+
+    #[test]
+    fn trim_empty_when_no_canonical() {
+        // Only dated variants → all dropped.
+        let ids = mk_set(&["claude-opus-4-7-20260417", "claude-sonnet-4-6-20260401"]);
+        let out = trim_claude_model_list(&ids, 2);
+        assert!(out.is_empty(), "expected empty, got {:?}", out);
     }
 
     #[test]
@@ -564,6 +680,18 @@ mod tests {
             "extracted IDs do not look like claude models: {:?}",
             ids
         );
-        eprintln!("[test] claude binary scan produced {} model ID(s)", ids.len());
+        let trimmed = trim_claude_model_list(&ids, 2);
+        // Per family (opus/sonnet/haiku) up to 2 models → at most 6 items.
+        assert!(trimmed.len() <= 6, "trimmed list longer than expected: {:?}", trimmed);
+        // No date-suffixed IDs should remain.
+        assert!(
+            trimmed.iter().all(|id| parse_claude_id(id).map(|(_,_,dated)| !dated).unwrap_or(false)),
+            "dated variants leaked into trimmed list: {:?}",
+            trimmed
+        );
+        eprintln!(
+            "[test] claude binary: raw={} IDs, trimmed to {} (latest+1 prior per family)",
+            ids.len(), trimmed.len()
+        );
     }
 }
