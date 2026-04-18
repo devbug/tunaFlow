@@ -374,6 +374,9 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
                   await planApi.updatePlanPhase(plan.id, "drafting");
                   await planApi.createPlanEvent(plan.id, "architect_redesign_requested", "user",
                     `doom loop ${reviewHistory.length} failures`);
+                  // Baton moved to Architect — review branch is no longer active.
+                  const { archiveReviewBranchForHandoff } = await import("@/lib/workflowOrchestration");
+                  await archiveReviewBranchForHandoff(plan);
                   onPlanUpdate(plan.id, { phase: "drafting" as PlanPhase });
                   onSwitchToChat?.();
                 } catch (e) { console.warn("[tunaflow]", e); }

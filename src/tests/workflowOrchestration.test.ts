@@ -161,6 +161,20 @@ describe("requestPlanRevision", () => {
     // If it tried to import chatStore, it would fail or call sendWithEngine
     expect(sendFn).toHaveBeenCalledTimes(1);
   });
+
+  it("archives review branch when handing off to architect", async () => {
+    const sendFn = vi.fn(() => Promise.resolve());
+    const planWithReviewBranch = { ...mockPlan, reviewBranchId: "rev-br-42" };
+    await requestPlanRevision(planWithReviewBranch, [], "claude", sendFn);
+    // archive_branch should have been called with the review branch id
+    expect(invoke).toHaveBeenCalledWith("archive_branch", { id: "rev-br-42" });
+  });
+
+  it("skips archive when no review branch exists", async () => {
+    const sendFn = vi.fn(() => Promise.resolve());
+    await requestPlanRevision(mockPlan, [], "claude", sendFn);
+    expect(invoke).not.toHaveBeenCalledWith("archive_branch", expect.any(Object));
+  });
 });
 
 describe("scanMessagesForMarkers", () => {

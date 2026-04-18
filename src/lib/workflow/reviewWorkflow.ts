@@ -242,6 +242,9 @@ export async function processReviewVerdict(
         "system",
         `Review 실패 ${failCount}회 — Architect 재설계로 강제 에스컬레이션`,
       );
+      // Baton has moved to Architect — review branch is no longer active.
+      const { archiveReviewBranchForHandoff } = await import("./implementWorkflow");
+      await archiveReviewBranchForHandoff(plan);
     } else if (failCount >= 3) {
       await planApi.createPlanEvent(
         plan.id,

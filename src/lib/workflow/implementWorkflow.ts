@@ -114,6 +114,25 @@ export async function approveImplPlan(
  * Flow: Developer Branch → compress conversation → Architect reviews →
  *       produces revised plan-proposal → user merges via MergeBranchButton.
  */
+/**
+ * Archive the review branch (if any) when control has been handed off to the
+ * Architect. Shared by the three escalation paths:
+ *   1. `requestPlanRevision` (계획 수정 버튼) — direct user action
+ *   2. `doom_loop_escalated` (automatic, failCount ≥ 5)
+ *   3. `architect_redesign_requested` (SubtaskReviewView)
+ * Intentionally does NOT archive the implementation branch — that stays alive
+ * for the rework cycle. Errors are swallowed (archiving a stale/missing
+ * branch is not worth aborting the escalation).
+ */
+export async function archiveReviewBranchForHandoff(plan: Plan): Promise<void> {
+  if (!plan.reviewBranchId) return;
+  try {
+    await invoke("archive_branch", { id: plan.reviewBranchId });
+  } catch (e) {
+    console.debug("[archive-review-on-handoff]", e);
+  }
+}
+
 export async function requestPlanRevision(
   plan: Plan,
   branchMessages: Message[],
@@ -178,4 +197,6 @@ export async function requestPlanRevision(
   await sendToArchitect(architectEngine, prompt, systemPrompt);
 
   await planApi.createPlanEvent(plan.id, "revision_requested", "user", `from implementation branch, architect=${architectEngine}`);
+  // Baton has moved to Architect → review branch is no longer active.
+  await archiveReviewBranchForHandoff(plan);
 }
