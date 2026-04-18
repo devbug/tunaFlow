@@ -446,6 +446,9 @@ pub fn run() {
             commands::secrets::secret_get,
             commands::secrets::secret_has,
             commands::secrets::secret_delete,
+            // Attachments — 첨부 파일 저장/삭제
+            commands::attachments::save_attachment,
+            commands::attachments::delete_attachment,
             // PTY
             commands::pty::pty_spawn,
             commands::pty::pty_write,
