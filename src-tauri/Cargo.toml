@@ -2,6 +2,9 @@
 name = "tuna-flow"
 version = "0.1.0"
 edition = "2021"
+# Multiple bins exist (tuna-flow desktop app, eval_retrieval CLI). Pin the
+# default so `cargo run` (Tauri dev server) resolves unambiguously.
+default-run = "tuna-flow"
 
 [lib]
 name = "tuna_flow_lib"
