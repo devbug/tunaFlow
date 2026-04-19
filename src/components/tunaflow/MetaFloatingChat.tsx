@@ -51,7 +51,11 @@ export function MetaFloatingChat({ projectKey }: MetaFloatingChatProps) {
   const [running, setRunning] = useState(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [notifs, setNotifs] = useState<MetaNotification[]>(() => loadNotifs());
-  const [inboxOpen, setInboxOpen] = useState(false);
+  // Single popup with two tabs — prior split (button opens chat / tiny badge opens
+  // inbox dropdown) caused '배지 1이지만 클릭해도 내용 없음' because the 16×16 badge
+  // was below the 44pt touch target and users hit the main button, which opens
+  // chat (empty meta conv) and auto-closes inbox. Now both live in the same popup.
+  const [activeTab, setActiveTab] = useState<"inbox" | "chat">("chat");
   const [pos, setPos] = useState<{ x: number; y: number }>(loadPos);
   const posRef = useRef(pos);
   posRef.current = pos;
@@ -156,8 +160,8 @@ export function MetaFloatingChat({ projectKey }: MetaFloatingChatProps) {
     if (r.stage) window.dispatchEvent(new CustomEvent("tunaflow:switch-stage", { detail: r.stage }));
     if (r.planId) window.dispatchEvent(new CustomEvent("tunaflow:focus-plan", { detail: r.planId }));
     if (r.messageId) window.dispatchEvent(new CustomEvent("tunaflow:scroll-to-message", { detail: r.messageId }));
-    setInboxOpen(false);
-  }, []);
+    if (!pinned) setOpen(false);
+  }, [pinned]);
 
   /** C — "메타에게 물어보기": 알림 하나를 선택해 메타 채팅 패널을 열면서
    *  해당 맥락을 input 에 자동 주입. 사용자는 엔터만 누르거나 질문을 덧붙여 전송.
@@ -170,7 +174,7 @@ export function MetaFloatingChat({ projectKey }: MetaFloatingChatProps) {
       return next;
     });
     invoke("mark_meta_notification_read", { id: notif.id }).catch(() => {});
-    // 메타 채팅 패널 열기 + 컨텍스트 질문 prompt 주입
+    // 메타 채팅 탭으로 전환 + 컨텍스트 질문 prompt 주입
     const prompt = [
       `알림: **${notif.title}**`,
       notif.summary ? `요약: ${notif.summary}` : "",
@@ -178,9 +182,8 @@ export function MetaFloatingChat({ projectKey }: MetaFloatingChatProps) {
       `위 이벤트에 대해 분석해주시고, 다음 권장 액션을 제안해주세요.`,
     ].filter(Boolean).join("\n");
     setInput(prompt);
-    setInboxOpen(false);
+    setActiveTab("chat");
     setOpen(true);
-    // 다음 tick 에 input 포커스
     setTimeout(() => inputRef.current?.focus(), 50);
   }, []);
 
@@ -219,8 +222,6 @@ export function MetaFloatingChat({ projectKey }: MetaFloatingChatProps) {
   useEffect(() => {
     if (open && metaConvId) {
       loadMessages();
-      // 채팅 패널 열면 inbox 자동 닫기 (두 UI 가 겹치지 않게)
-      setInboxOpen(false);
     }
   }, [open, metaConvId, loadMessages]);
 
@@ -330,8 +331,15 @@ export function MetaFloatingChat({ projectKey }: MetaFloatingChatProps) {
 
   const toggleOpen = () => {
     if (pinned) return; // pinned = always open
-    setOpen((v) => !v);
-    if (!open) setTimeout(() => inputRef.current?.focus(), 100);
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    // Opening: prefer Inbox tab when there are unread, else Chat (preserves
+    // prior behavior for empty inbox).
+    setActiveTab(unreadCount > 0 ? "inbox" : "chat");
+    setOpen(true);
+    if (unreadCount === 0) setTimeout(() => inputRef.current?.focus(), 100);
   };
 
   const handleButtonMouseDown = (e: React.MouseEvent) => {
@@ -408,90 +416,17 @@ export function MetaFloatingChat({ projectKey }: MetaFloatingChatProps) {
         >
           <Bot className="w-4 h-4" />
         </button>
+        {/* Display-only unread badge — not a click target. The whole Bot button
+            opens the unified popup; initial tab is chosen by unreadCount. */}
         {unreadCount > 0 && !isOpen && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setInboxOpen((v) => !v); }}
-            className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-400 text-[9px] font-bold text-black flex items-center justify-center hover:bg-amber-300 transition-colors"
-            title="알림함 열기"
+          <div
+            className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-400 text-[9px] font-bold text-black flex items-center justify-center pointer-events-none"
+            aria-label={`미읽 알림 ${unreadCount}개`}
           >
             {unreadCount > 9 ? "9+" : unreadCount}
-          </button>
-        )}
-        {/* 배지 없어도 오른쪽 클릭으로 inbox 열 수 있게 small button */}
-        {unreadCount === 0 && notifs.length > 0 && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setInboxOpen((v) => !v); }}
-            className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-muted text-[8px] text-muted-foreground flex items-center justify-center hover:bg-accent transition-colors"
-            title="알림함 (읽음 포함)"
-          >
-            <Inbox className="w-2.5 h-2.5" />
-          </button>
+          </div>
         )}
       </div>
-
-      {/* Inbox dropdown — 알림 리스트 */}
-      {inboxOpen && (
-        <div
-          className="absolute z-[61] w-[320px] max-h-[400px] flex flex-col bg-background border border-border/40 rounded-xl shadow-2xl overflow-hidden"
-          style={{
-            ...(openUpward
-              ? { bottom: BUTTON_SIZE + 8 }
-              : { top: BUTTON_SIZE + 8 }),
-            left: 0,
-          }}
-        >
-          <div className="flex items-center gap-2 px-3 h-9 border-b border-border/30 bg-muted/20">
-            <Inbox className="w-3.5 h-3.5 text-muted-foreground" />
-            <span className="text-[12px] font-medium text-foreground flex-1">알림함 ({notifs.filter((n) => !n.dismissed).length})</span>
-            {unreadCount > 0 && (
-              <button onClick={markAllRead} className="text-[10px] text-muted-foreground hover:text-foreground">모두 읽음</button>
-            )}
-            {notifs.length > 0 && (
-              <button onClick={clearAllNotifs} className="text-muted-foreground/50 hover:text-destructive p-1" title="전체 삭제">
-                <Trash2 className="w-3 h-3" />
-              </button>
-            )}
-            <button onClick={() => setInboxOpen(false)} className="text-muted-foreground/50 hover:text-foreground p-1">
-              <X className="w-3 h-3" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {notifs.filter((n) => !n.dismissed).length === 0 ? (
-              <p className="text-[11px] text-muted-foreground/50 text-center py-8">알림 없음</p>
-            ) : (
-              <ul className="divide-y divide-border/20">
-                {notifs.filter((n) => !n.dismissed).slice(0, 30).map((n) => (
-                  <li key={n.id} className={cn("group px-3 py-2 hover:bg-accent/30 transition-colors", !n.read && "bg-amber-500/5")}>
-                    <div className="flex items-start gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-medium text-foreground truncate">{n.title}</p>
-                        {n.summary && <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">{n.summary}</p>}
-                        <p className="text-[9px] text-muted-foreground/50 mt-0.5">
-                          {new Date(n.createdAt).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                          {!n.read && <span className="ml-1.5 text-amber-500">●</span>}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => askMetaAbout(n)} className="p-1 rounded hover:bg-primary/10 text-primary" title="메타에게 물어보기">
-                          <Bot className="w-3 h-3" />
-                        </button>
-                        {n.route && (
-                          <button onClick={() => routeTo(n)} className="p-1 rounded hover:bg-primary/10 text-primary" title="관련 위치로 이동">
-                            <ChevronRight className="w-3 h-3" />
-                          </button>
-                        )}
-                        <button onClick={() => dismissNotif(n.id)} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive" title="닫기">
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Popup chat panel — direction flips based on position */}
       {isOpen && (
@@ -533,60 +468,155 @@ export function MetaFloatingChat({ projectKey }: MetaFloatingChatProps) {
             )}
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-0">
-            {messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
-                <Bot className="w-8 h-8 text-muted-foreground/20" />
-                <p className="text-[12px] text-muted-foreground/40">
-                  프로젝트 상태 분석, 이슈 감지, 우선순위 제안을 도와드립니다.
-                </p>
-                <p className="text-[11px] text-muted-foreground/25">
-                  "프로젝트 상태 확인해줘" 로 시작해보세요
-                </p>
-              </div>
-            )}
-            {messages.map((msg) => (
-              <MetaMessage
-                key={msg.id}
-                message={msg}
-                isStreaming={msg.id === streamingId}
-              />
-            ))}
-            <div ref={messagesEndRef} />
+          {/* Tab bar — Inbox ↔ Chat */}
+          <div className="flex border-b border-border/30 shrink-0 bg-card/30">
+            <button
+              onClick={() => setActiveTab("inbox")}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium transition-colors",
+                activeTab === "inbox"
+                  ? "text-foreground border-b-2 border-primary -mb-px"
+                  : "text-muted-foreground/60 hover:text-foreground"
+              )}
+            >
+              <Inbox className="w-3 h-3" />
+              알림함
+              {unreadCount > 0 && (
+                <span className="ml-0.5 px-1 rounded-full bg-amber-400 text-black text-[9px] font-bold">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("chat");
+                setTimeout(() => inputRef.current?.focus(), 50);
+              }}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium transition-colors",
+                activeTab === "chat"
+                  ? "text-foreground border-b-2 border-primary -mb-px"
+                  : "text-muted-foreground/60 hover:text-foreground"
+              )}
+            >
+              <Send className="w-3 h-3" />
+              대화
+            </button>
           </div>
 
-          {/* Input */}
-          <div className="px-3 py-2 border-t border-border/20 shrink-0 bg-card/30">
-            <div className="flex items-end gap-2">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Meta에게 물어보기..."
-                rows={1}
-                className="flex-1 resize-none bg-transparent text-[12px] text-foreground placeholder:text-muted-foreground/30 outline-none border border-border/20 rounded-lg px-3 py-2 min-h-[36px] max-h-[80px] overflow-y-auto"
-                style={{ height: "auto" }}
-                onInput={(e) => {
-                  const el = e.currentTarget;
-                  el.style.height = "auto";
-                  el.style.height = `${Math.min(el.scrollHeight, 80)}px`;
-                }}
-                disabled={running || isMetaRunning}
-              />
-              <button
-                onClick={handleSend}
-                disabled={!input.trim() || running || isMetaRunning}
-                className="p-2 rounded-lg bg-primary/80 hover:bg-primary text-primary-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
-              >
-                {running || isMetaRunning
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <Send className="w-3.5 h-3.5" />
-                }
-              </button>
+          {/* Body — Inbox list OR Messages, based on activeTab */}
+          {activeTab === "inbox" ? (
+            <div className="flex flex-col flex-1 min-h-0">
+              {notifs.filter((n) => !n.dismissed).length > 0 && (
+                <div className="flex items-center gap-2 px-3 h-8 border-b border-border/20 bg-muted/10">
+                  <span className="text-[10px] text-muted-foreground flex-1">
+                    {notifs.filter((n) => !n.dismissed).length}개
+                  </span>
+                  {unreadCount > 0 && (
+                    <button onClick={markAllRead} className="text-[10px] text-muted-foreground hover:text-foreground">모두 읽음</button>
+                  )}
+                  <button onClick={clearAllNotifs} className="text-muted-foreground/50 hover:text-destructive p-1" title="전체 삭제">
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+              <div className="flex-1 overflow-y-auto">
+                {notifs.filter((n) => !n.dismissed).length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
+                    <Inbox className="w-7 h-7 text-muted-foreground/20" />
+                    <p className="text-[11px] text-muted-foreground/50">알림 없음</p>
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-border/20">
+                    {notifs.filter((n) => !n.dismissed).slice(0, 30).map((n) => (
+                      <li key={n.id} className={cn("group px-3 py-2 hover:bg-accent/30 transition-colors", !n.read && "bg-amber-500/5")}>
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[12px] font-medium text-foreground truncate">{n.title}</p>
+                            {n.summary && <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">{n.summary}</p>}
+                            <p className="text-[9px] text-muted-foreground/50 mt-0.5">
+                              {new Date(n.createdAt).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                              {!n.read && <span className="ml-1.5 text-amber-500">●</span>}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => askMetaAbout(n)} className="p-1 rounded hover:bg-primary/10 text-primary" title="메타에게 물어보기">
+                              <Bot className="w-3 h-3" />
+                            </button>
+                            {n.route && (
+                              <button onClick={() => routeTo(n)} className="p-1 rounded hover:bg-primary/10 text-primary" title="관련 위치로 이동">
+                                <ChevronRight className="w-3 h-3" />
+                              </button>
+                            )}
+                            <button onClick={() => dismissNotif(n.id)} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive" title="닫기">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <>
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-0">
+                {messages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
+                    <Bot className="w-8 h-8 text-muted-foreground/20" />
+                    <p className="text-[12px] text-muted-foreground/40">
+                      프로젝트 상태 분석, 이슈 감지, 우선순위 제안을 도와드립니다.
+                    </p>
+                    <p className="text-[11px] text-muted-foreground/25">
+                      "프로젝트 상태 확인해줘" 로 시작해보세요
+                    </p>
+                  </div>
+                )}
+                {messages.map((msg) => (
+                  <MetaMessage
+                    key={msg.id}
+                    message={msg}
+                    isStreaming={msg.id === streamingId}
+                  />
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Input */}
+              <div className="px-3 py-2 border-t border-border/20 shrink-0 bg-card/30">
+                <div className="flex items-end gap-2">
+                  <textarea
+                    ref={inputRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Meta에게 물어보기..."
+                    rows={1}
+                    className="flex-1 resize-none bg-transparent text-[12px] text-foreground placeholder:text-muted-foreground/30 outline-none border border-border/20 rounded-lg px-3 py-2 min-h-[36px] max-h-[80px] overflow-y-auto"
+                    style={{ height: "auto" }}
+                    onInput={(e) => {
+                      const el = e.currentTarget;
+                      el.style.height = "auto";
+                      el.style.height = `${Math.min(el.scrollHeight, 80)}px`;
+                    }}
+                    disabled={running || isMetaRunning}
+                  />
+                  <button
+                    onClick={handleSend}
+                    disabled={!input.trim() || running || isMetaRunning}
+                    className="p-2 rounded-lg bg-primary/80 hover:bg-primary text-primary-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+                  >
+                    {running || isMetaRunning
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Send className="w-3.5 h-3.5" />
+                    }
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
