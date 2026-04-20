@@ -604,7 +604,7 @@ export function scanAllReviewerVerdicts(
 // ─── Tool request markers ──────────────────────────────────────────────────
 
 export interface ToolRequest {
-  type: "docs" | "rawq" | "graph" | "plans" | "memory" | "sessions" | "skills" | "artifacts" | "lessons" | "insight-update" | "insight" | "recent_turns";
+  type: "docs" | "rawq" | "graph" | "plans" | "memory" | "sessions" | "skills" | "artifacts" | "lessons" | "insight-update" | "insight" | "recent_turns" | "probe_message" | "fetch_slice" | "full_message";
   query: string;
 }
 
@@ -613,6 +613,7 @@ const TOOL_REQUEST_RE = /<!--\s*tunaflow:tool-request:([\w-]+):(.+?)\s*-->/g;
 const VALID_TOOL_REQUEST_TYPES = [
   "docs", "rawq", "graph", "plans", "memory", "sessions", "skills",
   "artifacts", "lessons", "insight-update", "insight", "recent_turns",
+  "probe_message", "fetch_slice", "full_message",
 ] as const;
 
 /** Extract all tool-request markers from a message. */

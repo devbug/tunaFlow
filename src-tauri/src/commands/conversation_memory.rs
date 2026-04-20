@@ -151,6 +151,12 @@ pub struct RecentTurn {
 }
 
 const RECENT_TURN_MAX_CHARS: usize = 4_000;
+/// Per-call cap for `fetch_message_slice`. Meant as a safety guard against a
+/// runaway `len` — the agent is expected to pick something reasonable (≤8_000).
+const MESSAGE_SLICE_MAX_LEN: usize = 16_000;
+/// Cap for `probe_message` head/tail preview lengths. Agent can request up to
+/// this for each side; default is 200.
+const MESSAGE_PROBE_MAX_PREVIEW: usize = 1_000;
 
 #[tauri::command]
 pub fn list_recent_turns(
@@ -184,6 +190,134 @@ pub fn list_recent_turns(
     let mut out = rows;
     out.reverse();
     Ok(out)
+}
+
+// ─── Tiered message inspection (B' — probe / slice / full) ──────────────────
+//
+// Motivation: `list_recent_turns` caps every message at RECENT_TURN_MAX_CHARS
+// and injects all N turns into the next-turn context even when the agent only
+// needs to peek at one of them. These three commands let the agent pay just for
+// what it actually reads.
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageProbe {
+    pub id: String,
+    pub role: String,
+    pub persona: Option<String>,
+    pub engine: Option<String>,
+    /// Full content length in `chars()` (not bytes).
+    pub length: usize,
+    pub head: String,
+    pub tail: String,
+    pub timestamp: i64,
+}
+
+/// Returns a small metadata packet for a specific message: id/role/persona/
+/// engine/timestamp + content length + head/tail previews (default 200 chars
+/// each, clamped to MESSAGE_PROBE_MAX_PREVIEW). Designed to be ≤1 KB so the
+/// agent can cheaply verify "is the full content really in the DB?" without
+/// paying for the whole body.
+#[tauri::command]
+pub fn probe_message(
+    message_id: String,
+    head_len: Option<i64>,
+    tail_len: Option<i64>,
+    state: tauri::State<crate::db::DbState>,
+) -> Result<MessageProbe, AppError> {
+    let head_n = head_len.unwrap_or(200).clamp(0, MESSAGE_PROBE_MAX_PREVIEW as i64) as usize;
+    let tail_n = tail_len.unwrap_or(200).clamp(0, MESSAGE_PROBE_MAX_PREVIEW as i64) as usize;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
+    let (role, persona, engine, content, timestamp): (String, Option<String>, Option<String>, String, i64) =
+        conn.query_row(
+            "SELECT role, persona, engine, content, timestamp FROM messages WHERE id = ?1",
+            [&message_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .map_err(|_| AppError::NotFound(format!("message {message_id} not found")))?;
+
+    let total_chars = content.chars().count();
+    let head: String = content.chars().take(head_n).collect();
+    let tail: String = if total_chars > head_n + tail_n {
+        content.chars().skip(total_chars - tail_n).collect()
+    } else {
+        // Short message — whole content already in head; tail is empty to avoid
+        // overlap/duplication. Agent sees length == head.chars().count().
+        String::new()
+    };
+    Ok(MessageProbe { id: message_id, role, persona, engine, length: total_chars, head, tail, timestamp })
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageSlice {
+    pub id: String,
+    /// Total length in chars of the full content (not the returned slice).
+    pub length: usize,
+    /// Start offset (in chars) of the returned slice.
+    pub offset: usize,
+    /// End offset (in chars) of the returned slice, exclusive.
+    pub end: usize,
+    pub content: String,
+}
+
+/// Returns a [offset, offset+len) char slice of a message's content. `len` is
+/// capped at MESSAGE_SLICE_MAX_LEN. If `offset >= length`, returns an empty
+/// slice. Agent uses this to fetch specific sections of a long message without
+/// pulling the whole thing.
+#[tauri::command]
+pub fn fetch_message_slice(
+    message_id: String,
+    offset: i64,
+    len: i64,
+    state: tauri::State<crate::db::DbState>,
+) -> Result<MessageSlice, AppError> {
+    let off = offset.max(0) as usize;
+    let cap = len.clamp(0, MESSAGE_SLICE_MAX_LEN as i64) as usize;
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
+    let content: String = conn
+        .query_row(
+            "SELECT content FROM messages WHERE id = ?1",
+            [&message_id],
+            |r| r.get(0),
+        )
+        .map_err(|_| AppError::NotFound(format!("message {message_id} not found")))?;
+    let total = content.chars().count();
+    let slice: String = content.chars().skip(off).take(cap).collect();
+    let end = (off + slice.chars().count()).min(total);
+    Ok(MessageSlice { id: message_id, length: total, offset: off, end, content: slice })
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FullMessage {
+    pub id: String,
+    pub role: String,
+    pub persona: Option<String>,
+    pub engine: Option<String>,
+    pub content: String,
+    pub length: usize,
+    pub timestamp: i64,
+}
+
+/// Returns a message's full content without any truncation. Use sparingly —
+/// this feeds the entire body into the next turn's context. Prefer
+/// `probe_message` + `fetch_message_slice` when only a portion is needed.
+#[tauri::command]
+pub fn fetch_full_message(
+    message_id: String,
+    state: tauri::State<crate::db::DbState>,
+) -> Result<FullMessage, AppError> {
+    let conn = state.read.lock().map_err(|_| AppError::Lock)?;
+    let (role, persona, engine, content, timestamp): (String, Option<String>, Option<String>, String, i64) =
+        conn.query_row(
+            "SELECT role, persona, engine, content, timestamp FROM messages WHERE id = ?1",
+            [&message_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .map_err(|_| AppError::NotFound(format!("message {message_id} not found")))?;
+    let length = content.chars().count();
+    Ok(FullMessage { id: message_id, role, persona, engine, content, length, timestamp })
 }
 
 /// Tauri command: trigger memory compression for a conversation.

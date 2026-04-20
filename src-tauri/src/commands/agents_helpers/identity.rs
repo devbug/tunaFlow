@@ -53,7 +53,10 @@ You are an agent in tunaFlow, a multi-agent orchestration platform.\n\
   - `<!-- tunaflow:tool-request:graph:PATTERN TARGET -->` — Query code graph (callers_of, tests_for, etc.)\n\
   - `<!-- tunaflow:tool-request:plans:completed -->` — List completed plans in this conversation\n\
   - `<!-- tunaflow:tool-request:memory:TOPIC -->` — Recall compressed conversation memory by topic (long-term summary)\n\
-  - `<!-- tunaflow:tool-request:recent_turns:N -->` — Fetch the last N user/assistant turns of the CURRENT conversation in full (default 3, max 10). Use when you forgot your own previous reply or need the exact earlier phrasing.\n\
+  - `<!-- tunaflow:tool-request:recent_turns:N -->` — Fetch the last N user/assistant turns of the CURRENT conversation (default 3, max 10). Each message is capped at 4000 chars per turn — agent will see '…(tail truncated)' for long messages. For longer messages use the tiered inspection tools below.\n\
+  - `<!-- tunaflow:tool-request:probe_message:MESSAGE_ID -->` — Cheap metadata probe (~1 KB): length in chars, role, persona, engine, head+tail previews (200 chars each). Use FIRST when you suspect a message was truncated in recent_turns — confirms DB has full content before paying for the body.\n\
+  - `<!-- tunaflow:tool-request:fetch_slice:MESSAGE_ID:OFFSET:LEN -->` — Read a specific [offset, offset+len) char slice of a message. LEN capped at 16 000. Use when you only need a mid-section (e.g. after probe_message told you total length is 20 000 chars and you want chars 4000-8000).\n\
+  - `<!-- tunaflow:tool-request:full_message:MESSAGE_ID -->` — Fetch the ENTIRE message content without truncation. Use sparingly — this injects the full body into your next turn's context. Prefer probe/slice unless you really need the whole thing.\n\
   - `<!-- tunaflow:tool-request:sessions:QUERY -->` — Find related past sessions\n\
   - `<!-- tunaflow:tool-request:skills:KEYWORD -->` — Load skill documentation by keyword\n\
   - `<!-- tunaflow:tool-request:artifacts:TITLE -->` — Fetch artifact content by title/ID\n\

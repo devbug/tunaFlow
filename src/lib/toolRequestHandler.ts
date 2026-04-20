@@ -122,6 +122,71 @@ export async function executeToolRequests(requests: ToolRequest[]): Promise<stri
             results.push(`> 현재 대화에서 최근 turn 을 찾지 못했습니다. (아직 주고받은 메시지 없음)`);
           }
         }
+      } else if (req.type === "probe_message") {
+        // Tiered inspection B' — cheap metadata probe (~1 KB) for a specific message.
+        // Use when a message appeared truncated in recent_turns and you need to confirm
+        // DB has the full content before fetching a larger slice.
+        const messageId = req.query.trim();
+        if (messageId) {
+          type Probe = { id: string; role: string; persona: string | null; engine: string | null;
+            length: number; head: string; tail: string; timestamp: number };
+          try {
+            const probe = await invoke<Probe>("probe_message", { messageId });
+            const header = `${probe.role}${probe.persona ? `:${probe.persona}` : ""}${probe.engine ? ` (${probe.engine})` : ""}`;
+            const when = new Date(probe.timestamp).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+            results.push(
+              `## 🔍 Probe ${messageId.slice(0, 8)}…\n\n` +
+              `- **Length**: ${probe.length.toLocaleString("ko-KR")} chars\n` +
+              `- **Author**: ${header}\n- **When**: ${when}\n\n` +
+              `### Head (200)\n${probe.head}\n\n### Tail (200)\n${probe.tail || "(message shorter than head+tail — see head only)"}`
+            );
+          } catch (e) {
+            results.push(`> probe_message 실패: ${String(e)}`);
+          }
+        }
+      } else if (req.type === "fetch_slice") {
+        // Tiered inspection B' — read a [offset, offset+len) slice.
+        // Query format: "<messageId>:<offset>:<len>". LEN capped at 16 000 server-side.
+        const parts = req.query.split(":");
+        if (parts.length >= 3) {
+          const messageId = parts[0].trim();
+          const offset = parseInt(parts[1], 10);
+          const len = parseInt(parts[2], 10);
+          if (messageId && Number.isFinite(offset) && Number.isFinite(len)) {
+            type Slice = { id: string; length: number; offset: number; end: number; content: string };
+            try {
+              const slice = await invoke<Slice>("fetch_message_slice", { messageId, offset, len });
+              results.push(
+                `## 🪄 Slice ${messageId.slice(0, 8)}… [${slice.offset}..${slice.end}] / ${slice.length}\n\n` +
+                `${slice.content || "(empty — offset beyond message length)"}`
+              );
+            } catch (e) {
+              results.push(`> fetch_slice 실패: ${String(e)}`);
+            }
+          } else {
+            results.push(`> fetch_slice 파싱 실패: 기대 형식 \`<messageId>:<offset>:<len>\`, 받은 값: \`${req.query}\``);
+          }
+        } else {
+          results.push(`> fetch_slice 인자 부족: \`<messageId>:<offset>:<len>\` 형식 필요`);
+        }
+      } else if (req.type === "full_message") {
+        // Tiered inspection B' — full content, no truncation. Heavy — prefer probe/slice.
+        const messageId = req.query.trim();
+        if (messageId) {
+          type Full = { id: string; role: string; persona: string | null; engine: string | null;
+            content: string; length: number; timestamp: number };
+          try {
+            const full = await invoke<Full>("fetch_full_message", { messageId });
+            const header = `${full.role}${full.persona ? `:${full.persona}` : ""}${full.engine ? ` (${full.engine})` : ""}`;
+            const when = new Date(full.timestamp).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+            results.push(
+              `## 📄 Full message ${messageId.slice(0, 8)}… (${full.length.toLocaleString("ko-KR")} chars)\n` +
+              `- ${header} · ${when}\n\n${full.content}`
+            );
+          } catch (e) {
+            results.push(`> full_message 실패: ${String(e)}`);
+          }
+        }
       } else if (req.type === "sessions") {
         // Tier 2 Pull: cross-session search
         const { useChatStore } = await import("@/stores/chatStore");

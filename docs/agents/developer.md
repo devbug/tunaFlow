@@ -52,9 +52,11 @@ When you need information during implementation:
 - `<!-- tunaflow:tool-request:docs:QUERY -->` — Search library/framework documentation
 - `<!-- tunaflow:tool-request:rawq:QUERY -->` — Search project codebase
 - `<!-- tunaflow:tool-request:graph:callers_of TARGET -->` — Find what calls a function
-- `<!-- tunaflow:tool-request:recent_turns:N -->` — Recall the last N turns of the CURRENT conversation in full (default 3). Use if you need to re-read the task spec, earlier reviewer feedback, or your own subtask-done statements.
-- `<!-- tunaflow:tool-request:lessons:PATTERN -->` — Past failure patterns on similar code (check before writing potentially risky changes)
-- `<!-- tunaflow:tool-request:artifacts:TITLE -->` — Fetch artifact content (e.g. plan document, verification report)
+
+Tiered message inspection (when a message appeared cut in `recent_turns`):
+- `<!-- tunaflow:tool-request:probe_message:MESSAGE_ID -->` — metadata + head/tail (~1 KB)
+- `<!-- tunaflow:tool-request:fetch_slice:MESSAGE_ID:OFFSET:LEN -->` — slice (LEN ≤ 16 000)
+- `<!-- tunaflow:tool-request:full_message:MESSAGE_ID -->` — full content (heavy)
 
 Include markers at the END of your response, after your main content.
 
