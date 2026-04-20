@@ -7,6 +7,7 @@ import { useToolStepsStore } from "@/stores/toolStepsStore";
 import { handleToolRequests, saveToolSteps } from "./agentStreamHelper";
 import { autoSyncImplCompletion, autoDetectReviewVerdict } from "@/lib/workflow/branchSync";
 import { runThreadRoundtable } from "./threadRtRunner";
+import { resolveModel, createPlaceholders, buildSendInput } from "@/lib/sendPipeline";
 import type {
   SetState,
   GetState,
@@ -15,7 +16,6 @@ import type {
   Message,
   Memo,
   Artifact,
-  SendWithClaudeInput,
   RoundtableParticipant,
   RtMode,
 } from "./types";
@@ -175,20 +175,9 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
     if (!threadBranchConvId || !selectedProjectKey || !threadBranchId) return;
     const convId = threadBranchConvId; // narrowed: string (guaranteed by guard above)
     const engineKey = engine ?? "claude";
-    const isSystemFollowup = !!opts?.userMessageId;
 
-    // runtimeSlice.sendWithEngine 와 동일한 model 폴백 규칙 (engine 일치 시 conv 저장값,
-    // 아니면 agentProfiles 의 engine 매칭 프로필 model). 자동 전송 경로에서 model 인자
-    // 누락 시 codex app-server 400 방지.
     if (!model) {
-      const state = get();
-      const saved = state._convEngineMap[convId];
-      if (saved?.engine === engineKey && saved?.model) {
-        model = saved.model;
-      } else {
-        const prof = state.agentProfiles.find((p) => p.engine === engineKey && p.model);
-        if (prof?.model) model = prof.model;
-      }
+      model = resolveModel(get(), convId, engineKey);
       if (!model) {
         console.warn(`[sendThreadMessage] model unresolved for engine=${engineKey} conv=${convId.slice(0, 12)}…`);
       }
@@ -270,43 +259,31 @@ export const createThreadSlice = (set: SetState, get: GetState): ThreadSlice => 
     get()._startRun(convId);
 
     const now = Date.now();
+    const threadEngineConfig = ENGINE_CONFIGS[engine ?? "claude"] ?? ENGINE_CONFIGS.claude;
+    const [firstMsg, thinkingMsg] = createPlaceholders({
+      convId,
+      prompt,
+      engineKey: threadEngineConfig.engineKey,
+      model,
+      progressLabel: threadEngineConfig.label,
+      userMessageId: opts?.userMessageId,
+      now,
+    });
     set((state) => ({
-      threadMessages: [
-        ...state.threadMessages,
-        // Tool-request auto follow-up 은 사용자가 직접 입력한 게 아니므로
-        // role="system" 으로 구분. `userMessageId` 가 주어지면 백엔드가
-        // persist_system_msg 로 이미 저장한 system 메시지 ID 를 그대로 씀.
-        isSystemFollowup
-          ? { id: opts!.userMessageId!, conversationId: convId, role: "system" as const, content: prompt, timestamp: now, status: "done" as const }
-          : { id: `temp-user-${now}`, conversationId: convId, role: "user" as const, content: prompt, timestamp: now, status: "done" as const },
-        { id: `temp-thinking-${now}`, conversationId: convId, role: "assistant", content: "", progressContent: (ENGINE_CONFIGS[engine ?? "claude"] ?? ENGINE_CONFIGS.claude).label, timestamp: now, status: "streaming", engine: (ENGINE_CONFIGS[engine ?? "claude"] ?? ENGINE_CONFIGS.claude).engineKey, model },
-      ],
+      threadMessages: [...state.threadMessages, firstMsg, thinkingMsg],
     }));
 
-    const { getSetting } = await import("@/lib/appStore");
-    const budgetCfg = await getSetting<{ mode: string; totalCap: number }>("contextBudgetConfig", { mode: "auto", totalCap: 60000 });
-    const userProfile = await getSetting("userProfile", null as unknown as object).catch(() => null);
-    // Resolve phase-based workflow skills
-    const planPhase = await invoke<string | null>("get_active_plan_phase", { conversationId: convId }).catch(() => null);
-    const effectiveSkills = get().getEffectiveSkills(planPhase, prompt);
-    const input: SendWithClaudeInput = {
+    const input = await buildSendInput({
       projectKey: selectedProjectKey,
       conversationId: convId,
       prompt,
       model,
-      activeSkills: effectiveSkills,
-      crossSessionIds: get().crossSessionIds,
       personaFragment: get().personaFragment ?? undefined,
       personaLabel: get().personaLabel ?? undefined,
-      contextModeOverride: budgetCfg.mode === "auto" ? undefined : budgetCfg.mode,
-      contextBudgetCap: budgetCfg.totalCap === 60000 ? undefined : budgetCfg.totalCap,
-      userProfileJson: userProfile ? JSON.stringify(userProfile) : undefined,
-      // When this send is a system-followup (tool-request result), the system
-      // message has already been persisted via persist_system_msg → pass the
-      // pre-existing id so Rust skips user-message creation.
-      ...(opts?.userMessageId ? { userMessageId: opts.userMessageId } : {}),
-      ...(opts?.imagePaths && opts.imagePaths.length > 0 ? { imagePaths: opts.imagePaths } : {}),
-    };
+      crossSessionIds: get().crossSessionIds,
+      getEffectiveSkills: get().getEffectiveSkills,
+      opts,
+    });
 
     // Event listeners for streaming updates
     const { listen } = await import("@tauri-apps/api/event");

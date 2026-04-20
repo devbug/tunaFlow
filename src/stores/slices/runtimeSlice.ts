@@ -3,29 +3,19 @@ import { listen } from "@tauri-apps/api/event";
 import { errorMessage } from "@/lib/utils";
 import { usePtyStore, isPtyEngine } from "@/stores/ptyStore";
 import { sendMessageViaPty } from "./ptyMessageSender";
-import { getSetting } from "@/lib/appStore";
 import { useToolStepsStore } from "@/stores/toolStepsStore";
 import { serializeSteps } from "@/lib/toolSteps";
 import { createRtChunkBatcher, createSingleChunkThrottler } from "./streamingUtils";
+import { resolveModel, createPlaceholders, buildSendInput } from "@/lib/sendPipeline";
 import type {
   SetState,
   GetState,
   QueuedAction,
   Message,
-  SendWithClaudeInput,
   RoundtableRunInput,
   RoundtableParticipant,
   RtMode,
 } from "./types";
-
-/** Load context budget config from appStore and return fields for SendWithClaudeInput */
-async function loadBudgetOverrides(): Promise<{ contextModeOverride?: string; contextBudgetCap?: number }> {
-  const cfg = await getSetting<{ mode: string; totalCap: number }>("contextBudgetConfig", { mode: "auto", totalCap: 60000 });
-  return {
-    contextModeOverride: cfg.mode === "auto" ? undefined : cfg.mode,
-    contextBudgetCap: cfg.totalCap === 60000 ? undefined : cfg.totalCap,
-  };
-}
 
 // ─── Engine configuration — canonical source: lib/engineConfig ──────────────
 import { ENGINE_CONFIGS } from "@/lib/engineConfig";
@@ -117,20 +107,8 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     const { selectedProjectKey, selectedConversationId, runningThreadIds } = get();
     if (!selectedProjectKey || !selectedConversationId) return;
 
-    // model 방어선 — 호출부에서 인자를 잊어도 backend 가 model=None 으로 빠져
-    // codex app-server 400 등이 나지 않도록 store 레벨에서 폴백. 우선순위:
-    //   1) 같은 engine 으로 이 대화에 저장된 _convEngineMap[conv].model
-    //   2) agentProfiles 에서 engine 매칭되는 첫 프로필의 model
-    // 둘 다 없으면 그대로 undefined 전달(경고 로그 1회).
     if (!model) {
-      const state = get();
-      const saved = state._convEngineMap[selectedConversationId];
-      if (saved?.engine === engine && saved?.model) {
-        model = saved.model;
-      } else {
-        const prof = state.agentProfiles.find((p) => p.engine === engine && p.model);
-        if (prof?.model) model = prof.model;
-      }
+      model = resolveModel(get(), selectedConversationId, engine);
       if (!model) {
         console.warn(`[sendWithEngine] model unresolved for engine=${engine} conv=${selectedConversationId.slice(0, 12)}…`);
       }
@@ -174,16 +152,18 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     get()._startRun(selectedConversationId);
     const now = Date.now();
     const persona = get().personaLabel ?? undefined;
-    const isSystemFollowup = !!opts?.userMessageId;
+    const [firstMsg, thinkingMsg] = createPlaceholders({
+      convId: selectedConversationId,
+      prompt,
+      engineKey: config.engineKey,
+      model,
+      persona,
+      userMessageId: opts?.userMessageId,
+      now,
+    });
     set((state) => ({
       error: null,
-      messages: [
-        ...state.messages,
-        ...(isSystemFollowup
-          ? [{ id: opts!.userMessageId!, conversationId: selectedConversationId, role: "system" as const, content: prompt, timestamp: now, status: "done" as const }]
-          : [{ id: `temp-user-${now}`, conversationId: selectedConversationId, role: "user" as const, content: prompt, timestamp: now, status: "done" as const }]),
-        { id: `temp-thinking-${now}`, conversationId: selectedConversationId, role: "assistant" as const, content: "", timestamp: now, status: "streaming" as const, engine: config.engineKey, model, persona },
-      ],
+      messages: [...state.messages, firstMsg, thinkingMsg],
     }));
 
     // Helper: replace placeholder with real message on first event, update content on subsequent
@@ -322,25 +302,19 @@ export const createRuntimeSlice = (set: SetState, get: GetState): RuntimeSlice =
     });
 
     try {
-      const bo = await loadBudgetOverrides();
-      // Resolve phase-based workflow skills
-      const planPhase = await invoke<string | null>("get_active_plan_phase", { conversationId: selectedConversationId }).catch(() => null);
-      const effectiveSkills = get().getEffectiveSkills(planPhase, prompt);
-      const userProfile = await getSetting("userProfile", null as unknown as object).catch(() => null);
-      const input: SendWithClaudeInput = {
+      const input = await buildSendInput({
         projectKey: selectedProjectKey,
         conversationId: selectedConversationId,
-        prompt, model, systemPrompt,
+        prompt,
         engine,
-        activeSkills: effectiveSkills,
-        crossSessionIds: get().crossSessionIds,
+        model,
+        systemPrompt,
         personaFragment: get().personaFragment ?? undefined,
         personaLabel: get().personaLabel ?? undefined,
-        userProfileJson: userProfile ? JSON.stringify(userProfile) : undefined,
-        ...(opts?.userMessageId ? { userMessageId: opts.userMessageId } : {}),
-        ...(opts?.imagePaths && opts.imagePaths.length > 0 ? { imagePaths: opts.imagePaths } : {}),
-        ...bo,
-      };
+        crossSessionIds: get().crossSessionIds,
+        getEffectiveSkills: get().getEffectiveSkills,
+        opts,
+      });
       await invoke<{ messageId: string }>(config.command, { input });
     } catch (e) {
       cleanup();
