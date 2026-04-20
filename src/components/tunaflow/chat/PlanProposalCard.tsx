@@ -61,13 +61,21 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
       );
 
       if (!matchingPlan) {
-        // Truly new proposal — no plan with this title exists at all
-        if (isBranchContext) { setStatus("promoted"); return; }
+        // Truly new proposal. Branch context used to jump to `promoted`
+        // here on the assumption that a twin card in main chat would call
+        // createPlan — but Insight Review branches (and any other path
+        // where the marker lives only in the branch) never surface in the
+        // parent conversation, so `createPlan` was never invoked and the
+        // card rendered "등록됨" while the Plans tab stayed empty.
+        // Drop into `idle` so the user sees the promote button.
         setStatus("idle");
         return;
       }
 
-      // Branch context 에서는 main chat 의 card 가 promote/overwrite 를 전담.
+      // Matching plan already exists in the parent conversation — a main
+      // chat card has already persisted it, so the branch card only needs
+      // to acknowledge. This is a real "promoted" state (DB row exists),
+      // unlike the removed no-match branch above.
       if (isBranchContext) {
         setStatus("promoted");
         return;
@@ -271,6 +279,17 @@ export function PlanProposalCard({ proposal, conversationId }: PlanProposalCardP
   const handlePromote = async (force = false) => {
     if (!force && proposal.subtasks.length === 0) {
       setStatus("warn-empty");
+      return;
+    }
+    // `plans.conversation_id` has an FK into `conversations`; a branch
+    // shadow id (`branch:…`) would violate it. Guard here in case the
+    // parent resolution at line 32 fell through to the shadow id because
+    // no main conversation was selected when the card mounted.
+    if (planConvId.startsWith("branch:")) {
+      import("sonner")
+        .then(({ toast }) => toast.error("Plan 등록 실패: 부모 대화를 선택한 뒤 다시 시도해주세요."))
+        .catch(() => {});
+      setStatus("idle");
       return;
     }
     setStatus("promoting");
