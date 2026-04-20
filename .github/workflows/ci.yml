@@ -5,26 +5,27 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # Docs-only / markdown-only changes (agent role docs, plans, READMEs) do
+    # not affect the build or tests. Skip CI to free the self-hosted runner.
+    # Any change under src/, src-tauri/, package.json, lockfiles, or this
+    # workflow itself still triggers the full suite.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.github/ISSUE_TEMPLATE/**'
 
+# Rust and frontend jobs are independent — splitting them lets failures
+# surface faster and lets a retry target only the failed half. Both run on
+# the same self-hosted Linux runner (10× cost vs GitHub-hosted macOS was the
+# original motivation to move off macos-latest).
 jobs:
-  check:
-    # Moved off GitHub-hosted macos-latest (10× cost multiplier) to a
-    # self-hosted Linux runner — CI budget was hitting the 2000-min warning.
-    # Build / release workflow (build.yml) still targets macos-latest because
-    # Tauri app + sidecars are cross-compiled for aarch64-apple-darwin.
+  rust-check:
     runs-on: [self-hosted, Linux]
     # Runner prerequisite: Tauri 2 Linux build deps pre-installed on host
     # (libwebkit2gtk-4.1-dev, libjavascriptcoregtk-4.1-dev, libsoup-3.0-dev,
     # libappindicator3-dev, librsvg2-dev, patchelf, build-essential, pkg-config).
-    # Avoids per-run sudo/apt and keeps the runner user without elevated rights.
     steps:
       - uses: actions/checkout@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -33,9 +34,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
-      - name: Install frontend dependencies
-        run: npm install --no-audit --no-fund
 
       - name: Create sidecar placeholders
         # Tauri's build script resolves sidecar paths against the CURRENT
@@ -61,6 +59,20 @@ jobs:
       - name: Cargo test
         working-directory: src-tauri
         run: cargo test --lib
+
+  frontend-check:
+    runs-on: [self-hosted, Linux]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
 
       - name: TypeScript check
         run: npx tsc --noEmit
