@@ -369,6 +369,9 @@ pub fn run() {
             commands::conversation_memory::get_conversation_memory_status,
             commands::conversation_memory::list_memory_topics,
             commands::conversation_memory::list_recent_turns,
+            commands::conversation_memory::probe_message,
+            commands::conversation_memory::fetch_message_slice,
+            commands::conversation_memory::fetch_full_message,
             commands::conversation_memory::compress_conversation_memory,
             commands::conversation_memory::force_recompress_memory,
             // Session Discovery
