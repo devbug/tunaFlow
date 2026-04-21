@@ -141,6 +141,129 @@ pub async fn list_branches(
     Json(serde_json::json!(rows)).into_response()
 }
 
+/// Phase 2 Finding 2-3: aggregate roundtable messages on a branch's
+/// shadow conversation into a `rounds[]` view. System messages of the
+/// form `--- Round N · mode · names ---` act as round boundaries (see
+/// `commands/roundtable.rs`), and assistant messages between boundaries
+/// are bucketed by persona.
+pub async fn get_branch_rounds(
+    State(state): State<ApiState>,
+    Path(branch_id): Path<String>,
+) -> impl IntoResponse {
+    let shadow_id = format!("branch:{}", branch_id);
+    let conn = lock_conn(&state.db.read);
+    let mut stmt = match conn.prepare(
+        "SELECT id, role, engine, persona, model, content, timestamp
+         FROM messages
+         WHERE conversation_id = ?1 AND status = 'done'
+         ORDER BY timestamp ASC",
+    ) {
+        Ok(s) => s,
+        Err(e) => return db_error(e),
+    };
+    let rows: Vec<(String, String, Option<String>, Option<String>, Option<String>, String, i64)> = match stmt
+        .query_map([&shadow_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
+        })
+    {
+        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+        Err(e) => return db_error(e),
+    };
+
+    let header_re = match regex::Regex::new(r"^---\s*Round\s+(\d+)\s*·\s*([^·]+?)\s*·\s*(.+?)\s*---$") {
+        Ok(r) => r,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "regex compile failed"})),
+            )
+                .into_response()
+        }
+    };
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Participant {
+        persona: Option<String>,
+        engine: Option<String>,
+        model: Option<String>,
+        message_ids: Vec<String>,
+        content_preview: String,
+    }
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Round {
+        round_number: i32,
+        mode: String,
+        names: Vec<String>,
+        started_at: i64,
+        completed_at: Option<i64>,
+        participant_responses: Vec<Participant>,
+    }
+
+    let mut rounds: Vec<Round> = Vec::new();
+    let mut current_participants: std::collections::HashMap<String, Participant> = std::collections::HashMap::new();
+    let mut last_assistant_ts: Option<i64> = None;
+
+    fn flush_current(
+        rounds: &mut Vec<Round>,
+        parts_map: &mut std::collections::HashMap<String, Participant>,
+        last_ts: Option<i64>,
+    ) {
+        if let Some(last) = rounds.last_mut() {
+            last.completed_at = last_ts;
+            last.participant_responses = parts_map.drain().map(|(_, v)| v).collect();
+        }
+    }
+
+    for (id, role, engine, persona, model, content, ts) in rows {
+        if role == "system" {
+            if let Some(caps) = header_re.captures(&content) {
+                // Close out the previous round (if any) with whatever
+                // participant rows we collected.
+                flush_current(&mut rounds, &mut current_participants, last_assistant_ts);
+                last_assistant_ts = None;
+                let round_number: i32 = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+                let mode = caps.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+                let names: Vec<String> = caps
+                    .get(3)
+                    .map(|m| m.as_str().split(',').map(|s| s.trim().to_string()).collect())
+                    .unwrap_or_default();
+                rounds.push(Round {
+                    round_number,
+                    mode,
+                    names,
+                    started_at: ts,
+                    completed_at: None,
+                    participant_responses: Vec::new(),
+                });
+            }
+            continue;
+        }
+        if role != "assistant" {
+            continue;
+        }
+        // Group by persona when present, fall back to engine, then "(unknown)".
+        let key = persona.clone().or_else(|| engine.clone()).unwrap_or_else(|| "(unknown)".into());
+        let preview = content.chars().take(240).collect::<String>();
+        let entry = current_participants.entry(key).or_insert_with(|| Participant {
+            persona: persona.clone(),
+            engine: engine.clone(),
+            model: model.clone(),
+            message_ids: Vec::new(),
+            content_preview: preview.clone(),
+        });
+        entry.message_ids.push(id);
+        // Keep the newest preview — most recent turn usually carries the
+        // final verdict / summary.
+        entry.content_preview = preview;
+        last_assistant_ts = Some(ts);
+    }
+    flush_current(&mut rounds, &mut current_participants, last_assistant_ts);
+
+    Json(serde_json::json!({ "rounds": rounds })).into_response()
+}
+
 /// Phase 2 Finding 2-5: active plan pointer for the conversation.
 /// Returns `{ planId, phase, title }` for the most recent non-done /
 /// non-abandoned plan on this conversation, or `null` when none.
