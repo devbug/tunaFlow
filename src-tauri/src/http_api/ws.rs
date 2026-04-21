@@ -45,11 +45,16 @@ async fn handle_ws(mut socket: ws::WebSocket, event_tx: broadcast::Sender<String
     }
 }
 
-pub fn bridge_tauri_events(app: tauri::AppHandle, tx: broadcast::Sender<String>) {
+pub fn bridge_tauri_events(
+    app: tauri::AppHandle,
+    tx: broadcast::Sender<String>,
+    db: crate::db::DbState,
+) {
     use tauri::Listener;
     // Canonical event list for HTTP/WS clients. Refs: docs/api-inquiry-gamma-delta.md § E.
-    // HTTP handlers also emit directly via event_tx (bypass bridge); Tauri commands
-    // that emit these names will be automatically forwarded here.
+    // HTTP handlers also emit directly via broadcast_event (same log+fanout
+    // path), so both Tauri-originated and HTTP-originated events land in
+    // `ws_event_log` and reach live WS subscribers identically.
     let events = [
         // Messages & agents
         "message:new",
@@ -74,14 +79,19 @@ pub fn bridge_tauri_events(app: tauri::AppHandle, tx: broadcast::Sender<String>)
     ];
     for event_name in events {
         let tx = tx.clone();
+        let db = db.clone();
         let name = event_name.to_string();
         app.listen(event_name, move |event| {
-            let payload = event.payload();
-            let msg = serde_json::json!({
+            let raw = event.payload();
+            // Tauri payloads are already JSON strings; re-parse so the
+            // outer envelope carries the actual object, not a string.
+            let inner: serde_json::Value = serde_json::from_str(raw)
+                .unwrap_or_else(|_| serde_json::Value::String(raw.to_string()));
+            let envelope = serde_json::json!({
                 "type": name,
-                "payload": payload,
-            }).to_string();
-            let _ = tx.send(msg);
+                "payload": inner,
+            });
+            super::events::broadcast_event(&tx, &db, envelope);
         });
     }
 }
