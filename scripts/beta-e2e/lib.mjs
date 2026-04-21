@@ -6,11 +6,11 @@
 // Requires Node 20+ (built-in fetch + WebSocket).
 // Requires a running tunaFlow instance — either local (`npm run tauri dev`)
 // or via tunnel. Set:
-//   TUNAFLOW_BASE=http://127.0.0.1:8787      (default)
+//   TUNAFLOW_BASE=http://127.0.0.1:19840     (default; matches http_api DEFAULT_PORT)
 //   TUNAFLOW_TOKEN=<api token>               (required, from Settings > Mobile)
 
 export const env = {
-  base: process.env.TUNAFLOW_BASE ?? "http://127.0.0.1:8787",
+  base: process.env.TUNAFLOW_BASE ?? "http://127.0.0.1:19840",
   token: process.env.TUNAFLOW_TOKEN ?? "",
   verbose: process.env.VERBOSE === "1",
 };
@@ -138,7 +138,9 @@ export function runScenario(name, fn) {
       process.exit(0);
     } catch (e) {
       log.fail(`${name}: ${e.message}`);
-      if (e.body) console.error(e.body);
+      if (e.body) console.error("  body:", e.body);
+      // undici TypeError: fetch failed 는 실제 원인을 cause 체인에 숨긴다
+      if (e.cause) console.error("  cause:", e.cause.code ?? e.cause.message ?? e.cause);
       if (env.verbose) console.error(e.stack);
       process.exit(1);
     }
