@@ -99,8 +99,14 @@ pub fn fetch_events_since(db: &DbState, since_ms: i64) -> Vec<String> {
 /// `WS_EVENT_LOG_RETENTION_MS` every `WS_EVENT_LOG_CLEANUP_INTERVAL`.
 /// Runs for the lifetime of the server; Tauri shuts it down with the
 /// process.
+///
+/// Uses `tauri::async_runtime::spawn` so callers can invoke this from
+/// the main thread during `start_server` — before the axum task has
+/// created its own runtime. Plain `tokio::spawn` would panic here
+/// ("no reactor running") because `start_server` runs synchronously
+/// on the bootstrap thread.
 pub fn spawn_ttl_cleanup(db: DbState) {
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(WS_EVENT_LOG_CLEANUP_INTERVAL).await;
             let cutoff = crate::db::migrations::now_epoch_ms() - WS_EVENT_LOG_RETENTION_MS;
