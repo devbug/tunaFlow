@@ -25,7 +25,10 @@ pub async fn auth_middleware(
     //     401 before the handler's query-parsing logic can ever execute,
     //     turning the ws.rs code path into dead code for query callers.
     let path = request.uri().path();
-    if path == "/api/health" || path == "/ws/events" {
+    if path == "/api/health"
+        || path == "/api/v1/health"
+        || path == "/ws/events"
+    {
         return next.run(request).await;
     }
 

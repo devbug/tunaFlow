@@ -141,6 +141,226 @@ pub async fn list_branches(
     Json(serde_json::json!(rows)).into_response()
 }
 
+/// Phase 2 Finding 2-3: aggregate roundtable messages on a branch's
+/// shadow conversation into a `rounds[]` view. System messages of the
+/// form `--- Round N · mode · names ---` act as round boundaries (see
+/// `commands/roundtable.rs`), and assistant messages between boundaries
+/// are bucketed by persona.
+pub async fn get_branch_rounds(
+    State(state): State<ApiState>,
+    Path(branch_id): Path<String>,
+) -> impl IntoResponse {
+    let shadow_id = format!("branch:{}", branch_id);
+    let conn = lock_conn(&state.db.read);
+    let mut stmt = match conn.prepare(
+        "SELECT id, role, engine, persona, model, content, timestamp
+         FROM messages
+         WHERE conversation_id = ?1 AND status = 'done'
+         ORDER BY timestamp ASC",
+    ) {
+        Ok(s) => s,
+        Err(e) => return db_error(e),
+    };
+    let rows: Vec<(String, String, Option<String>, Option<String>, Option<String>, String, i64)> = match stmt
+        .query_map([&shadow_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
+        })
+    {
+        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+        Err(e) => return db_error(e),
+    };
+
+    let header_re = match regex::Regex::new(r"^---\s*Round\s+(\d+)\s*·\s*([^·]+?)\s*·\s*(.+?)\s*---$") {
+        Ok(r) => r,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "regex compile failed"})),
+            )
+                .into_response()
+        }
+    };
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Participant {
+        persona: Option<String>,
+        engine: Option<String>,
+        model: Option<String>,
+        message_ids: Vec<String>,
+        content_preview: String,
+    }
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Round {
+        round_number: i32,
+        mode: String,
+        names: Vec<String>,
+        started_at: i64,
+        completed_at: Option<i64>,
+        participant_responses: Vec<Participant>,
+    }
+
+    let mut rounds: Vec<Round> = Vec::new();
+    let mut current_participants: std::collections::HashMap<String, Participant> = std::collections::HashMap::new();
+    let mut last_assistant_ts: Option<i64> = None;
+
+    fn flush_current(
+        rounds: &mut Vec<Round>,
+        parts_map: &mut std::collections::HashMap<String, Participant>,
+        last_ts: Option<i64>,
+    ) {
+        if let Some(last) = rounds.last_mut() {
+            last.completed_at = last_ts;
+            last.participant_responses = parts_map.drain().map(|(_, v)| v).collect();
+        }
+    }
+
+    for (id, role, engine, persona, model, content, ts) in rows {
+        if role == "system" {
+            if let Some(caps) = header_re.captures(&content) {
+                // Close out the previous round (if any) with whatever
+                // participant rows we collected.
+                flush_current(&mut rounds, &mut current_participants, last_assistant_ts);
+                last_assistant_ts = None;
+                let round_number: i32 = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+                let mode = caps.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+                let names: Vec<String> = caps
+                    .get(3)
+                    .map(|m| m.as_str().split(',').map(|s| s.trim().to_string()).collect())
+                    .unwrap_or_default();
+                rounds.push(Round {
+                    round_number,
+                    mode,
+                    names,
+                    started_at: ts,
+                    completed_at: None,
+                    participant_responses: Vec::new(),
+                });
+            }
+            continue;
+        }
+        if role != "assistant" {
+            continue;
+        }
+        // Group by persona when present, fall back to engine, then "(unknown)".
+        let key = persona.clone().or_else(|| engine.clone()).unwrap_or_else(|| "(unknown)".into());
+        let preview = content.chars().take(240).collect::<String>();
+        let entry = current_participants.entry(key).or_insert_with(|| Participant {
+            persona: persona.clone(),
+            engine: engine.clone(),
+            model: model.clone(),
+            message_ids: Vec::new(),
+            content_preview: preview.clone(),
+        });
+        entry.message_ids.push(id);
+        // Keep the newest preview — most recent turn usually carries the
+        // final verdict / summary.
+        entry.content_preview = preview;
+        last_assistant_ts = Some(ts);
+    }
+    flush_current(&mut rounds, &mut current_participants, last_assistant_ts);
+
+    Json(serde_json::json!({ "rounds": rounds })).into_response()
+}
+
+/// Phase 2 Finding 2-5: active plan pointer for the conversation.
+/// Returns `{ planId, phase, title }` for the most recent non-done /
+/// non-abandoned plan on this conversation, or `null` when none.
+/// Mirrors `commands::plans::get_active_plan_phase` but includes the
+/// plan id and title so mobile can route directly to the plan view.
+pub async fn get_active_plan(
+    State(state): State<ApiState>,
+    Path(conv_id): Path<String>,
+) -> impl IntoResponse {
+    let conn = lock_conn(&state.db.read);
+    let row: Option<(String, String, String)> = conn
+        .query_row(
+            "SELECT id, title, phase FROM plans
+             WHERE conversation_id = ?1 AND status != 'done' AND status != 'abandoned'
+             ORDER BY updated_at DESC LIMIT 1",
+            [&conv_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .ok();
+    match row {
+        Some((id, title, phase)) => Json(serde_json::json!({
+            "planId": id, "title": title, "phase": phase,
+        })).into_response(),
+        None => Json(serde_json::json!(null)).into_response(),
+    }
+}
+
+/// Phase 2 Finding 2-2: branch detail endpoint for mobile δ-Branch.
+/// Consolidates the fields a single-branch detail view needs in one
+/// call: labels / status / mode / parent, the rt_config (participants)
+/// if this branch is a roundtable, and the `adopted_message_id` for
+/// display of the adoption summary.
+pub async fn get_branch_detail(
+    State(state): State<ApiState>,
+    Path(branch_id): Path<String>,
+) -> impl IntoResponse {
+    let conn = lock_conn(&state.db.read);
+    type Row = (
+        String, String, Option<String>, String, Option<String>, Option<String>,
+        Option<String>, Option<String>, Option<String>, Option<String>, i64,
+    );
+    let row: Result<Row, _> = conn.query_row(
+        "SELECT id, label, custom_label, status, checkpoint_id, mode,
+                parent_branch_id, subtask_id, adopted_message_id, conversation_id,
+                created_at
+         FROM branches WHERE id = ?1",
+        [&branch_id],
+        |r| Ok((
+            r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+            r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?,
+        )),
+    );
+    let (
+        id, label, custom_label, status, checkpoint_id, mode,
+        parent_branch_id, subtask_id, adopted_message_id, parent_conv_id, created_at,
+    ) = match row {
+        Ok(v) => v,
+        Err(_) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "branch not found"})),
+            )
+                .into_response()
+        }
+    };
+    // rt_config lives on the shadow conversation row — present only for
+    // roundtable-mode branches. Absent → null.
+    let shadow_id = format!("branch:{}", id);
+    let rt_config: Option<String> = conn
+        .query_row(
+            "SELECT rt_config FROM conversations WHERE id = ?1",
+            [&shadow_id],
+            |r| r.get(0),
+        )
+        .ok()
+        .flatten();
+    let participants: Option<serde_json::Value> = rt_config
+        .as_deref()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        .and_then(|v| v.get("participants").cloned());
+    Json(serde_json::json!({
+        "id": id,
+        "label": label,
+        "customLabel": custom_label,
+        "status": status,
+        "mode": mode,
+        "checkpointId": checkpoint_id,
+        "parentBranchId": parent_branch_id,
+        "subtaskId": subtask_id,
+        "adoptedMessageId": adopted_message_id,
+        "parentConversationId": parent_conv_id,
+        "shadowConversationId": shadow_id,
+        "participants": participants,
+        "createdAt": created_at,
+    })).into_response()
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateBranchInput {
