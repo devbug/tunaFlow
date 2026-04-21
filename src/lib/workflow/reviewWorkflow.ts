@@ -277,48 +277,37 @@ export async function processReviewVerdict(
       }
     } catch { /* ignore */ }
 
-    // Doom loop detection: count review_failed events SINCE last escalation
+    // Doom-loop window state (failCount scoped to "since last escalation")
+    // + optional overlap analysis against the previous fail event's
+    // findings — both behind `services/doomLoopDetector`.
     const freshEvents = await planApi.listPlanEvents(plan.id);
-    let lastEscalationIdx = -1;
-    for (let i = freshEvents.length - 1; i >= 0; i--) {
-      if (freshEvents[i].eventType === "doom_loop_escalated" || freshEvents[i].eventType === "architect_redesign_requested") { lastEscalationIdx = i; break; }
-    }
-    const eventsSinceReset = lastEscalationIdx >= 0 ? freshEvents.slice(lastEscalationIdx + 1) : freshEvents;
-    const failEvents = eventsSinceReset.filter((e) => e.eventType === "review_failed");
-    const failCount = failEvents.length;
+    const { computeDoomLoopState, computeFindingOverlap } = await import("./services/doomLoopDetector");
+    const doom = computeDoomLoopState(freshEvents);
+    const failCount = doom.failCount;
+    const failEvents = doom.windowEvents.filter((e) => e.eventType === "review_failed");
 
     if (failCount >= 2) {
       try {
         const prevFailEvent = failEvents[failEvents.length - 2];
         const prevDetail = JSON.parse(prevFailEvent?.detail ?? "{}");
-        const prevFiles = new Set((prevDetail.findings as string[] ?? [])
-          .map((f: string) => f.match(/([a-zA-Z0-9_./-]+\.[a-zA-Z]+)/)?.[1])
-          .filter(Boolean));
-        const currFiles = new Set(verdict.findings
-          .map((f: string) => f.match(/([a-zA-Z0-9_./-]+\.[a-zA-Z]+)/)?.[1])
-          .filter(Boolean));
-        const overlap = [...currFiles].filter((f) => prevFiles.has(f)).length;
-        const overlapRatio = currFiles.size > 0 ? overlap / currFiles.size : 0;
-        if (overlapRatio > 0.4) {
+        const prevFindings = (prevDetail.findings as string[]) ?? [];
+        const overlap = computeFindingOverlap(prevFindings, verdict.findings);
+        if (overlap.fileOverlapRatio > 0.4) {
           await planApi.createPlanEvent(
             plan.id, "design_review_suggested", "system",
-            `동일 파일에서 연속 실패 (겹침 ${Math.round(overlapRatio * 100)}%) — 설계 재검토 권장`,
+            `동일 파일에서 연속 실패 (겹침 ${Math.round(overlap.fileOverlapRatio * 100)}%) — 설계 재검토 권장`,
           );
         }
-        const prevFindingTexts = (prevDetail.findings as string[] ?? []).map((f: string) => f.slice(0, 60).toLowerCase());
-        const currFindingTexts = verdict.findings.map((f: string) => f.slice(0, 60).toLowerCase());
-        const textOverlap = currFindingTexts.filter((cf) => prevFindingTexts.some((pf) => cf.includes(pf.slice(0, 30)) || pf.includes(cf.slice(0, 30)))).length;
-        const textOverlapRatio = currFindingTexts.length > 0 ? textOverlap / currFindingTexts.length : 0;
-        if (textOverlapRatio > 0.5 && failCount >= 2) {
+        if (overlap.textOverlapRatio > 0.5) {
           await planApi.createPlanEvent(
             plan.id, "design_review_suggested", "system",
-            `동일 유형 findings 반복 (${Math.round(textOverlapRatio * 100)}% 일치) — 구현이 아닌 설계 문제 가능성`,
+            `동일 유형 findings 반복 (${Math.round(overlap.textOverlapRatio * 100)}% 일치) — 구현이 아닌 설계 문제 가능성`,
           );
         }
       } catch { /* ignore parse errors */ }
     }
 
-    if (failCount >= 5) {
+    if (doom.recommendation === "escalate") {
       await planApi.updatePlanPhase(plan.id, "subtask_review");
       await planApi.createPlanEvent(
         plan.id,
@@ -339,7 +328,7 @@ export async function processReviewVerdict(
         projectKey: escProjectKey,
         route: { tab: "workflow", stage: "plan-check", planId: plan.id },
       });
-    } else if (failCount >= 3) {
+    } else if (doom.recommendation === "warn") {
       await planApi.createPlanEvent(
         plan.id,
         "doom_loop_warning",
