@@ -198,6 +198,7 @@ fn build_router(state: ApiState) -> Router {
         // Branch endpoints
         .route("/conversations/{id}/branches", get(conversations::list_branches))
         .route("/branches", post(conversations::create_branch))
+        .route("/branches/{id}", get(conversations::get_branch_detail))
         .route("/branches/{id}", delete(conversations::delete_branch))
         .route("/branches/{id}/archive", post(conversations::archive_branch))
         .route("/branches/{id}/adopt", post(conversations::adopt_branch))

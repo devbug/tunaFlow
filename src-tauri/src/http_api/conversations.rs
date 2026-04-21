@@ -141,6 +141,76 @@ pub async fn list_branches(
     Json(serde_json::json!(rows)).into_response()
 }
 
+/// Phase 2 Finding 2-2: branch detail endpoint for mobile δ-Branch.
+/// Consolidates the fields a single-branch detail view needs in one
+/// call: labels / status / mode / parent, the rt_config (participants)
+/// if this branch is a roundtable, and the `adopted_message_id` for
+/// display of the adoption summary.
+pub async fn get_branch_detail(
+    State(state): State<ApiState>,
+    Path(branch_id): Path<String>,
+) -> impl IntoResponse {
+    let conn = lock_conn(&state.db.read);
+    type Row = (
+        String, String, Option<String>, String, Option<String>, Option<String>,
+        Option<String>, Option<String>, Option<String>, Option<String>, i64,
+    );
+    let row: Result<Row, _> = conn.query_row(
+        "SELECT id, label, custom_label, status, checkpoint_id, mode,
+                parent_branch_id, subtask_id, adopted_message_id, conversation_id,
+                created_at
+         FROM branches WHERE id = ?1",
+        [&branch_id],
+        |r| Ok((
+            r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+            r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?,
+        )),
+    );
+    let (
+        id, label, custom_label, status, checkpoint_id, mode,
+        parent_branch_id, subtask_id, adopted_message_id, parent_conv_id, created_at,
+    ) = match row {
+        Ok(v) => v,
+        Err(_) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "branch not found"})),
+            )
+                .into_response()
+        }
+    };
+    // rt_config lives on the shadow conversation row — present only for
+    // roundtable-mode branches. Absent → null.
+    let shadow_id = format!("branch:{}", id);
+    let rt_config: Option<String> = conn
+        .query_row(
+            "SELECT rt_config FROM conversations WHERE id = ?1",
+            [&shadow_id],
+            |r| r.get(0),
+        )
+        .ok()
+        .flatten();
+    let participants: Option<serde_json::Value> = rt_config
+        .as_deref()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        .and_then(|v| v.get("participants").cloned());
+    Json(serde_json::json!({
+        "id": id,
+        "label": label,
+        "customLabel": custom_label,
+        "status": status,
+        "mode": mode,
+        "checkpointId": checkpoint_id,
+        "parentBranchId": parent_branch_id,
+        "subtaskId": subtask_id,
+        "adoptedMessageId": adopted_message_id,
+        "parentConversationId": parent_conv_id,
+        "shadowConversationId": shadow_id,
+        "participants": participants,
+        "createdAt": created_at,
+    })).into_response()
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateBranchInput {
