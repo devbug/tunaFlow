@@ -3,7 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "@/stores/chatStore";
 import type { Plan, PlanSubtask, Message } from "@/types";
 import * as planApi from "@/lib/api/plans";
-import { scanCompletedSubtasks, hasImplComplete, hasReviewVerdict, extractReviewVerdict } from "@/lib/planProposalParser";
+import {
+  detectCompletedSubtasks,
+  syncSubtaskCompletion,
+  extractLatestReviewVerdict,
+  computeDoomLoopState,
+} from "@/lib/workflow/services";
 import { runProjectTests, type TestRunResult } from "@/lib/api/testRunner";
 import type { ParsedReviewVerdict } from "@/lib/planProposalParser";
 
@@ -30,54 +35,32 @@ export function useSubtaskProgress(plan: Plan) {
       const shadowConvId = `branch:${plan.implementationBranchId}`;
       const msgs = await invoke<Message[]>("list_messages", { conversationId: shadowConvId });
       if (cancelled.current) return;
-      const scanned = scanCompletedSubtasks(msgs);
-      const complete = msgs.some((m) => m.role === "assistant" && hasImplComplete(m.content));
 
-      // Merge: marker scan + DB subtask status
-      // Handles: Developer didn't emit per-subtask markers in earlier rounds,
-      // or Rework round only markers some subtasks
-      // Note: scanned (from markers) uses 1-based numbers (subtask-done:1, subtask-done:2)
-      // DB subtask.idx is 0-based → convert to 1-based for consistency
-      const merged = new Set(scanned);
+      // Pull DB subtasks + compute completion snapshot via the shared
+      // service. `detectCompletedSubtasks` gives us the same
+      // completedNums / allComplete view that branchSync uses, so UI and
+      // background sync can't disagree.
       let dbSubtasks: PlanSubtask[] = [];
       try {
         dbSubtasks = await planApi.listSubtasks(plan.id);
-        for (const st of dbSubtasks) {
-          if (st.status === "done") merged.add(st.idx + 1); // 0-based → 1-based
-        }
-      } catch { /* use marker scan only */ }
+      } catch { /* empty list is fine below */ }
+      const state = detectCompletedSubtasks(msgs, dbSubtasks);
 
-      // Sync marker-detected completions back to DB (fire-and-forget)
-      // Markers are 1-based, DB idx is 0-based
-      for (const num of scanned) {
-        const st = dbSubtasks.find((s) => s.idx === num - 1);
-        if (st && st.status !== "done") {
-          planApi.updateSubtaskStatus(st.id, "done").catch((e) => console.debug("[subtask-sync]", e));
-        }
-      }
+      // Fire-and-forget DB sync — writes any markers that the DB hasn't
+      // caught up to yet, plus cascades impl-complete to all subtasks.
+      syncSubtaskCompletion(plan.id, dbSubtasks, msgs).catch((e) =>
+        console.debug("[subtask-sync]", e),
+      );
 
-      if (complete) {
-        // impl-complete means ALL subtasks are done — fill any gaps
-        const allDone = new Set(merged);
-        for (const st of dbSubtasks) {
-          allDone.add(st.idx + 1); // 0-based → 1-based
-          if (st.status !== "done") {
-            planApi.updateSubtaskStatus(st.id, "done").catch((e) => console.debug("[subtask-sync]", e));
-          }
-        }
-        setCompletedNums(allDone);
-      } else {
-        setCompletedNums(merged);
-      }
+      setCompletedNums(state.completedNums);
+
       // Fallback: all subtasks done + agent not running → infer impl-complete
-      // Even if the agent didn't emit the marker, DB state is authoritative
-      const effectiveComplete = complete || (() => {
-        if (dbSubtasks.length === 0) return false;
-        const allDone = dbSubtasks.every((st) => st.status === "done");
-        const shadowConvId = `branch:${plan.implementationBranchId}`;
-        const notRunning = !useChatStore.getState().runningThreadIds.includes(shadowConvId);
-        return allDone && notRunning;
-      })();
+      // even without the marker. DB state is authoritative.
+      const notRunning = !useChatStore
+        .getState()
+        .runningThreadIds.includes(shadowConvId);
+      const effectiveComplete =
+        state.hasImplCompleteMarker || (state.allComplete && notRunning);
       setImplComplete(effectiveComplete);
 
       if (effectiveComplete && !testRanRef.current && !cancelled.current) {
@@ -119,35 +102,21 @@ export function useSubtaskProgress(plan: Plan) {
         try {
           const reviewShadow = `branch:${plan.reviewBranchId}`;
           const reviewMsgs = await invoke<Message[]>("list_messages", { conversationId: reviewShadow });
-          // Use LAST verdict — followup reviews supersede earlier ones
-          let latestVerdict: ParsedReviewVerdict | null = null;
-          for (const msg of reviewMsgs) {
-            if (msg.role === "assistant" && hasReviewVerdict(msg.content)) {
-              const v = extractReviewVerdict(msg.content);
-              if (v) latestVerdict = v;
-            }
-          }
+          const latestVerdict = extractLatestReviewVerdict(reviewMsgs);
           if (latestVerdict && !cancelled.current) setReviewVerdict(latestVerdict);
         } catch (e) { console.warn("[tunaflow]", e); }
       }
 
       if (plan.phase === "rework" || plan.phase === "subtask_review") {
         planApi.listPlanEvents(plan.id).then((events) => {
-          if (!cancelled.current) {
-            // Count failures since last escalation (not total)
-            let lastEscIdx = -1;
-            for (let i = events.length - 1; i >= 0; i--) {
-              if (events[i].eventType === "doom_loop_escalated" || events[i].eventType === "architect_redesign_requested") { lastEscIdx = i; break; }
-            }
-            const sinceReset = lastEscIdx >= 0 ? events.slice(lastEscIdx + 1) : events;
-            setDesignReviewSuggested(sinceReset.some((e: { eventType: string }) => e.eventType === "design_review_suggested"));
-            const fails = sinceReset.filter((e: { eventType: string }) => e.eventType === "review_failed").length;
-            setFailCount(fails);
-            // doomLoopEscalated 도 sinceReset 기반으로 판정. 이전엔 events 전체에서
-            // 찾아 한 번 escalation 이 발생하면 영구히 true 로 고정되는 버그가 있었음
-            // → 새 rev 싸이클에서 Review 1회만 실패해도 "1회 연속 실패" 배너가 잘못 뜸.
-            setDoomLoopEscalated(sinceReset.some((e: { eventType: string }) => e.eventType === "doom_loop_escalated"));
-          }
+          if (cancelled.current) return;
+          // `computeDoomLoopState` already scopes the window to "since
+          // last escalation" — UI and the DB-writer in reviewWorkflow
+          // share the same threshold/window rules.
+          const doom = computeDoomLoopState(events);
+          setDesignReviewSuggested(doom.designReviewSuggested);
+          setFailCount(doom.failCount);
+          setDoomLoopEscalated(doom.escalated);
         }).catch((e) => console.debug("[plan-events]", e));
       }
 
@@ -163,13 +132,7 @@ export function useSubtaskProgress(plan: Plan) {
         const reviewShadow = `branch:${plan.reviewBranchId}`;
         invoke<Message[]>("list_messages", { conversationId: reviewShadow }).then((reviewMsgs) => {
           if (cancelled.current) return;
-          let latest: ParsedReviewVerdict | null = null;
-          for (const msg of reviewMsgs) {
-            if (msg.role === "assistant" && hasReviewVerdict(msg.content)) {
-              const v = extractReviewVerdict(msg.content);
-              if (v) latest = v;
-            }
-          }
+          const latest = extractLatestReviewVerdict(reviewMsgs);
           if (latest) setReviewVerdict(latest);
         }).catch((e) => console.debug("[verdict-poll]", e));
       }

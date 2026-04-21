@@ -74,18 +74,28 @@ export async function getOrCreateReviewBranch(
   label: string,
   mode: "chat" | "roundtable",
 ): Promise<CreateBranchResult & { reused: boolean }> {
-  if (plan.reviewBranchId) {
-    const { useChatStore } = await import("@/stores/chatStore");
-    const existing = useChatStore.getState().branches.find((b) => b.id === plan.reviewBranchId);
-    if (existing && existing.mode === mode && existing.status !== "archived") {
-      const shadowConvId = await invoke<string>("open_branch_stream", { branchId: existing.id });
-      return { branch: existing, shadowConvId, reused: true };
-    }
-    // 모드 다름 또는 archived → 교체 (archive 후 신규)
-    if (existing && existing.status !== "archived") {
-      await invoke("archive_branch", { id: existing.id }).catch((e) => console.debug("[archive]", e));
-    }
+  const { useChatStore } = await import("@/stores/chatStore");
+  const { shouldReuseReviewBranch } = await import("./services/reviewBranchReuse");
+  const branches = useChatStore.getState().branches;
+  const decision = shouldReuseReviewBranch(plan, branches, mode);
+
+  if (decision.reuse && decision.branchId) {
+    const existing = branches.find((b) => b.id === decision.branchId)!;
+    const shadowConvId = await invoke<string>("open_branch_stream", { branchId: existing.id });
+    return { branch: existing, shadowConvId, reused: true };
   }
+
+  // Archive the old review branch if it still exists but failed the reuse
+  // check (mode mismatch, etc.). `shouldReuseReviewBranch` already rejected
+  // archived/discarded status, so this can only fire for live-but-unusable
+  // branches.
+  const stale = plan.reviewBranchId
+    ? branches.find((b) => b.id === plan.reviewBranchId)
+    : undefined;
+  if (stale && stale.status !== "archived" && stale.status !== "discarded") {
+    await invoke("archive_branch", { id: stale.id }).catch((e) => console.debug("[archive]", e));
+  }
+
   const result = await createAndLinkBranch(plan, "review", label, mode);
   return { ...result, reused: false };
 }
