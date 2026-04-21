@@ -157,6 +157,64 @@ fn subtask_create_and_status_cycle() {
     assert_eq!(status, "done");
 }
 
+// ─── v40: branches.adopted_message_id ───────────────────────────────────────
+
+#[test]
+fn v40_adopted_message_id_column_exists() {
+    let conn = setup_db();
+    // `PRAGMA table_info(branches)` returns one row per column.
+    let mut stmt = conn
+        .prepare("PRAGMA table_info(branches)")
+        .unwrap();
+    let names: Vec<String> = stmt
+        .query_map([], |r| r.get::<_, String>(1))
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "adopted_message_id"),
+        "expected branches.adopted_message_id column after v40 migration; got {:?}",
+        names,
+    );
+}
+
+#[test]
+fn v40_adopted_message_id_starts_null() {
+    let conn = setup_db();
+    let now = now_epoch_ms();
+    create_api_project(&conn, "proj1", "P1", None);
+    create_api_conversation(&conn, "conv1", "proj1", "Main");
+    conn.execute(
+        "INSERT INTO branches (id, conversation_id, label, status, mode, created_at)
+         VALUES ('br-v40', 'conv1', 'test', 'active', 'chat', ?1)",
+        params![now],
+    )
+    .unwrap();
+    let adopted: Option<String> = conn
+        .query_row(
+            "SELECT adopted_message_id FROM branches WHERE id = 'br-v40'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(adopted.is_none(), "fresh branch should have null adopted_message_id");
+
+    // Simulate adopt_branch writing the summary id back.
+    conn.execute(
+        "UPDATE branches SET adopted_message_id = 'sum-123' WHERE id = 'br-v40'",
+        [],
+    )
+    .unwrap();
+    let adopted2: String = conn
+        .query_row(
+            "SELECT adopted_message_id FROM branches WHERE id = 'br-v40'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(adopted2, "sum-123");
+}
+
 // ─── Branch plan lookup ──────────────────────────────────────────────────────
 
 #[test]
