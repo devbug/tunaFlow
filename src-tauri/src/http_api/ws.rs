@@ -13,6 +13,12 @@ use super::ApiState;
 #[derive(Deserialize, Default)]
 pub struct WsQuery {
     token: Option<String>,
+    /// Optional epoch-ms cursor. When provided, the server replays every
+    /// entry in `ws_event_log` newer than or equal to this timestamp
+    /// before attaching the live subscription. Clients use this to
+    /// recover from short reconnect gaps without refetching through
+    /// REST. See `events::fetch_events_since` for row cap + ordering.
+    since: Option<i64>,
 }
 
 pub async fn ws_events(
@@ -33,11 +39,42 @@ pub async fn ws_events(
     if provided != state.token {
         return (StatusCode::UNAUTHORIZED, "invalid token").into_response();
     }
-    ws.on_upgrade(move |socket| handle_ws(socket, state.event_tx)).into_response()
+    let since = query.since;
+    let db = state.db.clone();
+    ws.on_upgrade(move |socket| handle_ws(socket, state.event_tx, db, since)).into_response()
 }
 
-async fn handle_ws(mut socket: ws::WebSocket, event_tx: broadcast::Sender<String>) {
+async fn handle_ws(
+    mut socket: ws::WebSocket,
+    event_tx: broadcast::Sender<String>,
+    db: crate::db::DbState,
+    since: Option<i64>,
+) {
+    // Subscribe BEFORE the replay so events emitted while we drain the
+    // log still land in the receiver's queue. Events strictly before
+    // `since` are never replayed, so worst case a client sees a
+    // handful of duplicates — that's cheaper for the client than
+    // missing an event.
     let mut rx = event_tx.subscribe();
+
+    if let Some(since_ms) = since {
+        // Run the replay on a blocking thread: `fetch_events_since`
+        // acquires a sync sqlite lock and can take a few ms on a cold
+        // connection. Keeping the async task responsive matters because
+        // the socket send loop below needs to start pumping quickly.
+        let db_for_replay = db.clone();
+        let replay = tokio::task::spawn_blocking(move || {
+            super::events::fetch_events_since(&db_for_replay, since_ms)
+        })
+        .await
+        .unwrap_or_default();
+        for payload in replay {
+            if socket.send(ws::Message::Text(payload.into())).await.is_err() {
+                return;
+            }
+        }
+    }
+
     while let Ok(msg) = rx.recv().await {
         if socket.send(ws::Message::Text(msg.into())).await.is_err() {
             break;
