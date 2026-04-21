@@ -155,58 +155,88 @@ fn generate_token() -> String {
     token
 }
 
+/// Tag `/api/*` legacy responses with `X-API-Deprecated: use /api/v1`.
+/// Mobile and other programmatic clients surface this header to nudge
+/// callers onto the versioned path ahead of removing the legacy prefix.
+async fn deprecation_header_middleware(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let path = req.uri().path().to_string();
+    let is_legacy = path.starts_with("/api/") && !path.starts_with("/api/v1/");
+    let mut res = next.run(req).await;
+    if is_legacy {
+        res.headers_mut().insert(
+            "X-API-Deprecated",
+            axum::http::HeaderValue::from_static("use /api/v1"),
+        );
+    }
+    res
+}
+
 fn build_router(state: ApiState) -> Router {
-    Router::new()
+    // Single definition of the REST surface. Every route is authored
+    // without any `/api` prefix and then mounted under BOTH `/api/v1`
+    // (canonical) and `/api` (legacy, deprecation-tagged). Removing the
+    // legacy mount later is a single-line edit; adding a new endpoint
+    // adds it to both at once.
+    let rest: Router<ApiState> = Router::new()
         // State / project endpoints
-        .route("/api/health", get(state::health))
-        .route("/api/projects", get(state::list_projects))
-        .route("/api/projects", post(state::create_project))
-        .route("/api/projects/{key}/documents/index", post(state::index_project_documents))
-        .route("/api/projects/{key}/documents/search", post(state::search_project_documents))
-        .route("/api/projects/{key}/documents/graph", get(state::get_document_graph))
-        .route("/api/projects/{key}/documents/orphans", get(state::get_orphan_documents))
-        .route("/api/projects/{key}/documents/status", get(state::get_document_index_status))
+        .route("/health", get(state::health))
+        .route("/projects", get(state::list_projects))
+        .route("/projects", post(state::create_project))
+        .route("/projects/{key}/documents/index", post(state::index_project_documents))
+        .route("/projects/{key}/documents/search", post(state::search_project_documents))
+        .route("/projects/{key}/documents/graph", get(state::get_document_graph))
+        .route("/projects/{key}/documents/orphans", get(state::get_orphan_documents))
+        .route("/projects/{key}/documents/status", get(state::get_document_index_status))
         // Conversation / message endpoints
-        .route("/api/conversations", get(conversations::list_conversations))
-        .route("/api/conversations", post(conversations::create_conversation))
-        .route("/api/conversations/{id}/messages", get(conversations::list_messages))
-        .route("/api/conversations/{id}/delete", post(conversations::delete_conversation))
+        .route("/conversations", get(conversations::list_conversations))
+        .route("/conversations", post(conversations::create_conversation))
+        .route("/conversations/{id}/messages", get(conversations::list_messages))
+        .route("/conversations/{id}/delete", post(conversations::delete_conversation))
         // Branch endpoints
-        .route("/api/conversations/{id}/branches", get(conversations::list_branches))
-        .route("/api/branches", post(conversations::create_branch))
-        .route("/api/branches/{id}", delete(conversations::delete_branch))
-        .route("/api/branches/{id}/archive", post(conversations::archive_branch))
-        .route("/api/branches/{id}/adopt", post(conversations::adopt_branch))
-        .route("/api/branches/{id}/rename", post(conversations::rename_branch))
+        .route("/conversations/{id}/branches", get(conversations::list_branches))
+        .route("/branches", post(conversations::create_branch))
+        .route("/branches/{id}", delete(conversations::delete_branch))
+        .route("/branches/{id}/archive", post(conversations::archive_branch))
+        .route("/branches/{id}/adopt", post(conversations::adopt_branch))
+        .route("/branches/{id}/rename", post(conversations::rename_branch))
         // Memory & search endpoints
-        .route("/api/conversations/{id}/memory/status", get(conversations::memory_status))
-        .route("/api/conversations/{id}/memory/compress", post(conversations::compress_memory))
-        .route("/api/conversations/{id}/session-links", get(conversations::list_session_links))
-        .route("/api/conversations/{id}/session-links/refresh", post(conversations::refresh_session_links))
-        .route("/api/conversations/{id}/chunks/index", post(conversations::index_chunks))
-        .route("/api/conversations/{id}/chunks/search", post(conversations::search_chunks))
-        .route("/api/conversations/{id}/traces", get(conversations::list_conv_traces))
+        .route("/conversations/{id}/memory/status", get(conversations::memory_status))
+        .route("/conversations/{id}/memory/compress", post(conversations::compress_memory))
+        .route("/conversations/{id}/session-links", get(conversations::list_session_links))
+        .route("/conversations/{id}/session-links/refresh", post(conversations::refresh_session_links))
+        .route("/conversations/{id}/chunks/index", post(conversations::index_chunks))
+        .route("/conversations/{id}/chunks/search", post(conversations::search_chunks))
+        .route("/conversations/{id}/traces", get(conversations::list_conv_traces))
         // Plan / artifact endpoints
-        .route("/api/plans", get(plans::list_plans))
-        .route("/api/plans/{id}", get(plans::get_plan))
-        .route("/api/plans/{id}/events", get(plans::list_plan_events))
-        .route("/api/plans/{id}/approve", post(plans::approve_plan))
-        .route("/api/plans/{id}/reject", post(plans::reject_plan))
-        .route("/api/artifacts", get(plans::list_artifacts))
+        .route("/plans", get(plans::list_plans))
+        .route("/plans/{id}", get(plans::get_plan))
+        .route("/plans/{id}/events", get(plans::list_plan_events))
+        .route("/plans/{id}/approve", post(plans::approve_plan))
+        .route("/plans/{id}/reject", post(plans::reject_plan))
+        .route("/artifacts", get(plans::list_artifacts))
         // Meta notification endpoints (v38 table → mobile inbox)
-        .route("/api/meta-notifications", get(meta::list_meta_notifications))
-        .route("/api/meta-notifications/mark-all-read", post(meta::mark_all_read))
-        .route("/api/meta-notifications/clear", post(meta::clear))
-        .route("/api/meta-notifications/{id}/read", post(meta::mark_read))
-        .route("/api/meta-notifications/{id}/dismiss", post(meta::dismiss))
+        .route("/meta-notifications", get(meta::list_meta_notifications))
+        .route("/meta-notifications/mark-all-read", post(meta::mark_all_read))
+        .route("/meta-notifications/clear", post(meta::clear))
+        .route("/meta-notifications/{id}/read", post(meta::mark_read))
+        .route("/meta-notifications/{id}/dismiss", post(meta::dismiss))
         // Agent endpoints
-        .route("/api/agents/status", get(agents::agents_status))
-        .route("/api/conversations/{id}/send", post(agents::send_message))
-        .route("/api/roundtables/run", post(agents::start_rt_run))
-        .route("/api/roundtables/{id}/cancel", post(agents::cancel_rt))
-        // WebSocket
+        .route("/agents/status", get(agents::agents_status))
+        .route("/conversations/{id}/send", post(agents::send_message))
+        .route("/roundtables/run", post(agents::start_rt_run))
+        .route("/roundtables/{id}/cancel", post(agents::cancel_rt));
+
+    Router::new()
+        .nest("/api/v1", rest.clone())
+        .nest("/api", rest)
+        // WebSocket stays at the root; it's cheap to add /api/v1/ws later
+        // but existing /ws/events contract is stable for mobile.
         .route("/ws/events", get(ws::ws_events))
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_middleware))
+        .layer(middleware::from_fn(deprecation_header_middleware))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
