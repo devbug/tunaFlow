@@ -265,18 +265,30 @@ pub fn get_progress_content(
 /// Save thinking/tool-use progress content for a message.
 /// Called by frontend after streaming completes, to persist progressContent to DB.
 /// This data is NOT included in context building — display only.
+///
+/// ⚠️ **async + spawn_blocking 필수**. 동기 Tauri command 는 main thread
+/// (Tao/AppKit event loop) 에서 실행되므로 `write.lock()` 이 block 되면
+/// UI 가 beach ball 로 freeze 된다. streaming 중 chunk 마다 이 command 가
+/// 호출되는데, 이전 turn 의 post-completion hook (vector indexing 등) 이
+/// write lock 을 hold 하면 이 sync 버전은 정확히 beach ball.
+/// 전체 감사: `docs/reference/refactor-regression-audit_2026-04-22.md`.
 #[tauri::command]
-pub fn save_progress_content(
+pub async fn save_progress_content(
     message_id: String,
     progress_content: String,
-    state: State<DbState>,
+    state: State<'_, DbState>,
 ) -> Result<(), AppError> {
-    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
-    conn.execute(
-        "UPDATE messages SET progress_content = ?1 WHERE id = ?2",
-        params![progress_content, message_id],
-    )?;
-    Ok(())
+    let write = state.write.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        let conn = write.lock().map_err(|_| AppError::Lock)?;
+        conn.execute(
+            "UPDATE messages SET progress_content = ?1 WHERE id = ?2",
+            params![progress_content, message_id],
+        )?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| AppError::Agent(format!("spawn_blocking failed: {}", e)))?
 }
 
 /// Delete a user+assistant message pair.
@@ -285,64 +297,71 @@ pub fn save_progress_content(
 /// - If user: deletes this + the next assistant message (by timestamp)
 /// - If assistant: deletes this + the preceding user message (by timestamp)
 /// Returns the number of deleted rows.
+/// ⚠️ async + spawn_blocking. UI 우클릭 메뉴 삭제 경로라 sync 로는 main
+/// thread 에서 write.lock 대기 시 beach ball. 2026-04-22 사용자 재현 확인.
 #[tauri::command]
-pub fn delete_message_pair(
+pub async fn delete_message_pair(
     message_id: String,
-    state: State<DbState>,
+    state: State<'_, DbState>,
 ) -> Result<i32, AppError> {
-    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    let write = state.write.clone();
+    tokio::task::spawn_blocking(move || -> Result<i32, AppError> {
+        let conn = write.lock().map_err(|_| AppError::Lock)?;
 
-    // Fetch the target message
-    let (role, conv_id, ts): (String, String, i64) = conn
-        .query_row(
-            "SELECT role, conversation_id, timestamp FROM messages WHERE id = ?1",
-            [&message_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .map_err(|_| AppError::NotFound(format!("Message '{}' not found", message_id)))?;
+        // Fetch the target message
+        let (role, conv_id, ts): (String, String, i64) = conn
+            .query_row(
+                "SELECT role, conversation_id, timestamp FROM messages WHERE id = ?1",
+                [&message_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .map_err(|_| AppError::NotFound(format!("Message '{}' not found", message_id)))?;
 
-    // Find the pair message
-    let pair_id: Option<String> = if role == "user" {
-        // Next assistant message after this user message
-        conn.query_row(
-            "SELECT id FROM messages
-             WHERE conversation_id = ?1 AND role = 'assistant' AND timestamp > ?2
-             ORDER BY timestamp ASC LIMIT 1",
-            params![conv_id, ts],
-            |row| row.get(0),
-        ).ok()
-    } else {
-        // Previous user message before this assistant message
-        conn.query_row(
-            "SELECT id FROM messages
-             WHERE conversation_id = ?1 AND role = 'user' AND timestamp < ?2
-             ORDER BY timestamp DESC LIMIT 1",
-            params![conv_id, ts],
-            |row| row.get(0),
-        ).ok()
-    };
+        // Find the pair message
+        let pair_id: Option<String> = if role == "user" {
+            // Next assistant message after this user message
+            conn.query_row(
+                "SELECT id FROM messages
+                 WHERE conversation_id = ?1 AND role = 'assistant' AND timestamp > ?2
+                 ORDER BY timestamp ASC LIMIT 1",
+                params![conv_id, ts],
+                |row| row.get(0),
+            ).ok()
+        } else {
+            // Previous user message before this assistant message
+            conn.query_row(
+                "SELECT id FROM messages
+                 WHERE conversation_id = ?1 AND role = 'user' AND timestamp < ?2
+                 ORDER BY timestamp DESC LIMIT 1",
+                params![conv_id, ts],
+                |row| row.get(0),
+            ).ok()
+        };
 
-    // Clear FK references before deleting
-    let ids_to_delete: Vec<&str> = std::iter::once(message_id.as_str())
-        .chain(pair_id.as_deref())
-        .collect();
-    for id in &ids_to_delete {
-        // branches.checkpoint_id → NULL
-        conn.execute("UPDATE branches SET checkpoint_id = NULL WHERE checkpoint_id = ?1", [id])?;
-        // memos referencing this message
-        conn.execute("DELETE FROM memos WHERE message_id = ?1", [id])?;
-    }
+        // Clear FK references before deleting
+        let ids_to_delete: Vec<&str> = std::iter::once(message_id.as_str())
+            .chain(pair_id.as_deref())
+            .collect();
+        for id in &ids_to_delete {
+            // branches.checkpoint_id → NULL
+            conn.execute("UPDATE branches SET checkpoint_id = NULL WHERE checkpoint_id = ?1", [id])?;
+            // memos referencing this message
+            conn.execute("DELETE FROM memos WHERE message_id = ?1", [id])?;
+        }
 
-    // Delete messages
-    let mut deleted = 0i32;
-    conn.execute("DELETE FROM messages WHERE id = ?1", [&message_id])?;
-    deleted += 1;
-    if let Some(pid) = pair_id {
-        conn.execute("DELETE FROM messages WHERE id = ?1", [&pid])?;
+        // Delete messages
+        let mut deleted = 0i32;
+        conn.execute("DELETE FROM messages WHERE id = ?1", [&message_id])?;
         deleted += 1;
-    }
+        if let Some(pid) = pair_id {
+            conn.execute("DELETE FROM messages WHERE id = ?1", [&pid])?;
+            deleted += 1;
+        }
 
-    Ok(deleted)
+        Ok(deleted)
+    })
+    .await
+    .map_err(|e| AppError::Agent(format!("spawn_blocking failed: {}", e)))?
 }
 
 /// FTS5 search across messages for the current project.

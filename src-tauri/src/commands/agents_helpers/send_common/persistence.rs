@@ -30,6 +30,22 @@ fn compress_semaphore() -> std::sync::Arc<tokio::sync::Semaphore> {
         .clone()
 }
 
+/// Global post-completion serialization. **전체 task (compression + session link
+/// + vector index) 를 직렬화**. 2026-04-22 재현 분석 결과, 매 turn 마다
+/// `std::thread::spawn` 으로 새 thread 를 띄우는데 이 thread 들이 compression
+/// / session link / vector index 를 각자 병렬로 진행하면서 write lock 을
+/// 쉴새 없이 번갈아 잡는다. 결과: 다음 user turn 의 `prepare_engine_run` 의
+/// A1 write lock 획득이 starvation 으로 영원히 실패. 이 세마포어로 한 번에
+/// 하나의 post-completion 만 돌도록 제한 → 다음 turn 의 A1 에게 틈을 제공.
+static POST_COMPLETION_LOCK: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<()>>> =
+    std::sync::OnceLock::new();
+
+fn post_completion_lock() -> std::sync::Arc<std::sync::Mutex<()>> {
+    POST_COMPLETION_LOCK
+        .get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(())))
+        .clone()
+}
+
 use super::super::trace_log::{insert_trace_log, insert_trace_log_with_context, new_span_id, new_trace_id, SpanInfo, ContextPackMeta};
 use super::context_loading::{load_context_data, load_project_path};
 use super::prompt_assembly::assemble_prompt;
@@ -155,12 +171,37 @@ pub fn prepare_engine_run(
     identity_frag: Option<&str>,
     state: &DbState,
 ) -> Result<PreparedRun, crate::errors::AppError> {
-    // Phase A: DB operations under lock — persist user msg, load context data, pre-create streaming msg
-    let (mut data, project_path, msg_id, handoff_block) = {
+    // Phase A 를 3개로 분할 (2026-04-22 audit): write lock 을 최소한만 잡도록.
+    //
+    // 기존에는 user msg INSERT + load_context_data + streaming msg INSERT 를
+    // **한 write lock 안에서** 수행했다. 문제는 load_context_data 가 read-heavy
+    // (여러 SELECT · retrieval · memory) 라 수백 ms 걸리는데 그동안 write lock
+    // 을 hold. 이전 turn 의 post-completion hook (vector indexing) 이 이미
+    // write lock 을 잡고 있으면 prepare_engine_run 이 통째로 대기 → 다음 user
+    // turn 진입 실패 (sdk-session 로그 자체가 안 뜸, 45s orphan-recovery).
+    //
+    // 분할:
+    //   A0 (read):  detect_engine_handoff — 이전 assistant turn 조회
+    //   A1 (write, 수 ms): persist_user_message
+    //   A2 (read):  load_project_path + load_context_data
+    //   A3 (write, 수 ms): pre-create streaming assistant msg
+    // WAL 에서 read 는 writer 와 무관. write 를 짧게 두 번 잡는 것으로 충분.
+
+    // Phase A0: read — engine handoff 감지
+    let handoff_block = {
+        let conn = state.read.lock().map_err(|_| crate::errors::AppError::Lock)?;
+        detect_engine_handoff(&conn, &input.conversation_id, engine_key, input.persona_label.as_deref())
+    };
+
+    // Phase A1: short write — user message persist
+    {
         let conn = state.write.lock().map_err(|_| crate::errors::AppError::Lock)?;
-        // 엔진 전환 감지는 user 메시지 persist 전에 수행 — 이전 assistant 턴 기준.
-        let handoff = detect_engine_handoff(&conn, &input.conversation_id, engine_key, input.persona_label.as_deref());
         persist_user_message(&conn, &input.conversation_id, &input.prompt, &input.user_message_id)?;
+    }
+
+    // Phase A2: read — project path + context data (가장 시간이 많이 걸리는 구간)
+    let (mut data, project_path) = {
+        let conn = state.read.lock().map_err(|_| crate::errors::AppError::Lock)?;
         let pp = load_project_path(&conn, &input.project_key);
         let ctx_data = load_context_data(
             &conn, &input.conversation_id, &input.prompt, pp.as_deref(),
@@ -168,6 +209,12 @@ pub fn prepare_engine_run(
             input.context_mode_override.as_deref(), input.context_budget_cap,
             input.user_profile_json.as_deref(),
         );
+        (ctx_data, pp)
+    };
+
+    // Phase A3: short write — pre-create streaming assistant message
+    let msg_id = {
+        let conn = state.write.lock().map_err(|_| crate::errors::AppError::Lock)?;
         let mid = Uuid::new_v4().to_string();
         let now = now_epoch_ms();
         conn.execute(
@@ -175,8 +222,7 @@ pub fn prepare_engine_run(
              VALUES(?1,?2,'assistant','',?3,'streaming',?4,?5,?6)",
             params![mid, input.conversation_id, now, engine_key, input.model, input.persona_label],
         )?;
-        (ctx_data, pp, mid, handoff)
-        // lock released here
+        mid
     };
 
     // Session freshness: stateful 엔진(sdk-url, app-server)에서
@@ -322,6 +368,20 @@ pub fn spawn_post_completion_tasks(db: crate::db::DbState, conversation_id: Stri
     std::thread::spawn(move || {
         let cid_short = if conversation_id.len() >= 8 { &conversation_id[..8] } else { &conversation_id };
 
+        // ⚠️ Global serialization — 한 번에 하나의 post-completion 만 실행.
+        // 기존에는 매 turn 마다 새 thread 가 compression / session link /
+        // vector index 를 각자 병렬 실행 → write lock 쉴 새 없이 잡힘 →
+        // 다음 turn 의 prepare_engine_run A1 이 영구 starvation. 이 lock 으로
+        // serialize 하면 A1 이 post-completion 사이 틈에 확실히 진입 가능.
+        let lock_arc = post_completion_lock();
+        let _guard = match lock_arc.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("[post-completion] global lock poisoned: {}", e);
+                return;
+            }
+        };
+
         // 1. Memory compression — eager trigger (P1 #3 option B, two-turn window).
         //    Runs Haiku summarization in background after every completion.
         //    `compress_memory_blocking` prefers Anthropic SDK (no CLI conflict with
@@ -382,13 +442,11 @@ pub fn spawn_post_completion_tasks(db: crate::db::DbState, conversation_id: Stri
             }
         }
 
-        // 3. Vector indexing (rawq embed — skip if daemon not ready)
+        // 3. Vector indexing (rawq embed — skip if daemon not ready).
         // Semaphore ensures only 1 ONNX embedding job runs at a time, preventing CPU spikes
         // when multiple agents complete concurrently (e.g. RT or rapid sequential sends).
         if crate::agents::rawq::is_daemon_ready() {
             let sem = embed_semaphore();
-            // try_acquire — if another thread is already embedding, skip this cycle.
-            // The next agent completion will re-index anyway (incremental, low overhead).
             let acquired = sem.try_acquire();
             if acquired.is_ok() {
                 match crate::commands::vector_search::index_chunks_blocking(&db, &conversation_id) {
@@ -396,7 +454,6 @@ pub fn spawn_post_completion_tasks(db: crate::db::DbState, conversation_id: Stri
                     Ok(_) => {}
                     Err(e) => eprintln!("[post-completion] vector indexing error: {}", e),
                 }
-                // acquired (SemaphorePermit) dropped here — releases semaphore
             } else {
                 eprintln!("[post-completion] embed semaphore busy, skipping indexing for {} (will catch up next completion)", cid_short);
             }
