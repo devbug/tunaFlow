@@ -103,12 +103,29 @@ echo "Gatekeeper 격리 속성 제거 중..."
 xattr -cr "$APP_PATH"
 
 # ── CLI wrapper ────────────────────────────────────────────────────────────────
-mkdir -p "$(dirname "$BIN_PATH")"
-cat > "$BIN_PATH" << 'WRAPPER'
-#!/usr/bin/env bash
-open -a tunaFlow "$@"
-WRAPPER
-chmod +x "$BIN_PATH"
+# /usr/local/bin 은 대부분의 macOS 에서 root 소유 → 일반 유저 쓰기 실패 가능.
+# 직접 시도 → 실패하면 sudo → 그래도 실패하면 건너뛰고 앱 경로 안내.
+echo "CLI 래퍼 설치 중... ($BIN_PATH)"
+BIN_DIR="$(dirname "$BIN_PATH")"
+WRAPPER_CONTENT='#!/usr/bin/env bash
+open -a tunaFlow "$@"'
+
+if { mkdir -p "$BIN_DIR" && printf '%s\n' "$WRAPPER_CONTENT" > "$BIN_PATH" && chmod +x "$BIN_PATH"; } 2>/dev/null; then
+  echo "  완료"
+elif command -v sudo >/dev/null 2>&1; then
+  echo "  관리자 권한이 필요합니다 (sudo 패스워드 입력)."
+  if sudo mkdir -p "$BIN_DIR" \
+    && printf '%s\n' "$WRAPPER_CONTENT" | sudo tee "$BIN_PATH" >/dev/null \
+    && sudo chmod +x "$BIN_PATH"; then
+    echo "  완료 (sudo)"
+  else
+    echo "  경고: CLI 래퍼 설치 실패. 앱은 /Applications/ 에 정상 설치됐으므로" >&2
+    echo "        'open -a tunaFlow' 또는 Launchpad 에서 실행 가능합니다." >&2
+  fi
+else
+  echo "  경고: sudo 없음 + $BIN_PATH 쓰기 권한 없음 → CLI 래퍼 건너뜀." >&2
+  echo "        'open -a tunaFlow' 로 실행하세요." >&2
+fi
 
 # ── Done ───────────────────────────────────────────────────────────────────────
 echo ""
