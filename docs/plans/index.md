@@ -36,6 +36,9 @@
 | [perProjectDatabaseSplitPlan](./perProjectDatabaseSplitPlan.md) | — |
 | [preBetaAuditPlan_2026-04-23](./preBetaAuditPlan_2026-04-23.md) | **P0 (베타 blocker)** — 6개 영역 전수감사 결과 (P0 6건 + P1 5건 + Developer 핸드오프 #4) |
 | [publicReadinessChecklistPlan](./publicReadinessChecklistPlan.md) | **P0** — OSS 공개 준비 체크리스트 (Phase 0~4 완료, Phase 5 public flip 남음) |
+| [sidecarPipelinePlan_2026-04-24](./sidecarPipelinePlan_2026-04-24.md) | **P1** — rawq → CRG 파이프라인 (두 sidecar 결합 섹션). 반나절~1일. 7편 한계 (B) 연결 |
+| [windowsBuildPlan_2026-04-24](./windowsBuildPlan_2026-04-24.md) | **P1** — Windows x64 빌드. 1~2일. Developer 핸드오프 포함 |
+| [postBetaBacklogPlan_2026-04-24](./postBetaBacklogPlan_2026-04-24.md) | **P2** — Wiki 10편 한계 섹션 "해결 예정" 17 항목 (B-1 ~ B-17) 통합 백로그 |
 | [postParityRuntimeValidationSweepPlan_2026-03-30](./postParityRuntimeValidationSweepPlan_2026-03-30.md) | P1 — parity fix 효과 재검증 |
 | [realWorkflowMemoryQualityValidationPlan_2026-03-30](./realWorkflowMemoryQualityValidationPlan_2026-03-30.md) | P1 — memory/retrieval 응답 품질 검증 |
 | [roleAssignmentCoverageUxPlan](./roleAssignmentCoverageUxPlan.md) | P2 — Settings 역할 커버리지 UX (inferred 저장 명시화 + stale ID 자동 정리 + assertRoleReady 원클릭 적용) |
