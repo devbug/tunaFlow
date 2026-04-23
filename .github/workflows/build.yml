@@ -13,6 +13,10 @@ on:
         type: choice
         options: [lite, full, both]
 
+# tauri-action needs contents:write to upload DMG/app artifacts to the Release.
+permissions:
+  contents: write
+
 env:
   RUST_BACKTRACE: 1
 
