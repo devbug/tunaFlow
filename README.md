@@ -105,8 +105,17 @@ Automatically detects available agents during initial project setup and recommen
 
 ### Prerequisites
 
-- macOS (Currently macOS only)
-- Node.js 20+, Rust stable
+- macOS (currently macOS only)
+- **Node.js 20+**
+- **Rust stable** — if not already installed, one line via rustup:
+
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  source "$HOME/.cargo/env"
+  ```
+
+  (If `npm run tauri dev` errors with `cargo metadata ... No such file or directory`, this is why — Rust / cargo is required by Tauri.)
+
 - At least one agent CLI:
 
 ```bash

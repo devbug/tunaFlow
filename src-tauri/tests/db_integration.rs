@@ -15,9 +15,9 @@ fn setup_db() -> Connection {
             sqlite_vec::sqlite3_vec_init as *const (),
         )));
     }
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-    db::migrations::run(&conn).unwrap();
+    db::migrations::run(&mut conn).unwrap();
     conn
 }
 
@@ -36,7 +36,7 @@ fn migrations_apply_cleanly() {
 fn v42_meta_notifications_recovered() {
     // v42 가 누락된 meta_notifications 를 idempotent 하게 복구한다.
     // 신규 DB 라도 v38 + v42 둘 다 CREATE IF NOT EXISTS 라 충돌 없이 테이블이 존재해야 함.
-    let conn = setup_db();
+    let mut conn = setup_db();
     let has_table: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='meta_notifications'",
@@ -50,7 +50,7 @@ fn v42_meta_notifications_recovered() {
     // Drop the table, roll schema_version back to 41, then re-run migrations.
     conn.execute("DROP TABLE meta_notifications", []).unwrap();
     conn.execute("DELETE FROM schema_version WHERE version IN (42)", []).unwrap();
-    db::migrations::run(&conn).unwrap();
+    db::migrations::run(&mut conn).unwrap();
     let recovered: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='meta_notifications'",
@@ -63,9 +63,9 @@ fn v42_meta_notifications_recovered() {
 
 #[test]
 fn migrations_are_idempotent() {
-    let conn = setup_db();
+    let mut conn = setup_db();
     // Run again — should not fail
-    db::migrations::run(&conn).unwrap();
+    db::migrations::run(&mut conn).unwrap();
     let version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
         .unwrap();

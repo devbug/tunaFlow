@@ -106,8 +106,17 @@ rawq 와 code-review-graph 가 미리 뽑아둔 데이터를 에이전트가 분
 ### 사전 준비
 
 - macOS (현재 macOS 전용)
-- Node.js 20+, Rust stable
-- 에이전트 CLI 1개 이상:
+- **Node.js 20+**
+- **Rust stable** — 설치 안 돼있으면 rustup 한 줄로 설치:
+
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  source "$HOME/.cargo/env"
+  ```
+
+  (`npm run tauri dev` 에서 `cargo metadata ... No such file or directory` 로 막히면 원인이 이것입니다. Tauri 는 Rust / cargo 가 필요합니다.)
+
+- 에이전트 CLI 1 개 이상:
 
 ```bash
 npm install -g @anthropic-ai/claude-code   # Claude
