@@ -46,7 +46,11 @@ esac
 echo "tunaFlow 설치 중... (트랙: $TRACK, 아키텍처: $ARCH_TAG)"
 
 # ── Fetch latest release ───────────────────────────────────────────────────────
-API_URL="https://api.github.com/repos/${REPO}/releases/latest"
+# 주의: `/releases/latest` 는 prerelease / draft 를 자동 제외 → 베타 태그
+# (v0.1.0-beta 처럼 prerelease=true) 에서는 404 를 돌려준다.
+# `/releases?per_page=10` 으로 최근 10 개 릴리즈 (prerelease 포함) 를 받아
+# 그 중 이 아키텍처 DMG 를 가진 첫 릴리즈의 asset 을 고른다.
+API_URL="https://api.github.com/repos/${REPO}/releases?per_page=10"
 ASSETS_JSON=$(curl -fsSL "$API_URL")
 
 if [[ "$TRACK" == "full" ]]; then
