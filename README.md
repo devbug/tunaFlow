@@ -197,16 +197,32 @@ Projects developed using tunaFlow's multi-agent orchestration workflow:
 
 ## References & Acknowledgments
 
-tunaFlow borrows ideas and code from several open-source projects. They are not bundled in this repository, but their work shaped tunaFlow's design. Thanks to the following maintainers:
+tunaFlow borrows ideas and code from several open-source projects. Thanks to the following maintainers:
+
+### Bundled sidecars (shipped with the app)
 
 - **[rawq](https://github.com/auyelbekov/rawq)** (MIT) — code-search sidecar. tunaFlow ships a locally-patched build as a bundled binary.
+- **[code-review-graph](https://github.com/tirth8205/code-review-graph)** (MIT) — CRG sidecar (Full track). Graph-based code review analysis.
+- **[context-hub](https://github.com/andrewyng/context-hub)** (MIT) — context-sharing sidecar. Auto-installed on first run.
+
+### Design / architecture influences
+
+- **[abtop](https://github.com/graykode/abtop)** (MIT) — runtime observability / diagnostics for AI coding agents. Shaped tunaFlow's Trace panel and status bar.
+- **[hermes-agent](https://github.com/NousResearch/hermes-agent)** (MIT) — memory / toolset / iteration-budget patterns.
+- **[larksuite-cli](https://github.com/larksuite/cli)** (MIT) — CLI action layering / shared-rule / async-contract patterns.
+- **[chops](https://github.com/Shpigford/chops)** (MIT) — ContextPack code-slice injection ideas.
 - **[codex](https://github.com/openai/codex)** (Apache 2.0) — reference implementation for CLI agent protocol work.
 - **[xterm.js](https://xtermjs.org/)** (MIT) — terminal rendering in the PTY panel.
 - **[react-markdown](https://github.com/remarkjs/react-markdown)** (MIT) — chat markdown rendering.
 - **[D2Coding](https://github.com/naver/d2codingfont)** (OFL 1.1) — bundled monospace font.
 - **[Tauri](https://tauri.app/)** (MIT / Apache 2.0) — desktop shell framework.
 
-Full third-party attribution list is in [NOTICE](./NOTICE).
+See **[ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md)** for the full list of 25+ referenced projects (articles, papers, and indirect influences). Full third-party attribution list is in [NOTICE](./NOTICE).
+
+### Philosophy / articles
+
+- **[Code Agent Orchestra](https://addyosmani.com/blog/code-agent-orchestra/)** by Addy Osmani — shaped tunaFlow's multi-agent orchestration philosophy.
+- Stavros Korokithakis's Claude Code workflow posts — inspired the `Plan → Dev → Review` pipeline.
 
 ---
 

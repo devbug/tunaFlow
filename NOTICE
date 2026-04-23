@@ -10,16 +10,47 @@ following projects is subject to its own license terms. Full license texts
 are available at the respective project URLs or in the installed
 node_modules/ and src-tauri/target/ directories.
 
-Ideas and patches borrowed (not bundled in this repository):
+Sidecars shipped with the app:
 
 - rawq — https://github.com/auyelbekov/rawq
   License: MIT
   Use: code-search sidecar. tunaFlow ships a locally-patched build as a
   bundled binary. The upstream repository is unmodified.
 
+- code-review-graph — https://github.com/tirth8205/code-review-graph
+  License: MIT
+  Use: CRG sidecar for graph-based code review analysis (Full track
+  bundles the binary; Lite track installs at first run).
+
+- context-hub — https://github.com/andrewyng/context-hub
+  License: MIT
+  Use: context-sharing sidecar. Auto-installed on first app launch.
+
+Design and architecture influences (not bundled; attribution only):
+
+- abtop — https://github.com/graykode/abtop
+  License: MIT
+  Use: runtime observability / diagnostics patterns. Shaped the Trace
+  panel and status bar design.
+
+- hermes-agent — https://github.com/NousResearch/hermes-agent
+  License: MIT
+  Use: memory / toolset / iteration-budget patterns.
+
+- larksuite-cli — https://github.com/larksuite/cli
+  License: MIT
+  Use: CLI action layering / shared-rule / async-contract patterns.
+
+- chops — https://github.com/Shpigford/chops
+  License: MIT
+  Use: ContextPack code-slice injection ideas.
+
 - codex — https://github.com/openai/codex
   License: Apache License 2.0
   Use: reference implementation for CLI agent protocol work.
+
+See ACKNOWLEDGMENTS.md for the complete list of referenced projects,
+articles, and papers (25+ entries).
 
 Bundled runtime dependencies (selected highlights — see package.json and
 src-tauri/Cargo.toml for the full dependency tree):
