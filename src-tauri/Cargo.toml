@@ -2,6 +2,11 @@
 name = "tuna-flow"
 version = "0.1.0"
 edition = "2021"
+description = "Multi-agent orchestration desktop client for CLI coding agents (Claude Code, Codex, Gemini, OpenCode)"
+license = "Apache-2.0"
+authors = ["d9ng <d9ng@outlook.com>"]
+repository = "https://github.com/hang-in/tunaFlow"
+homepage = "https://github.com/hang-in/tunaFlow"
 # Multiple bins exist (tuna-flow desktop app, eval_retrieval CLI). Pin the
 # default so `cargo run` (Tauri dev server) resolves unambiguously.
 default-run = "tuna-flow"

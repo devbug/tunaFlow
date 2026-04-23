@@ -2,6 +2,17 @@
   "name": "tuna-flow",
   "private": true,
   "version": "0.1.0",
+  "description": "Multi-agent orchestration desktop client for CLI coding agents (Claude Code, Codex, Gemini, OpenCode)",
+  "license": "Apache-2.0",
+  "author": "d9ng <d9ng@outlook.com>",
+  "homepage": "https://github.com/hang-in/tunaFlow",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hang-in/tunaFlow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hang-in/tunaFlow/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
