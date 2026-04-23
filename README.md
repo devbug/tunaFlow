@@ -143,7 +143,7 @@ curl -fsSL https://raw.githubusercontent.com/hang-in/tunaFlow/main/install.sh | 
 
 ## Tech Stack
 
-Tauri 2 + React 18 + TypeScript + Zustand 5 + Tailwind CSS 4 + Rust + SQLite (WAL, v44)
+Tauri 2 + React 18 + TypeScript + Zustand 5 + Tailwind CSS 4 + Rust + SQLite (WAL, v46)
 
 Code Search: `rawq` sidecar (bge-m3 embedding) · `code-review-graph` · `context-hub`
 External Integration: HTTP API + WebSocket · MCP Server (`tunaflow-mcp`)
@@ -192,7 +192,7 @@ Highlights:
 ### By design / Beta stage
 
 - **Ad-hoc Signature** — No Apple Developer ID signing in Beta. Requires Gatekeeper bypass (`xattr -cr /Applications/tunaFlow.app`).
-- **No RT Intermediate Streaming** — `Roundtable` results are displayed only after each round completes (structural — requires significant rewiring to change).
+- **Limited mid-round RT interruption** — participant-level token streaming works in real time, but once a round is in progress, redirecting the discussion mid-round is awkward. Feedback is delivered between rounds.
 - **Initial Indexing Delay** — Large projects may take several minutes for the first run (CPU spikes mitigated via ONNX thread limits, semaphores, and incremental indexing).
 
 Detailed list: [CLAUDE.md §5](./CLAUDE.md)
