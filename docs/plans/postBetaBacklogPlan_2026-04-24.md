@@ -166,12 +166,22 @@ s37 하네스를 확장해 공개 레퍼런스 프로젝트에 대해 야간 배
 
 ### B-18. 커스텀 OpenAI-compat 엔드포인트 등록 (출처: Issue #175 Extended)
 
-MVP (`customEndpointConfigPlan_2026-04-24`) 는 Ollama / LM Studio URL override 만. Extended 범위는 임의 label 의 엔드포인트 (vLLM / Groq / Together AI / OpenRouter / Fireworks 등) 등록.
+MVP (`customEndpointConfigPlan_2026-04-24`, 머지: `6cc991c`) 는 Ollama / LM Studio URL override 만. Extended 범위는 임의 label 의 엔드포인트 (vLLM / Groq / Together AI / OpenRouter / Fireworks 등) 등록.
 
 - 필요 요소: 엔진 dropdown 동적화 (ENGINE_CONFIGS 정적 → registry 기반), per-endpoint API key 보관 (keyring 활용), GET `{base}/v1/models` HTTP discovery, 엔진 추가/삭제 UX.
 - 구현 부담: 중간~높음 (2~3일, UX 설계가 가장 큰 변수).
-- 선결 조건: MVP 머지 + 베타 피드백 2~4주 (어느 엔드포인트가 실제 수요 높은지 확인).
+- 선결 조건: MVP 머지 ✅ + 베타 피드백 2~4주 (어느 엔드포인트가 실제 수요 높은지 확인).
 - 의존성: MVP plan 완료.
+
+### B-19. 사용자 확인 게이트 (Manual verification gate, 출처: Issue #176)
+
+`impl-complete` 와 Reviewer 시작 사이에 사람이 확인해야 하는 manual 항목을 검증하는 게이트. Reviewer 는 역할 규칙상 shell 실행 불가라 UI/API/runtime 동작 검증은 현재 owner 가 없음 → Review 라운드가 이를 떠안아 비용 낭비.
+
+- **MVP (P1, 1~2일)**: `⚠️ Manual` 라인 파싱 (result report) → 확인 dialog (pass/skip/fail) → 전부 pass 면 Review 진행 / fail 있으면 Developer Rework 큐로 라우팅. Settings 에 "Skip gate" 토글.
+- **Extended (P2)**: Manual 항목별 자동 스크린샷 (Tauri FS API), verification 결과 DB 영속 (plan_events 연동), RT 토론으로 manual 확인 자동화 실험.
+- 수정 지점: `src/lib/workflow/reviewWorkflow.ts` (상태머신), 새 컴포넌트 `ManualVerificationGate.tsx`, `plan_events` 테이블 활용 검토.
+- 미해결 UX 질문: fail 시 사용자가 실패 사유 텍스트를 직접 입력하는가 (이슈 본 댓글에서 문의) — Developer 가 무엇을 고쳐야 할지 알려면 필요해 보임.
+- 참고: `CLAUDE.md §16` 코딩 컨벤션의 "Reviewer = 코드만" 규칙.
 
 ---
 
