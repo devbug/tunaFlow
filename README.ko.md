@@ -22,6 +22,8 @@
 
 ![tunaFlow screenshot](./docs/assets/screenshot-main.png)
 
+> 📺 [데모 영상 보기 (6분, 10 MB)](./docs/assets/tunaFlow-demo.mp4)
+
 ---
 
 ## 누구를 위한 도구인가
