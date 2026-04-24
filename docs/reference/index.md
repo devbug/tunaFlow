@@ -26,3 +26,4 @@
 - [retrievalContextPollutionFix_2026-04-15](./retrievalContextPollutionFix_2026-04-15.md) — FTS5/recency 오염 ABCD 수정 + 인덱싱 장애 발견
 - [indexingPipelineBug_P0_2026-04-15](./indexingPipelineBug_P0_2026-04-15.md) — **🔴 P0** v32 후 embedding 복구 실패 3중 버그 (Vector 기능 정지, 베타 차단)
 - [knownIssues_2026-04-15](./knownIssues_2026-04-15.md) — 이번 세션 미해결 이슈 체크리스트 + 베타 공개 차단 여부 판단
+- [bkitReferenceReview_2026-04-24](./bkitReferenceReview_2026-04-24.md) — popup-studio-ai/bkit 계열 레퍼런스 검토, 수직 보완 관계 재프레임 + P1~P3 차용 제안
