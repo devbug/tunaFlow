@@ -129,6 +129,19 @@ tunaFlow 의 **ContextPack** 이 이미 동일한 문제를 풀지만, "Context 
 
 **+ 추가 포인트**: 원 분석가가 놓친 축이 있다. **bkit 과의 연동 API** — tunaFlow 의 고유 포지션 ("멀티엔진 orchestrator") 이 잘 살려면 "CLI 생태계 확장팩들 (bkit, 향후 나올 다른 플러그인) 을 자동 인식" 이 차별화 포인트가 될 수 있다.
 
+# 라이선스
+
+bkit 세 레포 모두 **Apache License 2.0**. Copyright POPUP STUDIO PTE. LTD. (2024-2026, 싱가포르). tunaFlow 도 Apache 2.0 이라 라이선스 충돌 없음.
+
+| 차용 형태 | 라이선스 의무 |
+|---|---|
+| 개념/패턴 (Context Engineering, PDCA, Skill classification 등 아이디어) | 없음 — 저작권 대상 아님 |
+| 파일 단위 복사 (SKILL.md, hooks.json 템플릿 등) | Apache 2.0 §4 — LICENSE/NOTICE 포함 + 원저작자 attribution + 변경 사항 명시 |
+| "bkit compatible" 배지/로고 사용 | 허가 필요 (상표 조항, NOTICE 에 명시) |
+| "works with bkit" 같은 서술적 언급 | nominative fair use 로 대부분 OK, 로고는 피할 것 |
+
+현재 §차용 가치 평가 의 P1~P3 항목은 **전부 개념 차용** 범주라 라이선스 의무 없음. 향후 파일 단위 복사가 필요하면 그때 NOTICE/attribution 챙기면 됨.
+
 # 부록
 
 ## 분석가 프롬프트의 방법론적 메모
