@@ -40,6 +40,7 @@
 | [windowsBuildPlan_2026-04-24](./windowsBuildPlan_2026-04-24.md) | **P1** — Windows x64 빌드. 1~2일. Developer 핸드오프 포함 |
 | [postBetaBacklogPlan_2026-04-24](./postBetaBacklogPlan_2026-04-24.md) | **P2** — Wiki 10편 한계 섹션 "해결 예정" 17 항목 (B-1 ~ B-17) 통합 백로그 |
 | [resultReportMarkerCleanupPlan_2026-04-24](./resultReportMarkerCleanupPlan_2026-04-24.md) | **P1** — result/insight 산출물 tunaflow 마커 잔존 정리 (B-16). stripTunaflowMarkers 공용 유틸 + Rust 안전망. Developer 핸드오프 포함 |
+| [customEndpointConfigPlan_2026-04-24](./customEndpointConfigPlan_2026-04-24.md) | **P1** — Ollama / LM Studio base URL override UI (첫 외부 이슈 #175 MVP). RunInput custom_base_url + Settings UI + 호출 시점 주입. Developer 핸드오프 포함 |
 | [postParityRuntimeValidationSweepPlan_2026-03-30](./postParityRuntimeValidationSweepPlan_2026-03-30.md) | P1 — parity fix 효과 재검증 |
 | [realWorkflowMemoryQualityValidationPlan_2026-03-30](./realWorkflowMemoryQualityValidationPlan_2026-03-30.md) | P1 — memory/retrieval 응답 품질 검증 |
 | [roleAssignmentCoverageUxPlan](./roleAssignmentCoverageUxPlan.md) | P2 — Settings 역할 커버리지 UX (inferred 저장 명시화 + stale ID 자동 정리 + assertRoleReady 원클릭 적용) |
@@ -117,7 +118,7 @@
 
 ## 📊 통계
 
-- 진행 예정/진행 중: **28개**
+- 진행 예정/진행 중: **29개**
 - 부분 완료: **26개**
 - 완료 (archive): **70개**
 - 보류 (archive): **13개**

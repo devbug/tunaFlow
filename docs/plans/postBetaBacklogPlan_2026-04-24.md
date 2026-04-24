@@ -164,6 +164,15 @@ s37 하네스를 확장해 공개 레퍼런스 프로젝트에 대해 야간 배
 - 구현 부담: 높음. 비용 부담 큼.
 - 우선순위: 낮음 (리소스 문제).
 
+### B-18. 커스텀 OpenAI-compat 엔드포인트 등록 (출처: Issue #175 Extended)
+
+MVP (`customEndpointConfigPlan_2026-04-24`) 는 Ollama / LM Studio URL override 만. Extended 범위는 임의 label 의 엔드포인트 (vLLM / Groq / Together AI / OpenRouter / Fireworks 등) 등록.
+
+- 필요 요소: 엔진 dropdown 동적화 (ENGINE_CONFIGS 정적 → registry 기반), per-endpoint API key 보관 (keyring 활용), GET `{base}/v1/models` HTTP discovery, 엔진 추가/삭제 UX.
+- 구현 부담: 중간~높음 (2~3일, UX 설계가 가장 큰 변수).
+- 선결 조건: MVP 머지 + 베타 피드백 2~4주 (어느 엔드포인트가 실제 수요 높은지 확인).
+- 의존성: MVP plan 완료.
+
 ---
 
 ## 운영 정책
