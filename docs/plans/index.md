@@ -46,6 +46,10 @@
 | [claudeDangerouslySkipPermissionsPlan_2026-04-24](./claudeDangerouslySkipPermissionsPlan_2026-04-24.md) | **P0 (hotfix / Issue #178)** — Claude headless permission 플래그 bypassPermissions → dangerously-skip-permissions. 3 call site (claude.rs L162/L380 + claude_sdk_session.rs L381). Developer 핸드오프 포함 |
 | [onboardingCancelLeakFixPlan_2026-04-25](./onboardingCancelLeakFixPlan_2026-04-25.md) | **P1 (Issue #176 follow-up)** — Codex/Gemini 메타 분석 실패 후 "건너뛰기" → 메인창 lock. handleSkip 에 cancel + error state UI 통합 + asyncCancel pipeline audit. Architect 직접 fix |
 | [toolStepsRunningStatusFinalizePlan_2026-04-25](./toolStepsRunningStatusFinalizePlan_2026-04-25.md) | **P1 (Issue #187, MERGED)** — long-doc 후 tool steps spinner 무한 회전. saveToolSteps finalize + ToolStepsView fallback 2 layer. PR #188 머지 완료 |
+| [reviewRTEntryFailureRollbackPlan_2026-04-25](./reviewRTEntryFailureRollbackPlan_2026-04-25.md) | **P2 (audit follow-up)** — startReviewRT 8 단계 중 어느 단계 실패가 phase rollback 보장 안 하는지 미확인. step-wise catch + retry UX. Developer 핸드오프 포함 |
+| [branchAdoptRollbackPlan_2026-04-25](./branchAdoptRollbackPlan_2026-04-25.md) | **P2 (audit follow-up)** — adoptBranch LLM/DB 부분 적용 위험 (s25 history). DB transaction + LLM retry + 부분 적용 복구 UX. Developer 핸드오프 포함 |
+| [planGenerationRollbackPlan_2026-04-25](./planGenerationRollbackPlan_2026-04-25.md) | **P2 (audit follow-up)** — generate_plan_document LLM/DB/file 부분 적용 위험. atomic transaction + 응답 파싱 강건화 + timeout. Developer 핸드오프 포함 |
+| [rawqIndexCancelChannelPlan_2026-04-25](./rawqIndexCancelChannelPlan_2026-04-25.md) | **P3 (audit follow-up, low priority)** — rawq subprocess cancel 채널 부재. Child kill on Drop 패턴 권장. Developer 핸드오프 포함 |
 | [postParityRuntimeValidationSweepPlan_2026-03-30](./postParityRuntimeValidationSweepPlan_2026-03-30.md) | P1 — parity fix 효과 재검증 |
 | [realWorkflowMemoryQualityValidationPlan_2026-03-30](./realWorkflowMemoryQualityValidationPlan_2026-03-30.md) | P1 — memory/retrieval 응답 품질 검증 |
 | [roleAssignmentCoverageUxPlan](./roleAssignmentCoverageUxPlan.md) | P2 — Settings 역할 커버리지 UX (inferred 저장 명시화 + stale ID 자동 정리 + assertRoleReady 원클릭 적용) |
