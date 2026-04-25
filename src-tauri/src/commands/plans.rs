@@ -316,7 +316,7 @@ pub fn update_plan_status(
     state: State<DbState>,
     app: AppHandle,
 ) -> Result<(), AppError> {
-    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    let mut conn = state.write.lock().map_err(|_| AppError::Lock)?;
     let now = now_epoch_ms();
 
     // 전이 전 상태 snapshot — milestone emit 시 "prior status" 로 활용
@@ -324,18 +324,22 @@ pub fn update_plan_status(
         .query_row("SELECT status FROM plans WHERE id = ?1", params![&input.id], |r| r.get(0))
         .ok();
 
-    conn.execute(
+    // status / phase / branch archive 3 statement atomic.
+    // partial commit (status='done' 인데 phase='active' stuck) 차단.
+    // SSOT: docs/plans/fragilityBatchFix_2026-04-26.md
+    let tx = conn.transaction()?;
+    tx.execute(
         "UPDATE plans SET status = ?1, updated_at = ?2 WHERE id = ?3",
         params![input.status, now, input.id],
     )?;
     // Sync phase + archive branches when status reaches terminal state
     if input.status == "done" || input.status == "abandoned" {
-        conn.execute(
+        tx.execute(
             "UPDATE plans SET phase = 'done' WHERE id = ?1 AND phase != 'done'",
             params![input.id],
         )?;
         // Archive linked implementation/review branches
-        conn.execute(
+        tx.execute(
             "UPDATE branches SET status = 'archived' WHERE status = 'active' AND id IN (
                 SELECT implementation_branch_id FROM plans WHERE id = ?1 AND implementation_branch_id IS NOT NULL
                 UNION
@@ -344,6 +348,7 @@ pub fn update_plan_status(
             params![input.id],
         )?;
     }
+    tx.commit()?;
 
     // projectIdentityAnalysisPlan subtask-01: Plan 완료 (status → 'done') 시점에
     // `workflow_milestone` artifact 1건 자동 생성. 동일 상태 재진입은 dedup 이 처리.

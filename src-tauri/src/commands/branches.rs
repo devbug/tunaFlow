@@ -388,12 +388,16 @@ pub fn delete_branch(
     id: String,
     state: State<DbState>,
 ) -> Result<(), AppError> {
-    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    let mut conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    // 8 statement (active 시 7 DELETE + 4 plan unlink/branch delete) atomic.
+    // 중간 fail (FK / lock contention) 시 partial state cascade 차단.
+    // SSOT: docs/plans/fragilityBatchFix_2026-04-26.md
+    let tx = conn.transaction()?;
 
     // Collect all descendant branch IDs (recursive) with their status
     let mut to_delete: Vec<(String, String)> = vec![];
     {
-        let status: String = conn
+        let status: String = tx
             .query_row("SELECT COALESCE(status, 'active') FROM branches WHERE id = ?1", [&id], |row| row.get(0))
             .unwrap_or_else(|_| "active".to_string());
         to_delete.push((id.clone(), status));
@@ -401,11 +405,14 @@ pub fn delete_branch(
     let mut i = 0;
     while i < to_delete.len() {
         let parent_id = to_delete[i].0.clone();
-        let mut stmt = conn.prepare("SELECT id, COALESCE(status, 'active') FROM branches WHERE parent_branch_id = ?1")?;
-        let children: Vec<(String, String)> = stmt
-            .query_map([&parent_id], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .filter_map(|r| r.ok())
-            .collect();
+        let children: Vec<(String, String)> = {
+            let mut stmt = tx.prepare("SELECT id, COALESCE(status, 'active') FROM branches WHERE parent_branch_id = ?1")?;
+            let collected: Vec<(String, String)> = stmt
+                .query_map([&parent_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .filter_map(|r| r.ok())
+                .collect();
+            collected
+        };
         to_delete.extend(children);
         i += 1;
     }
@@ -416,13 +423,13 @@ pub fn delete_branch(
 
         if status == "active" {
             // Active: full delete — remove everything including FK dependents
-            conn.execute("DELETE FROM conversation_memory WHERE conversation_id = ?1", [&branch_conv_id])?;
-            conn.execute("DELETE FROM trace_log WHERE conversation_id = ?1", [&branch_conv_id])?;
-            conn.execute("DELETE FROM agent_jobs WHERE conversation_id = ?1", [&branch_conv_id])?;
-            conn.execute("DELETE FROM messages WHERE conversation_id = ?1", [&branch_conv_id])?;
-            conn.execute("DELETE FROM memos WHERE conversation_id = ?1", [&branch_conv_id])?;
-            conn.execute("DELETE FROM artifacts WHERE conversation_id = ?1", [&branch_conv_id])?;
-            conn.execute("DELETE FROM conversations WHERE id = ?1", [&branch_conv_id])?;
+            tx.execute("DELETE FROM conversation_memory WHERE conversation_id = ?1", [&branch_conv_id])?;
+            tx.execute("DELETE FROM trace_log WHERE conversation_id = ?1", [&branch_conv_id])?;
+            tx.execute("DELETE FROM agent_jobs WHERE conversation_id = ?1", [&branch_conv_id])?;
+            tx.execute("DELETE FROM messages WHERE conversation_id = ?1", [&branch_conv_id])?;
+            tx.execute("DELETE FROM memos WHERE conversation_id = ?1", [&branch_conv_id])?;
+            tx.execute("DELETE FROM artifacts WHERE conversation_id = ?1", [&branch_conv_id])?;
+            tx.execute("DELETE FROM conversations WHERE id = ?1", [&branch_conv_id])?;
         }
         // Adopted/archived: shadow conv + messages preserved (git-style pointer-only delete)
 
@@ -430,14 +437,15 @@ pub fn delete_branch(
         // ON DELETE CASCADE 가 없으므로 branch row 삭제 전에 NULL 로 비운다.
         // 남기지 않으면 `FOREIGN KEY constraint failed` 로 DELETE 실패 (특히 RT
         // Review branch 가 plan.review_branch_id 로 연결된 경우 재현됨).
-        conn.execute("UPDATE plans SET branch_id = NULL WHERE branch_id = ?1", [branch_id])?;
-        conn.execute("UPDATE plans SET implementation_branch_id = NULL WHERE implementation_branch_id = ?1", [branch_id])?;
-        conn.execute("UPDATE plans SET review_branch_id = NULL WHERE review_branch_id = ?1", [branch_id])?;
+        tx.execute("UPDATE plans SET branch_id = NULL WHERE branch_id = ?1", [branch_id])?;
+        tx.execute("UPDATE plans SET implementation_branch_id = NULL WHERE implementation_branch_id = ?1", [branch_id])?;
+        tx.execute("UPDATE plans SET review_branch_id = NULL WHERE review_branch_id = ?1", [branch_id])?;
 
         // Always remove the branch row itself
-        conn.execute("DELETE FROM branches WHERE id = ?1", [branch_id])?;
+        tx.execute("DELETE FROM branches WHERE id = ?1", [branch_id])?;
     }
 
+    tx.commit()?;
     Ok(())
 }
 
