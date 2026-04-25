@@ -484,6 +484,25 @@ pub struct ContextData {
     /// 각 항목: (timestamp_ms, conversation_id, content_excerpt, score, matched_keywords).
     /// `content_excerpt` 는 prompt_assembly 에서 ~200 char cap 하기 전 raw 본문.
     pub intent_lookup: Option<Vec<UserIntentMatch>>,
+
+    /// multiDeveloperActivePlanIsolationPlan §Layer B: 현재 send 의 sender
+    /// 정보를 active plan 섹션 헤더에 inline 한다. 같은 conv 에서 multi-Developer
+    /// 가 동시에 일할 때 LLM 이 "이 메시지가 어떤 Developer 한테 가는지" 와
+    /// "그 Developer 가 진행 중인 plan" 을 inline hint 로 인지 (instruction
+    /// following 약점 보강).
+    ///
+    /// 출처:
+    ///   - `sender_engine`: prepare_engine_run 의 engine_key
+    ///   - `sender_persona`: SendWithClaudeInput.persona_label
+    ///   - `sender_role`: resolve_agent_role(conn, conversation_id)
+    ///   - `sender_model`: SendWithClaudeInput.model
+    ///
+    /// load_context_data 단계에선 None — prepare_engine_run 이 채워서
+    /// assemble_prompt 가 plan section 직전에 prepend 한다.
+    pub sender_engine: Option<String>,
+    pub sender_persona: Option<String>,
+    pub sender_role: Option<String>,
+    pub sender_model: Option<String>,
 }
 
 /// userIntentSsotSurfacingPlan: 과거 사용자 메시지 매칭 결과.
@@ -541,10 +560,15 @@ pub fn load_context_data(
             [conversation_id], |row| row.get::<_, String>(0),
         ).ok()
     } else { None };
-    let has_active_plan: bool = conn.query_row(
-        "SELECT COUNT(*) > 0 FROM plans WHERE conversation_id = ?1 AND status = 'active'",
-        [plan_lookup_conv.as_deref().unwrap_or(conversation_id)], |row| row.get(0),
-    ).unwrap_or(false);
+
+    // multiDeveloperActivePlanIsolationPlan §Layer A′: brand 진입 시 brand_id 매핑
+    // plan 을 우선 lookup. scratchpad / main conv 는 fallback 으로 main conv active.
+    // 본 lookup 결과를 has_active_plan / plan_document / intent_lookup 가 공유해
+    // 각 단계가 어긋나지 않도록 한다.
+    let plan_lookup_target = plan_lookup_conv.as_deref().unwrap_or(conversation_id);
+    let isolated_plan: Option<(String, String, Option<String>, String, Option<String>)> =
+        super::super::context_pack::lookup_plan_for_conversation(conn, plan_lookup_target);
+    let has_active_plan: bool = isolated_plan.is_some();
 
     // Query 2: current messages — budget-based dynamic window + per-agent last-message guarantee
     let current_messages = load_recent_messages_with_author(conn, conversation_id, 20);
@@ -572,11 +596,14 @@ pub fn load_context_data(
     };
 
     // Query 4-7: plan, findings, artifacts (scratchpad: use main chat's plan)
+    // multiDeveloperActivePlanIsolationPlan §Layer A′: brand 진입 시 build_plan_section
+    // 이 brand_id 매핑 plan 을 우선 lookup 하도록 conv id 를 그대로 전달. scratchpad
+    // 는 main conv 사용 (기존 동작 유지). main conv 는 자기 자신.
     let effective_conv_id = if is_scratchpad {
         plan_lookup_conv.as_deref().unwrap_or(conversation_id)
     } else { conversation_id };
     let plan_conv_id = resolve_plan_conversation_id(conn, effective_conv_id);
-    let mut plan_section = build_plan_section(conn, &plan_conv_id);
+    let mut plan_section = build_plan_section(conn, effective_conv_id);
 
     // Append completed plan titles so the agent knows what was already done
     let done_plans: Vec<String> = conn.prepare(
@@ -605,17 +632,15 @@ pub fn load_context_data(
     ).ok();
 
     // Load plan documents from filesystem (plan, result, review)
-    let plan_document: Option<String> = if has_active_plan {
+    // §Layer A′: isolated_plan 이 brand-aware 결과 — plan_id/title/desc/phase/slug.
+    // 여기서는 (title, phase, slug) 만 필요.
+    let plan_document: Option<String> = if let Some(ref plan_row_full) = isolated_plan {
         if let Some(pp) = project_path {
-            let plan_row = conn.query_row(
-                "SELECT title, phase, slug FROM plans WHERE conversation_id = ?1 AND status = 'active' LIMIT 1",
-                [plan_lookup_conv.as_deref().unwrap_or(conversation_id)],
-                |row| Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                )),
-            ).ok();
+            let plan_row = Some((
+                plan_row_full.1.clone(),  // title
+                plan_row_full.3.clone(),  // phase
+                plan_row_full.4.clone(),  // slug
+            ));
             plan_row.and_then(|(title, phase, slug_opt)| {
                 // Prefer the canonical slug persisted in `plans.slug` (v26). Fall
                 // back to title-based slugify only for pre-v26 rows. All writers
@@ -892,14 +917,10 @@ pub fn load_context_data(
     // prompt_assembly 에서 섹션 생략.
     let intent_lookup: Option<Vec<UserIntentMatch>> = if agent_role == "architect" {
         if let Some(pk) = project_key.as_deref() {
-            // Active plan title 을 키워드 보강에 사용
-            let active_plan_title: Option<String> = conn
-                .query_row(
-                    "SELECT title FROM plans WHERE conversation_id = ?1 AND status = 'active' LIMIT 1",
-                    [plan_lookup_conv.as_deref().unwrap_or(conversation_id)],
-                    |row| row.get(0),
-                )
-                .ok();
+            // §Layer A′: Active plan title 을 isolated_plan 결과에서 가져온다.
+            // brand-aware lookup 이므로 다른 Developer 의 plan 키워드가 섞이지 않는다.
+            let active_plan_title: Option<String> =
+                isolated_plan.as_ref().map(|(_id, title, _, _, _)| title.clone());
             let keywords = extract_intent_keywords(prompt, active_plan_title.as_deref());
             if keywords.is_empty() {
                 Some(Vec::new())
@@ -944,6 +965,11 @@ pub fn load_context_data(
         is_session_continuation: false, // persistence.rs 에서 필요시 true 로 override
         identity_summary_fragment,
         intent_lookup,
+        // §Layer B: persistence.rs::prepare_engine_run 에서 채워준다.
+        sender_engine: None,
+        sender_persona: None,
+        sender_role: Some(agent_role.to_string()),
+        sender_model: None,
     }
 }
 
@@ -1248,6 +1274,10 @@ mod tests {
             is_session_continuation: false,
             identity_summary_fragment: None,
             intent_lookup: None,
+            sender_engine: None,
+            sender_persona: None,
+            sender_role: None,
+            sender_model: None,
         }
     }
 
