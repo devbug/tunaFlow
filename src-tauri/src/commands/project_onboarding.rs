@@ -200,7 +200,9 @@ fn build_prompt(
     let existing_section = match existing_claude_md {
         Some(content) => {
             let truncated = if content.len() > 3000 {
-                format!("{}...(truncated)", &content[..3000])
+                let mut end = 3000;
+                while end > 0 && !content.is_char_boundary(end) { end -= 1; }
+                format!("{}...(truncated)", &content[..end])
             } else {
                 content.clone()
             };

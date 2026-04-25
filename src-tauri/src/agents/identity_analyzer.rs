@@ -85,15 +85,21 @@ pub const ARTIFACT_TYPE_ORDER: &[&str] = &[
 pub fn summarize_content(content: &str, max_chars: usize) -> String {
     let trimmed = content.trim();
     let compact = trimmed.replace('\n', " ");
-    let mut end = 0usize;
-    for (i, _) in compact.char_indices() {
-        if i >= max_chars {
+    // `i` 는 byte index, `max_chars` 는 char count — 둘 비교는 ASCII 전용.
+    // 또한 `end = i + 1` 은 multi-byte char (한국어 '지' = 3 byte) 의
+    // boundary 를 깨뜨려 panic ('byte index N is not a char boundary').
+    // panic 이 lock 잡은 thread 에서 발생하면 앱 재시작까지 lock poisoned.
+    let mut end_byte = 0usize;
+    let mut count = 0usize;
+    for (i, c) in compact.char_indices() {
+        if count >= max_chars {
             break;
         }
-        end = i + 1;
+        end_byte = i + c.len_utf8();
+        count += 1;
     }
     if compact.chars().count() > max_chars {
-        format!("{}...", &compact[..end])
+        format!("{}...", &compact[..end_byte])
     } else {
         compact
     }
