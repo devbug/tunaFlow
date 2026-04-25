@@ -125,36 +125,41 @@ pub fn create_conversation(
 /// Also deletes shadow branch conversations (parent_id = this conversation).
 #[tauri::command]
 pub fn delete_conversation(id: String, state: State<DbState>) -> Result<(), AppError> {
-    let conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    let mut conn = state.write.lock().map_err(|_| AppError::Lock)?;
+    // 4 + N × 5 + 1 statement (shadow conversations 까지) atomic.
+    // partial state cascade (memory 만 삭제 + artifacts 남음 등) 차단.
+    // SSOT: docs/plans/fragilityBatchFix_2026-04-26.md
+    let tx = conn.transaction()?;
 
     // Manual cleanup for tables without FK CASCADE
-    conn.execute("DELETE FROM conversation_memory WHERE conversation_id = ?1", [&id])?;
-    conn.execute("DELETE FROM memos WHERE conversation_id = ?1", [&id])?;
-    conn.execute("DELETE FROM artifacts WHERE conversation_id = ?1", [&id])?;
-    conn.execute("DELETE FROM trace_log WHERE conversation_id = ?1", [&id])?;
+    tx.execute("DELETE FROM conversation_memory WHERE conversation_id = ?1", [&id])?;
+    tx.execute("DELETE FROM memos WHERE conversation_id = ?1", [&id])?;
+    tx.execute("DELETE FROM artifacts WHERE conversation_id = ?1", [&id])?;
+    tx.execute("DELETE FROM trace_log WHERE conversation_id = ?1", [&id])?;
 
     // Delete shadow branch conversations (branch:{branchId} rows whose parent_id = this conv)
     // Their messages/branches are also cascade-deleted.
     let shadow_ids: Vec<String> = {
-        let mut stmt = conn.prepare(
+        let mut stmt = tx.prepare(
             "SELECT id FROM conversations WHERE parent_id = ?1",
         )?;
-        let ids: Vec<String> = stmt.query_map([&id], |row| row.get(0))?
+        let collected: Vec<String> = stmt.query_map([&id], |row| row.get(0))?
             .filter_map(|r| r.ok())
             .collect();
-        ids
+        collected
     };
     for shadow_id in &shadow_ids {
-        conn.execute("DELETE FROM conversation_memory WHERE conversation_id = ?1", [shadow_id])?;
-        conn.execute("DELETE FROM memos WHERE conversation_id = ?1", [shadow_id])?;
-        conn.execute("DELETE FROM artifacts WHERE conversation_id = ?1", [shadow_id])?;
-        conn.execute("DELETE FROM trace_log WHERE conversation_id = ?1", [shadow_id])?;
-        conn.execute("DELETE FROM conversations WHERE id = ?1", [shadow_id])?;
+        tx.execute("DELETE FROM conversation_memory WHERE conversation_id = ?1", [shadow_id])?;
+        tx.execute("DELETE FROM memos WHERE conversation_id = ?1", [shadow_id])?;
+        tx.execute("DELETE FROM artifacts WHERE conversation_id = ?1", [shadow_id])?;
+        tx.execute("DELETE FROM trace_log WHERE conversation_id = ?1", [shadow_id])?;
+        tx.execute("DELETE FROM conversations WHERE id = ?1", [shadow_id])?;
     }
 
     // Delete the conversation itself (messages + branches cascade via FK)
-    conn.execute("DELETE FROM conversations WHERE id = ?1", [&id])?;
+    tx.execute("DELETE FROM conversations WHERE id = ?1", [&id])?;
 
+    tx.commit()?;
     Ok(())
 }
 
