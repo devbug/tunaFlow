@@ -15,6 +15,7 @@
 [![🇰🇷 한국어](https://img.shields.io/badge/🇰🇷-한국어-2563eb)](./README.ko.md)
 
 > **Of the agent, By the agent, For the agent**
+> *— 인간지능 × 인공지능, 2인3각.*
 
 여러 CLI 를 번갈아 쓰는 피로를 줄이는 데스크톱 앱입니다. Claude Code / Codex / Gemini / OpenCode 를 하나의 Plan → Dev → Review 워크플로우에서 함께 운영합니다.
 
