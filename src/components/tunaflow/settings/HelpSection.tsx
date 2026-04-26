@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation, Trans } from "react-i18next";
 import { ExternalLink, Keyboard, Lightbulb, AlertTriangle, FileWarning } from "lucide-react";
 import { listRecentCrashReports, type CrashReportSummary } from "@/lib/crashReporter";
+import { basename } from "@/lib/utils";
 
 const SHORTCUT_KEYS = [
   { keys: "Cmd+K", descKey: "help.shortcut_desc.cmd_k" },
@@ -40,7 +41,7 @@ export function HelpSection() {
             {reports.map((r) => (
               <div key={r.file} className="flex items-center justify-between gap-2">
                 <code className="text-muted-foreground truncate" title={r.file}>
-                  {r.file.split("/").pop()}
+                  {basename(r.file)}
                 </code>
                 <span className="text-muted-foreground shrink-0">
                   {(r.size / 1024).toFixed(1)} KB

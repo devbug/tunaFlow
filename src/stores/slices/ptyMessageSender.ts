@@ -3,7 +3,7 @@
  * Used by both runtimeSlice (main panel) and threadSlice (branch drawer).
  */
 import { invoke } from "@tauri-apps/api/core";
-import { errorMessage } from "@/lib/utils";
+import { errorMessage, basename } from "@/lib/utils";
 import { usePtyStore } from "@/stores/ptyStore";
 import type { PtyEngine } from "@/stores/ptyStore";
 import { ENGINE_CONFIGS } from "@/lib/engineConfig";
@@ -266,8 +266,8 @@ export async function sendMessageViaPty(
             newFiles.sort();
             trackedJsonl = newFiles[newFiles.length - 1];
             usePtyStore.getState().setJsonlPath(engine as PtyEngine, trackedJsonl);
-            const basename = trackedJsonl.split("/").pop() ?? "";
-            const claudeSessionId = basename.replace(".jsonl", "");
+            const fileName = basename(trackedJsonl);
+            const claudeSessionId = fileName.replace(".jsonl", "");
             if (claudeSessionId && conversationId) {
               invoke("update_resume_token", { conversationId, resumeToken: claudeSessionId }).catch((e) =>
                 console.warn("[pty-jsonl] save resume_token:", e)

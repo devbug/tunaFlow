@@ -36,6 +36,10 @@ jobs:
         include:
           - runner: macos-latest
             triple: aarch64-apple-darwin
+            ext: ''
+          - runner: windows-latest
+            triple: x86_64-pc-windows-msvc
+            ext: '.exe'
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -50,20 +54,21 @@ jobs:
         run: git clone https://github.com/auyelbekov/rawq vendor/rawq
 
       - name: Build rawq
+        shell: bash
         run: |
           cargo build \
             --manifest-path vendor/rawq/Cargo.toml \
             --release \
             --target-dir vendor/rawq/target
           mkdir -p src-tauri/binaries
-          cp vendor/rawq/target/release/rawq \
-             src-tauri/binaries/rawq-${{ matrix.triple }}
-          chmod +x src-tauri/binaries/rawq-${{ matrix.triple }}
+          cp vendor/rawq/target/release/rawq${{ matrix.ext }} \
+             src-tauri/binaries/rawq-${{ matrix.triple }}${{ matrix.ext }}
+          chmod +x src-tauri/binaries/rawq-${{ matrix.triple }}${{ matrix.ext }} || true
 
       - uses: actions/upload-artifact@v4
         with:
           name: rawq-${{ matrix.triple }}
-          path: src-tauri/binaries/rawq-${{ matrix.triple }}
+          path: src-tauri/binaries/rawq-${{ matrix.triple }}${{ matrix.ext }}
           retention-days: 1
 
   # ── 2. code-review-graph sidecar (Full track only) ───────────────────────────
@@ -167,6 +172,10 @@ jobs:
         include:
           - runner: macos-latest
             triple: aarch64-apple-darwin
+            ext: ''
+          - runner: windows-latest
+            triple: x86_64-pc-windows-msvc
+            ext: '.exe'
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -189,12 +198,14 @@ jobs:
           path: src-tauri/binaries
 
       - name: Set sidecar permissions
-        run: chmod +x src-tauri/binaries/rawq-${{ matrix.triple }}
+        if: matrix.runner != 'windows-latest'
+        run: chmod +x src-tauri/binaries/rawq-${{ matrix.triple }}${{ matrix.ext }}
 
       - name: npm install
         run: npm install --no-audit --no-fund
 
       - name: Extract version from tag
+        shell: bash
         run: |
           VERSION=${GITHUB_REF_NAME#v}
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
@@ -211,18 +222,24 @@ jobs:
 
             code-review-graph와 context-hub는 첫 실행 시 자동 설치됩니다.
 
-            ### 설치
+            ### 설치 (macOS)
             ```bash
             curl -fsSL https://raw.githubusercontent.com/hang-in/tunaFlow/main/install.sh | bash
             ```
 
-            ### Gatekeeper 우회 (베타 서명 없음)
+            ### 설치 (Windows)
+            NSIS installer (`tunaFlow_*_x64-setup.exe`) 다운로드 후 실행. SmartScreen 경고
+            발생 시 "추가 정보" → "실행" 으로 우회 (베타 서명 없음).
+
+            ### macOS Gatekeeper 우회 (베타 서명 없음)
             `install.sh`가 자동으로 처리합니다. 수동으로 하려면:
             ```bash
             xattr -cr /Applications/tunaFlow.app
             ```
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
+          # bundle.macOS / bundle.windows 는 OS-specific sub-block — 다른 OS 빌드 시
+          # Tauri 가 자동 무시. signingIdentity 는 macOS 만 적용. externalBin 은 OS 무관.
           args: >-
             --config '{
               "version":"${{ env.VERSION }}",

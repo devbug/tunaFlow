@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
-import { cn } from "@/lib/utils";
+import { cn, basename } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
 import { getSetting, setSetting } from "@/lib/appStore";
 import { DEFAULT_PERSONAS } from "@/lib/defaultPersonas";
@@ -263,10 +263,10 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
           const bytes = await readFsFile(path);
           if (bytes.byteLength > MAX_ATTACHMENT_SIZE) {
             const { toast } = await import("sonner");
-            toast.error(t("input.attach_too_large", { name: path.split("/").pop() ?? "" }));
+            toast.error(t("input.attach_too_large", { name: basename(path) }));
             continue;
           }
-          const name = path.split("/").pop() ?? "file";
+          const name = basename(path, "file");
           const mimeType = guessMime(name);
           const att = await saveAttachment(projectPath, name, new Uint8Array(bytes), mimeType);
           setAttachments((prev) => [...prev, att]);

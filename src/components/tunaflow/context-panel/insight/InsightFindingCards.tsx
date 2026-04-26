@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { cn } from "@/lib/utils";
+import { cn, basename } from "@/lib/utils";
 import { CheckSquare, Square, CheckCircle2, Clock, GitBranch } from "lucide-react";
 import type { InsightFinding, InsightSeverity } from "@/types";
 import { CATEGORY_META, SEVERITY_META } from "./insightConstants";
@@ -81,7 +81,7 @@ export function FindingRow({
       <span className="text-tf-sm font-medium text-foreground truncate flex-1">{finding.title}</span>
       {finding.filePath && (
         <span className="text-tf-micro text-prose-disabled font-mono truncate max-w-[120px] shrink-0">
-          {finding.filePath.split("/").pop()}
+          {basename(finding.filePath)}
         </span>
       )}
     </div>

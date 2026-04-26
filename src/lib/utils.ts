@@ -73,3 +73,11 @@ export const AGENT_TEXT_COLORS: Record<AgentEngine, string> = {
   ollama: "text-agent-ollama",
   lmstudio: "text-agent-lmstudio",
 };
+
+/**
+ * Extract the last segment of a path, supporting both `/` (Unix) and `\` (Windows)
+ * separators. Use this instead of `path.split("/").pop()` for native filesystem
+ * paths from Tauri — Windows users get backslash paths.
+ */
+export const basename = (p: string, fallback = ""): string =>
+  p.split(/[\\/]/).pop() || fallback;

@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { setSetting } from "@/lib/appStore";
+import { basename } from "@/lib/utils";
 
 export function ProjectStartup() {
   const projects = useChatStore((s) => s.projects);
@@ -18,7 +19,7 @@ export function ProjectStartup() {
     try {
       const selected = await open({ directory: true, title: "Select project folder" });
       if (selected && typeof selected === "string") {
-        const name = selected.split("/").pop() || selected.split("\\").pop() || "Project";
+        const name = basename(selected, "Project");
         const key = `proj-${Date.now()}`;
         await createProject({ key, name, type: "project", source: "configured", path: selected });
         await loadProjects();
