@@ -217,6 +217,10 @@ jobs:
           fi
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
+      # Windows shell escape 가 multiline `--config '{...}'` JSON 을 깨뜨림
+       # ('error: invalid value '{' for --config'). macOS signingIdentity / externalBin
+      # 모두 tauri.conf.json 의 영구 설정으로 이전. version 은 release 전에 manifest
+      # bump (CHANGELOG + package.json + Cargo.toml + tauri.conf.json) 패턴 유지.
       - name: Build & release (Lite)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -247,16 +251,6 @@ jobs:
             ```
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
-          # bundle.macOS / bundle.windows 는 OS-specific sub-block — 다른 OS 빌드 시
-          # Tauri 가 자동 무시. signingIdentity 는 macOS 만 적용. externalBin 은 OS 무관.
-          args: >-
-            --config '{
-              "version":"${{ env.VERSION }}",
-              "bundle":{
-                "macOS":{"signingIdentity":"-"},
-                "externalBin":["binaries/rawq"]
-              }
-            }'
 
   # ── 5. Tauri Full build ───────────────────────────────────────────────────────
   build-tauri-full:
