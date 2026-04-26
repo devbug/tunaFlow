@@ -6,6 +6,7 @@ pub mod db;
 mod errors;
 mod guardrail;
 mod http_api;
+pub mod no_console;
 
 /// Thread-aware cooperative **stream abort** registry.
 ///

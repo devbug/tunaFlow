@@ -25,6 +25,7 @@ use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use crate::agents::claude::{RunInput, RunOutput, resolve_cwd};
 use crate::agents::resolve::{NpmCliConfig, resolve_npm_cli};
 use crate::errors::AppError;
+use crate::no_console::NoConsole;
 
 // ─────────────────────────── Types ────────────────────────────────────────────
 
@@ -422,6 +423,7 @@ async fn start_server() -> Result<Arc<AppServer>, AppError> {
     let ws_url = format!("ws://127.0.0.1:{}", port);
 
     let mut cmd = tokio::process::Command::new(&resolved.command);
+    cmd.no_console();
     if let Some(ref script) = resolved.script_arg {
         cmd.arg(script);
     }

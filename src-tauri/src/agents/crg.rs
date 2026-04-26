@@ -8,6 +8,8 @@
 use serde::Deserialize;
 use std::process::Command;
 
+use crate::no_console::NoConsole;
+
 #[derive(Debug)]
 pub enum CrgError {
     NotFound,
@@ -31,6 +33,7 @@ fn resolve_bin() -> Result<String, CrgError> {
     }
     // Fallback: PATH lookup via `which`
     let output = Command::new("which")
+        .no_console()
         .arg("code-review-graph")
         .output()
         .map_err(|_| CrgError::NotFound)?;
@@ -81,6 +84,7 @@ pub struct ImpactResult {
 fn run_command(args: &[&str], project_path: &str) -> Result<String, CrgError> {
     let bin = resolve_bin()?;
     let output = Command::new(&bin)
+        .no_console()
         .args(args)
         .args(["--repo", project_path])
         .stdout(std::process::Stdio::piped())

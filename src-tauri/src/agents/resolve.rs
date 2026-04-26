@@ -6,6 +6,8 @@
 
 use std::path::PathBuf;
 
+use crate::no_console::NoConsole;
+
 /// Result of resolving a CLI binary.
 /// For npm-installed CLI tools on Windows, the command may be "node" with
 /// the actual script as an argument.
@@ -177,20 +179,25 @@ pub fn first_existing(candidates: &[PathBuf]) -> Option<PathBuf> {
 }
 
 /// Build a `std::process::Command` that handles Windows .cmd files correctly.
+/// `no_console()` 적용 — Windows 에서 cmd 창 생성 차단.
 #[cfg(target_os = "windows")]
 pub fn build_command(bin: &std::path::Path) -> std::process::Command {
-    if bin.extension().and_then(|e| e.to_str()) == Some("cmd") {
+    let mut c = if bin.extension().and_then(|e| e.to_str()) == Some("cmd") {
         let mut c = std::process::Command::new("cmd");
         c.arg("/C").arg(bin);
         c
     } else {
         std::process::Command::new(bin)
-    }
+    };
+    c.no_console();
+    c
 }
 
 #[cfg(not(target_os = "windows"))]
 pub fn build_command(bin: &std::path::Path) -> std::process::Command {
-    std::process::Command::new(bin)
+    let mut c = std::process::Command::new(bin);
+    c.no_console();
+    c
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────

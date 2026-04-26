@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agents::claude::{RunInput, RunOutput};
 use crate::errors::AppError;
+use crate::no_console::NoConsole;
 
 /// Default Ollama base URL
 fn ollama_base_url() -> String {
@@ -40,6 +41,7 @@ pub fn is_available() -> bool {
 /// Discover installed Ollama models via `ollama list` CLI command.
 pub fn discover_models() -> Option<Vec<String>> {
     let output = std::process::Command::new("ollama")
+        .no_console()
         .arg("list")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())

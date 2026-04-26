@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use serde::Deserialize;
 use crate::errors::AppError;
+use crate::no_console::NoConsole;
 
 /// Resolve working directory for CLI agent execution.
 /// If a project path is provided, the agent runs inside that project (read+write).
@@ -154,6 +155,7 @@ where
     C: Fn() -> bool,
 {
     let mut cmd = Command::new("claude");
+    cmd.no_console();
     cmd.arg("-p")
         .arg(&input.prompt)
         .arg("--output-format")
@@ -235,6 +237,7 @@ where
                     timed_out_flag.store(true, std::sync::atomic::Ordering::SeqCst);
                     // Best-effort kill via system command
                     let _ = std::process::Command::new("kill")
+                        .no_console()
                         .arg("-9")
                         .arg(child_id.to_string())
                         .output();
@@ -373,6 +376,7 @@ where
 /// since the subprocess can take an arbitrarily long time.
 pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
     let mut cmd = Command::new("claude");
+    cmd.no_console();
     cmd.arg("-p")
         .arg(&input.prompt)
         .arg("--output-format")

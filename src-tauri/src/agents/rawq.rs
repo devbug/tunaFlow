@@ -11,6 +11,8 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use crate::no_console::NoConsole;
+
 /// Search result mapped from rawq JSON output.
 pub struct SearchResult {
     pub file: String,
@@ -79,7 +81,7 @@ fn resolve_rawq_bin() -> Result<PathBuf, RawqError> {
     }
 
     // 4. PATH lookup
-    let status = Command::new("rawq")
+    let status = Command::new("rawq").no_console()
         .arg("--version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -185,7 +187,7 @@ pub fn ensure_daemon() {
     let Ok(bin) = resolve_rawq_bin() else { return; };
 
     // Check if already running
-    let status = Command::new(&bin)
+    let status = Command::new(&bin).no_console()
         .args(["daemon", "status"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -199,7 +201,7 @@ pub fn ensure_daemon() {
 
     // Start daemon in background
     eprintln!("[rawq] starting daemon...");
-    let result = Command::new(&bin)
+    let result = Command::new(&bin).no_console()
         .args(["daemon", "start", "--background", "--idle-timeout", "30"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -215,7 +217,7 @@ pub fn ensure_daemon() {
 /// Use before embed_text() to avoid cold-start delays.
 pub fn is_daemon_ready() -> bool {
     let Ok(bin) = resolve_rawq_bin() else { return false; };
-    let mut child = match Command::new(&bin)
+    let mut child = match Command::new(&bin).no_console()
         .args(["daemon", "status"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -245,7 +247,7 @@ pub fn is_daemon_ready() -> bool {
 #[allow(dead_code)]
 pub fn stop_daemon() {
     let Ok(bin) = resolve_rawq_bin() else { return; };
-    let _ = Command::new(&bin)
+    let _ = Command::new(&bin).no_console()
         .args(["daemon", "stop"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -266,7 +268,7 @@ pub struct IndexInfo {
 /// Get index status. Returns `Ok(Some(info))` if indexed, `Ok(None)` if not, `Err` on failure.
 pub fn index_status(project_path: &str) -> Result<Option<IndexInfo>, RawqError> {
     let bin = resolve_rawq_bin()?;
-    let output = Command::new(&bin)
+    let output = Command::new(&bin).no_console()
         .args(["index", "status", project_path, "--json"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -300,7 +302,7 @@ pub fn index_status(project_path: &str) -> Result<Option<IndexInfo>, RawqError> 
 /// Output: `{ "indexed": true/false, "files": N, "chunks": N, ... }`
 pub fn is_indexed(project_path: &str) -> Result<bool, RawqError> {
     let bin = resolve_rawq_bin()?;
-    let output = Command::new(&bin)
+    let output = Command::new(&bin).no_console()
         .args(["index", "status", project_path, "--json"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -373,7 +375,7 @@ pub fn ensure_index_cancellable(
     // rawq WalkBuilder .gitignore 지원이 실측상 신뢰 불가 (#180). 공통 빌드
     // 산출물은 하드코딩으로 제외해 OOM / 시스템 프리즈를 방어한다.
     // INV-3: 패턴은 추가만 가능 — 삭제 시 기존 사용자 DB 에 대량 재인덱싱 유발.
-    let mut child = Command::new(&bin)
+    let mut child = Command::new(&bin).no_console()
         .args([
             "index", "build", project_path, "--json",
             "-x", "target/**",          // Rust
@@ -471,7 +473,7 @@ pub fn rebuild_index_cancellable(
     }
     let bin = resolve_rawq_bin()?;
     // Step 1: 기존 인덱스 제거 시도. 실패해도 계속 진행 (처음부터 없을 수 있음).
-    match Command::new(&bin)
+    match Command::new(&bin).no_console()
         .args(["index", "remove", project_path])
         .output()
     {
@@ -579,7 +581,7 @@ pub fn search_with_options(project_path: &str, query: &str, opts: SearchOptions)
     }
 
     let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    let mut child = Command::new(&bin)
+    let mut child = Command::new(&bin).no_console()
         .args(&args_ref)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -724,7 +726,7 @@ pub fn embed_text(text: &str, is_query: bool) -> Result<Vec<f32>, RawqError> {
     }
     args.push(truncated);
 
-    let mut child = Command::new(&bin)
+    let mut child = Command::new(&bin).no_console()
         .args(&args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

@@ -290,6 +290,7 @@ pub struct GitStatus {
 #[tauri::command]
 pub fn get_git_status(project_path: String) -> Result<GitStatus, AppError> {
     use std::process::Command;
+    use crate::no_console::NoConsole;
     let path = std::path::Path::new(&project_path);
     if !path.exists() {
         return Ok(GitStatus { is_repo: false, branch: None, dirty: false, git_root: None, added: 0, modified: 0, untracked: 0 });
@@ -297,6 +298,7 @@ pub fn get_git_status(project_path: String) -> Result<GitStatus, AppError> {
 
     // Check if git repo
     let is_repo = Command::new("git")
+        .no_console()
         .args(["rev-parse", "--is-inside-work-tree"])
         .current_dir(&project_path)
         .output()
@@ -308,6 +310,7 @@ pub fn get_git_status(project_path: String) -> Result<GitStatus, AppError> {
     }
 
     let branch = Command::new("git")
+        .no_console()
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .current_dir(&project_path)
         .output()
@@ -317,6 +320,7 @@ pub fn get_git_status(project_path: String) -> Result<GitStatus, AppError> {
         } else { None });
 
     let porcelain = Command::new("git")
+        .no_console()
         .args(["status", "--porcelain"])
         .current_dir(&project_path)
         .output()
@@ -341,6 +345,7 @@ pub fn get_git_status(project_path: String) -> Result<GitStatus, AppError> {
     }
 
     let git_root = Command::new("git")
+        .no_console()
         .args(["rev-parse", "--show-toplevel"])
         .current_dir(&project_path)
         .output()

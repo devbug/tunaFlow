@@ -10,6 +10,8 @@ use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
 
+use crate::no_console::NoConsole;
+
 // LMStudio / Ollama 첫 응답이 모델 스캔 때문에 느릴 수 있으므로 3s 로 넉넉히.
 // CLI(`which`) 쪽은 여전히 가볍기 때문에 동일 상수로 충분.
 const PROBE_TIMEOUT_MS: u64 = 3000;
@@ -42,7 +44,7 @@ async fn probe_cli(engine: &str, bin: &str, version_args: &[&str]) -> AgentDetec
     };
 
     // `which <bin>`
-    let which_fut = Command::new("which").arg(bin).output();
+    let which_fut = Command::new("which").no_console().arg(bin).output();
     let which_out = match timeout(Duration::from_millis(PROBE_TIMEOUT_MS), which_fut).await {
         Ok(Ok(out)) => out,
         Ok(Err(e)) => { det.note = Some(format!("which error: {e}")); return det; }
@@ -61,7 +63,7 @@ async fn probe_cli(engine: &str, bin: &str, version_args: &[&str]) -> AgentDetec
     det.installed = true;
 
     // `<bin> --version` (optional — 실패해도 installed 유지)
-    let ver_fut = Command::new(&path).args(version_args).output();
+    let ver_fut = Command::new(&path).no_console().args(version_args).output();
     if let Ok(Ok(out)) = timeout(Duration::from_millis(PROBE_TIMEOUT_MS), ver_fut).await {
         if out.status.success() {
             let v = String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or("").trim().to_string();

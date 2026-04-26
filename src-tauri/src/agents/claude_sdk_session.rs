@@ -31,6 +31,7 @@ use uuid::Uuid;
 
 use crate::agents::claude::{resolve_cwd, RunInput, RunOutput};
 use crate::errors::AppError;
+use crate::no_console::NoConsole;
 
 // ─────────────────────────────── Stream JSON types ────────────────────────────
 
@@ -474,6 +475,7 @@ async fn spawn_session(
     let cwd = resolve_cwd(project_path);
 
     let mut cmd = TokioCommand::new("claude");
+    cmd.no_console();
     cmd.arg("--print")
         .arg("--sdk-url").arg(&sdk_url)
         .arg("--model").arg(model)
@@ -983,7 +985,7 @@ pub fn shutdown_all_sessions() {
 /// Called on app startup to prevent zombie processes that consume rate limit quota.
 pub fn kill_orphan_sdk_processes() {
     use std::process::Command;
-    let output = match Command::new("pgrep").args(["-f", "claude.*--sdk-url"]).output() {
+    let output = match Command::new("pgrep").no_console().args(["-f", "claude.*--sdk-url"]).output() {
         Ok(o) => o,
         Err(_) => return,
     };
@@ -994,13 +996,13 @@ pub fn kill_orphan_sdk_processes() {
         if let Ok(pid) = line.trim().parse::<u32>() {
             if pid == current_pid { continue; }
             // Check if this process is orphaned (PPID=1) or belongs to a dead parent
-            if let Ok(ppid_out) = Command::new("ps").args(["-o", "ppid=", "-p", &pid.to_string()]).output() {
+            if let Ok(ppid_out) = Command::new("ps").no_console().args(["-o", "ppid=", "-p", &pid.to_string()]).output() {
                 let ppid_str = String::from_utf8_lossy(&ppid_out.stdout).trim().to_string();
                 if let Ok(ppid) = ppid_str.parse::<u32>() {
                     // PPID=1 means orphaned (parent died)
                     if ppid == 1 {
                         eprintln!("[sdk-session] killing orphan claude --sdk-url process PID={}", pid);
-                        let _ = Command::new("kill").arg(pid.to_string()).output();
+                        let _ = Command::new("kill").no_console().arg(pid.to_string()).output();
                         killed += 1;
                     }
                 }

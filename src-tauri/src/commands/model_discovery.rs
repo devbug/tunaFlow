@@ -17,6 +17,8 @@ use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
+use crate::no_console::NoConsole;
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Clone)]
@@ -116,6 +118,7 @@ fn discover_codex() -> Option<Vec<String>> {
 fn discover_gemini() -> Option<Vec<String>> {
     // Step 1: find the global node_modules root via `npm root -g`
     let npm_root = std::process::Command::new("npm")
+        .no_console()
         .args(["root", "-g"])
         .output()
         .ok()
@@ -175,6 +178,7 @@ console.log('[]');
 "#);
 
     let output = std::process::Command::new("node")
+        .no_console()
         .args(["-e", &script])
         .output()
         .ok()?;
@@ -195,7 +199,7 @@ fn resolve_claude_binary() -> Option<PathBuf> {
     } else {
         ("which", "claude")
     };
-    let output = std::process::Command::new(lookup_cmd).arg(arg).output().ok()?;
+    let output = std::process::Command::new(lookup_cmd).no_console().arg(arg).output().ok()?;
     if !output.status.success() { return None; }
     let first_line = String::from_utf8_lossy(&output.stdout)
         .lines()

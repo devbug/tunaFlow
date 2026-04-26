@@ -6,6 +6,7 @@ use serde::Deserialize;
 
 use crate::agents::claude::{RunInput, RunOutput};
 use crate::errors::AppError;
+use crate::no_console::NoConsole;
 
 /// Resolve the gemini binary/script path via shared resolve module.
 fn resolve_gemini() -> (String, Option<String>) {
@@ -27,6 +28,7 @@ pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
     let (gemini_cmd, gemini_script) = resolve_gemini();
 
     let mut cmd = Command::new(&gemini_cmd);
+    cmd.no_console();
     if let Some(ref script) = gemini_script {
         cmd.arg("--no-warnings=DEP0040").arg(script);
     }
@@ -149,6 +151,7 @@ where
     let (gemini_cmd, gemini_script) = resolve_gemini();
 
     let mut cmd = Command::new(&gemini_cmd);
+    cmd.no_console();
     if let Some(ref script) = gemini_script {
         cmd.arg("--no-warnings=DEP0040").arg(script);
     }

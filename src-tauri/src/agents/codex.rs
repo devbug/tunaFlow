@@ -4,6 +4,7 @@ use std::thread;
 
 use crate::agents::claude::{RunInput, RunOutput};
 use crate::errors::AppError;
+use crate::no_console::NoConsole;
 
 /// Resolve the codex binary/script path via shared resolve module.
 fn resolve_codex() -> (String, Option<String>) {
@@ -54,6 +55,7 @@ pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
     let (codex_cmd, codex_script) = resolve_codex();
 
     let mut cmd = Command::new(&codex_cmd);
+    cmd.no_console();
     if let Some(ref script) = codex_script {
         cmd.arg(script);
     }
@@ -228,6 +230,7 @@ where
     let (codex_cmd, codex_script) = resolve_codex();
 
     let mut cmd = Command::new(&codex_cmd);
+    cmd.no_console();
     if let Some(ref script) = codex_script {
         cmd.arg(script);
     }

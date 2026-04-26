@@ -10,6 +10,8 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+use crate::no_console::NoConsole;
+
 /// Health check result.
 #[derive(Debug)]
 pub struct HealthStatus {
@@ -112,6 +114,7 @@ fn resolve_bin() -> Result<PathBuf, HubError> {
     // Try bare names (PATH fallback) — chub first, then context-hub
     for name in ["chub", "context-hub"] {
         if Command::new(name)
+            .no_console()
             .arg("--help")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -135,7 +138,7 @@ pub fn health() -> HealthStatus {
             message: "context-hub not installed".into(),
         },
         Ok(bin) => {
-            match Command::new(&bin).arg("--cli-version").output() {
+            match Command::new(&bin).no_console().arg("--cli-version").output() {
                 Ok(output) if output.status.success() => {
                     let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     HealthStatus {
@@ -174,6 +177,7 @@ pub fn search(query: &str, source_filter: Option<&str>, limit: usize) -> Result<
 
     let bin = resolve_bin()?;
     let mut cmd = Command::new(&bin);
+    cmd.no_console();
     cmd.args(["search", query, "--limit", &limit.to_string(), "--json"]);
     if let Some(src) = source_filter {
         cmd.args(["--source", src]);
@@ -197,6 +201,7 @@ pub fn search(query: &str, source_filter: Option<&str>, limit: usize) -> Result<
 pub fn get(document_id: &str) -> Result<Document, HubError> {
     let bin = resolve_bin()?;
     let output = Command::new(&bin)
+        .no_console()
         .args(["get", document_id, "--json"])
         .output()
         .map_err(|e| HubError::ExecFailed(e.to_string()))?;

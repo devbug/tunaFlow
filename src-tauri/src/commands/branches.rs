@@ -9,6 +9,7 @@ use crate::db::{
     DbState,
 };
 use crate::errors::AppError;
+use crate::no_console::NoConsole;
 
 /// Convert a user-provided branch label to git-style slug.
 ///
@@ -190,6 +191,7 @@ pub fn create_branch(
             .flatten();
         project_path.and_then(|p| {
             std::process::Command::new("git")
+                .no_console()
                 .args(["rev-parse", "--abbrev-ref", "HEAD"])
                 .current_dir(&p)
                 .output()
@@ -339,10 +341,10 @@ pub fn create_git_branch(branch_id: String, state: State<DbState>) -> Result<Str
         .query_row("SELECT path FROM projects WHERE key = (SELECT project_key FROM conversations WHERE id = ?1)", [&conv_id], |row| row.get(0))
         .map_err(|_| AppError::Agent("Project path not found".into()))?;
 
-    let exists = Command::new("git").args(["rev-parse", "--verify", &git_branch]).current_dir(&project_path).output().map(|o| o.status.success()).unwrap_or(false);
+    let exists = Command::new("git").no_console().args(["rev-parse", "--verify", &git_branch]).current_dir(&project_path).output().map(|o| o.status.success()).unwrap_or(false);
     if exists { return Ok(format!("Git branch '{}' already exists", git_branch)); }
 
-    let out = Command::new("git").args(["branch", &git_branch]).current_dir(&project_path).output().map_err(|e| AppError::Agent(e.to_string()))?;
+    let out = Command::new("git").no_console().args(["branch", &git_branch]).current_dir(&project_path).output().map_err(|e| AppError::Agent(e.to_string()))?;
     if !out.status.success() { return Err(AppError::Agent(String::from_utf8_lossy(&out.stderr).trim().to_string())); }
     Ok(format!("Created git branch '{}'", git_branch))
 }
@@ -360,10 +362,10 @@ pub fn checkout_git_branch(branch_id: String, state: State<DbState>) -> Result<S
         .query_row("SELECT path FROM projects WHERE key = (SELECT project_key FROM conversations WHERE id = ?1)", [&conv_id], |row| row.get(0))
         .map_err(|_| AppError::Agent("Project path not found".into()))?;
 
-    let dirty = Command::new("git").args(["status", "--porcelain"]).current_dir(&project_path).output().map(|o| !o.stdout.is_empty()).unwrap_or(false);
+    let dirty = Command::new("git").no_console().args(["status", "--porcelain"]).current_dir(&project_path).output().map(|o| !o.stdout.is_empty()).unwrap_or(false);
     if dirty { return Err(AppError::Agent("작업 디렉토리에 변경사항이 있습니다. 먼저 commit하거나 stash하세요.".into())); }
 
-    let out = Command::new("git").args(["checkout", &git_branch]).current_dir(&project_path).output().map_err(|e| AppError::Agent(e.to_string()))?;
+    let out = Command::new("git").no_console().args(["checkout", &git_branch]).current_dir(&project_path).output().map_err(|e| AppError::Agent(e.to_string()))?;
     if !out.status.success() { return Err(AppError::Agent(String::from_utf8_lossy(&out.stderr).trim().to_string())); }
     Ok(format!("Checked out '{}'", git_branch))
 }

@@ -4,6 +4,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::errors::AppError;
+use crate::no_console::NoConsole;
 
 /// Strip ANSI escape codes (colors, bold, etc.) from terminal output.
 fn strip_ansi(s: &str) -> String {
@@ -84,10 +85,12 @@ fn detect_test_runner(path: &Path) -> Result<String, AppError> {
 fn execute_tests(path: &Path, runner: &str) -> Result<(String, bool), AppError> {
     let output = match runner {
         "cargo" => Command::new("cargo")
+            .no_console()
             .args(["test", "--lib"])
             .current_dir(path)
             .output(),
         "vitest" => Command::new("npx")
+            .no_console()
             .args([
                 "vitest", "run",
                 "--exclude", "**/data/**",
@@ -100,6 +103,7 @@ fn execute_tests(path: &Path, runner: &str) -> Result<(String, bool), AppError> 
             .current_dir(path)
             .output(),
         "jest" => Command::new("npx")
+            .no_console()
             .args(["jest", "--no-coverage", "--forceExit"])
             .current_dir(path)
             .output(),
