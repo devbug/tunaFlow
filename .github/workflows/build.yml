@@ -241,8 +241,13 @@ jobs:
             ```
 
             ### 설치 (Windows)
-            NSIS installer (`tunaFlow_*_x64-setup.exe`) 다운로드 후 실행. SmartScreen 경고
-            발생 시 "추가 정보" → "실행" 으로 우회 (베타 서명 없음).
+            NSIS installer (`tunaFlow_*_x64-setup.exe`) 다운로드 후 실행.
+
+            - **SmartScreen** 경고: "추가 정보" → "실행" (베타 서명 없음)
+            - **백신 차단** (Defender / Avast / 알약): false positive 가능 — 격리함에서 복원 또는 `%LOCALAPPDATA%\tunaFlow` 예외 경로 추가
+            - **WebView2** 없을 시 installer 가 자동 다운로드
+
+            상세 안내: [INSTALL.md](https://github.com/hang-in/tunaFlow/blob/main/INSTALL.md)
 
             ### macOS Gatekeeper 우회 (베타 서명 없음)
             `install.sh`가 자동으로 처리합니다. 수동으로 하려면:

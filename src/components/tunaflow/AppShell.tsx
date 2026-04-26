@@ -39,46 +39,58 @@ export function AppShell() {
   const SIDEBAR_HIDE_THRESHOLD = SIDEBAR_MIN + 680; // ~900px
   const [sidebarAutoHidden, setSidebarAutoHidden] = useState(() => window.innerWidth < SIDEBAR_MIN + 680);
   const [sidebarResizing, setSidebarResizing] = useState(false);
+  const [loadingStep, setLoadingStep] = useState<string>("시작 중...");
 
   useEffect(() => {
     const init = async () => {
-      const [sw, dw, themeMode] = await Promise.all([
-        getSetting<number>("sidebarWidth", SIDEBAR_DEFAULT),
-        getSetting<number>("drawerWidth", DRAWER_DEFAULT),
-        getSetting<string>("themeMode", "dark"),
-      ]);
-      // Apply theme class to <html> — light mode uses CSS variable overrides
-      const mode = themeMode === "light" ? "light" : "dark";
-      document.documentElement.classList.toggle("light", mode === "light");
-      setThemeMode(mode as "dark" | "light");
-      setSidebarW(clamp(sw, SIDEBAR_MIN, SIDEBAR_MAX));
-      setDrawerW(Math.max(dw, DRAWER_MIN));
-      setLoaded(true);
+      try {
+        setLoadingStep("환경 설정 로드 중...");
+        const [sw, dw, themeMode] = await Promise.all([
+          getSetting<number>("sidebarWidth", SIDEBAR_DEFAULT),
+          getSetting<number>("drawerWidth", DRAWER_DEFAULT),
+          getSetting<string>("themeMode", "dark"),
+        ]);
+        // Apply theme class to <html> — light mode uses CSS variable overrides
+        const mode = themeMode === "light" ? "light" : "dark";
+        document.documentElement.classList.toggle("light", mode === "light");
+        setThemeMode(mode as "dark" | "light");
+        setSidebarW(clamp(sw, SIDEBAR_MIN, SIDEBAR_MAX));
+        setDrawerW(Math.max(dw, DRAWER_MIN));
 
-      // Cleanup stale jobs/messages from interrupted background runs
-      invoke("cleanup_stale_jobs").catch((e) => console.debug("[cleanup]", e));
-      // Clear in-memory running state (processes died on restart)
-      useChatStore.setState({ runningThreadIds: [] });
+        // Cleanup stale jobs/messages from interrupted background runs
+        invoke("cleanup_stale_jobs").catch((e) => console.debug("[cleanup]", e));
+        // Clear in-memory running state (processes died on restart)
+        useChatStore.setState({ runningThreadIds: [] });
 
-      await loadProjects();
-      loadEngineModels();
-      useChatStore.getState().loadProfiles();
-      const { projects, selectProject } = useChatStore.getState();
+        setLoadingStep("프로젝트 목록 로드 중...");
+        await loadProjects();
+        setLoadingStep("엔진 / 모델 감지 중...");
+        loadEngineModels();
+        useChatStore.getState().loadProfiles();
+        const { projects, selectProject } = useChatStore.getState();
 
-      const lastKey = await getSetting<string>("lastProjectKey", "");
-      let proj = lastKey ? projects.find((p) => p.key === lastKey) : null;
-      if (!proj) proj = projects[0];
-      // No auto-create: if no projects, show ProjectStartup instead
-      if (proj) {
-        await selectProject(proj.key);
-        // Restore last conversation
-        const lastConvId = await getSetting<string>("lastConversationId", "");
-        if (lastConvId) {
-          const { conversations, selectConversation } = useChatStore.getState();
-          if (conversations.some((c) => c.id === lastConvId)) {
-            selectConversation(lastConvId);
+        const lastKey = await getSetting<string>("lastProjectKey", "");
+        let proj = lastKey ? projects.find((p) => p.key === lastKey) : null;
+        if (!proj) proj = projects[0];
+        // No auto-create: if no projects, show ProjectStartup instead
+        if (proj) {
+          setLoadingStep(`프로젝트 열기: ${proj.name ?? proj.key}...`);
+          await selectProject(proj.key);
+          // Restore last conversation
+          const lastConvId = await getSetting<string>("lastConversationId", "");
+          if (lastConvId) {
+            const { conversations, selectConversation } = useChatStore.getState();
+            if (conversations.some((c) => c.id === lastConvId)) {
+              selectConversation(lastConvId);
+            }
           }
         }
+      } catch (e) {
+        // selectProject 등 실패해도 사용자가 빈 화면에 갇히지 않도록 항상 loaded 마킹.
+        // 실제 에러는 console + toast (Toaster) 로 표면화 (caller 측 catch 가 처리).
+        console.error("[init]", e);
+      } finally {
+        setLoaded(true);
       }
     };
     init();
@@ -123,10 +135,17 @@ export function AppShell() {
     openFile: (path: string, line?: number) => setViewerFile({ path, line }),
   }), []);
 
-  // 로딩 전에는 UI 를 뿌리지 않지만, null 을 반환하면 webview 기본 배경이
-  // 한순간 보인 뒤 bg-sidebar 가 덮여 플래시처럼 느껴짐. sidebar 와 같은
-  // 어두운 색으로 화면 전체를 미리 칠해 깜빡임 완화.
-  if (!loaded) return <div className="fixed inset-0 bg-sidebar" />;
+  // 로딩 화면 — 사용자에게 "앱이 hang 됐는지 / 로딩 중인지" 즉시 알리는 splash.
+  // Windows 첫 실행 + 기존 프로젝트 DB load 시 수십 초 걸릴 수 있어 spinner +
+  // 단계 텍스트로 hang 인지 가시화. tauri.conf.json 의 visible: false 로 React
+  // mount 전에는 창 자체가 안 보이고, mount 직후 본 splash 가 첫 화면.
+  if (!loaded) return (
+    <div className="fixed inset-0 bg-sidebar flex flex-col items-center justify-center gap-4 select-none">
+      <div className="w-10 h-10 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
+      <div className="text-foreground/60 text-[13px] font-medium">tunaFlow</div>
+      <div className="text-foreground/40 text-[11px]">{loadingStep}</div>
+    </div>
+  );
 
   // Project-first startup: show selector if no project is selected
   if (!selectedProjectKey) {
