@@ -4,6 +4,48 @@ All notable changes to tunaFlow are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3-beta] - 2026-04-26
+
+Beta 사용자 보고 follow-up. 첫 외부 사용자 환경에서 두 건 보고 — rawq sidecar 가
+앱 번들에서 영구 미인식 (Tauri 가 sidecar 번들 시 triple suffix strip 하는데
+코드는 `rawq-{triple}` 이름만 검색) + 채팅/로그 single newline 이 한 줄로
+collapse. 둘 다 v0.1.0~v0.1.2 사용자 모두 영향이라 hotfix.
+
+### Fixed
+
+- **rawq sidecar resolution** (#210) — `sidecar_strip_name()` + `resolve_diagnostics()`
+  추가 (`src-tauri/src/agents/rawq.rs`). Tauri 가 번들 시 triple suffix 를 strip
+  해서 `Contents/MacOS/rawq` 로 들어가는데 코드는 `rawq-aarch64-apple-darwin`
+  으로만 검색하던 영구 mismatch. v0.1.0-beta 부터 모든 macOS 사용자에게 영향.
+  drag-install 시 quarantine (`xattr`) 부착으로 sidecar 가 SIGKILL 되는 케이스도
+  같이 정리. CI 의 `build-tauri-lite` 에 staged + built bundle 양쪽 verify step
+  추가로 회귀 차단.
+- **`get_rawq_status` unavailable 메시지** — 다음 단계 액션 (`xattr -cr` 후
+  재시도, README 링크) 포함하도록 명료화.
+
+### Added
+
+- **`remark-breaks` 마크다운 플러그인** (#209) — 채팅/로그 paste 시 single
+  newline 이 visible line break 으로 표시됨. CommonMark spec 상 paragraph 안
+  single `\n` 은 공백으로 collapse 되는 게 정상이지만, 채팅·로그 컨텍스트엔
+  부적합. `src/lib/markdownPlugins.ts` SSOT 모듈 신규 + 11 사용처 통일 +
+  회귀 테스트 13건 (single newline → `<br>` / paragraph break / list / code
+  block / table / strikethrough 보존).
+- **INSTALL.md drag-install 안내** — `xattr -cr /Applications/tunaFlow.app`
+  필요성 + 문제 해결 표 + smoke checklist 4 단계.
+
+### Changed
+
+- **README / README.ko Known Constraints** — "rawq is a bundled sidecar"
+  명시 + drag-install quarantine 영향 보강. 시스템 PATH 의 `rawq` 는 영향 없음.
+
+### Notes
+
+- `docs/reference/rawqSidecarReleaseAudit_2026-04-26.md` — Layer A1 audit 결과
+  (DMG mount + `xattr` + `file` 출력 인용). 진단 분기 근거 SSOT.
+- 이번 fix 머지 + 신 release 까지 필요. 기존 v0.1.x 사용자가 `xattr -cr` 만
+  실행해도 코드측 mismatch 가 별도라 rawq 인식 안 됨.
+
 ## [0.1.2-beta] - 2026-04-26
 
 Windows build support + fragility audit hardening. First Windows release
@@ -173,6 +215,7 @@ multi-Developer collisions, brand cancel semantics, and layout cascading bugs.
 Public beta launch. See README and `docs/reference/sessionHistory.md` for the
 full backstory; this entry only marks the cut.
 
+[0.1.3-beta]: https://github.com/hang-in/tunaFlow/compare/v0.1.2-beta...v0.1.3-beta
 [0.1.2-beta]: https://github.com/hang-in/tunaFlow/compare/v0.1.1-beta...v0.1.2-beta
 [0.1.1-beta]: https://github.com/hang-in/tunaFlow/compare/v0.1.0-beta...v0.1.1-beta
 [0.1.0-beta]: https://github.com/hang-in/tunaFlow/releases/tag/v0.1.0-beta
