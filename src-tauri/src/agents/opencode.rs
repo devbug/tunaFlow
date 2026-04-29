@@ -133,5 +133,6 @@ pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
         input_tokens: 0,
         output_tokens: 0,
         session_id: None,
+        last_rate_limit: None,
     })
 }

@@ -161,6 +161,7 @@ where
         input_tokens,
         output_tokens,
         session_id: None,
+        last_rate_limit: None,
     })
 }
 

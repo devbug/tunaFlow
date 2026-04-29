@@ -40,6 +40,36 @@ struct StreamLine {
     /// insightStabilityPlan Subtask 03 (INV-3).
     usage: Option<StreamUsage>,
     session_id: Option<String>,
+    // rate_limit_event fields — claude CLI 2.1.x stream-json 일부 응답에 포함.
+    // (claudeTransportFlipHardeningPlan T1) optional, 미존재 시 graceful 무시.
+    status: Option<String>,
+    resets_at: Option<String>,
+    rate_limit_type: Option<String>,
+    overage_status: Option<String>,
+    overage_disabled_reason: Option<String>,
+    is_using_overage: Option<bool>,
+}
+
+/// claude CLI 의 `rate_limit_event` line 에서 추출된 정보.
+///
+/// SSOT: `docs/plans/claudeTransportFlipHardeningPlan_2026-04-29.md` Task 01.
+/// frontend RuntimeStatusBar 의 indicator + 사용자 가시 안내 (overage rejected,
+/// reset 카운트다운) 의 데이터 소스. 미전송 버전 / line 미수신 시 None.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitInfo {
+    /// "ok" / "approaching_limit" / "limit_reached" / etc — Anthropic 정의 그대로
+    pub status: Option<String>,
+    /// reset 시점 RFC3339 ISO 문자열
+    pub resets_at: Option<String>,
+    /// "5_hour" / "weekly" / etc
+    pub rate_limit_type: Option<String>,
+    /// "enabled" / "disabled" / "available"
+    pub overage_status: Option<String>,
+    /// "org_level_disabled" 등 disable 사유
+    pub overage_disabled_reason: Option<String>,
+    /// 현재 send 가 overage 사용 중인지
+    pub is_using_overage: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -138,6 +168,9 @@ pub struct RunOutput {
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub session_id: Option<String>,
+    /// 가장 최근에 관측된 `rate_limit_event` payload. Anthropic 측에서 미전송이거나
+    /// 구버전 CLI 면 None. claudeTransportFlipHardeningPlan T1.
+    pub last_rate_limit: Option<RateLimitInfo>,
 }
 
 /// Execute `claude -p` with `--output-format stream-json`.
@@ -212,6 +245,9 @@ where
     let reader = BufReader::new(stdout);
     let mut final_output: Option<RunOutput> = None;
     let mut unparsed_lines: Vec<String> = Vec::new();
+    // 마지막으로 관측된 rate_limit_event — result event 시 RunOutput.last_rate_limit
+    // 으로 전달. claudeTransportFlipHardeningPlan T1.
+    let mut last_rate_limit: Option<RateLimitInfo> = None;
 
     // Idle timeout: kill process if no output for 10 minutes.
     // insightStabilityPlan Subtask 04 (INV-4): watchdog 가 `timed_out` 플래그를 set
@@ -309,6 +345,19 @@ where
             "system" => {
                 on_progress("Agent initializing...".into());
             }
+            // claude CLI 가 stream-json 안에 rate_limit_event line 을 별도 emit 하는
+            // 케이스. T1: 마지막 관측치를 RunOutput.last_rate_limit 으로 전달.
+            // 구버전 CLI 가 미전송이면 last_rate_limit 은 None 으로 유지된다.
+            "rate_limit_event" => {
+                last_rate_limit = Some(RateLimitInfo {
+                    status: parsed.status.clone(),
+                    resets_at: parsed.resets_at.clone(),
+                    rate_limit_type: parsed.rate_limit_type.clone(),
+                    overage_status: parsed.overage_status.clone(),
+                    overage_disabled_reason: parsed.overage_disabled_reason.clone(),
+                    is_using_overage: parsed.is_using_overage,
+                });
+            }
             "assistant" => {
                 if let Some(msg) = &parsed.message {
                     // Thinking → structured step
@@ -375,6 +424,7 @@ where
                         .or_else(|| parsed.usage.as_ref().and_then(|u| u.output_tokens))
                         .unwrap_or(0),
                     session_id: parsed.session_id,
+                    last_rate_limit: last_rate_limit.take(),
                 });
             }
             _ => {}
@@ -482,6 +532,9 @@ pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
             .or_else(|| parsed.usage.as_ref().and_then(|u| u.output_tokens))
             .unwrap_or(0),
         session_id: parsed.session_id,
+        // one-shot json 모드는 rate_limit_event line 을 별도 stream 으로 받지
+        // 못한다 (stream-json 전용). 항상 None.
+        last_rate_limit: None,
     })
 }
 
@@ -575,6 +628,68 @@ mod tests {
             .unwrap_or(0);
         assert_eq!(input, 6);
         assert_eq!(output, 12);
+    }
+
+    /// claudeTransportFlipHardeningPlan T1 — `rate_limit_event` line 의 fields 가
+    /// `StreamLine` 으로 정상 deserialize 되는지 확인. CLI 가 아직 미전송이면
+    /// 본 코드 경로를 안 타지만, deserialize 는 unknown field 무시 정책이라
+    /// graceful.
+    #[test]
+    fn stream_line_parses_rate_limit_event() {
+        let json = r#"{
+            "type": "rate_limit_event",
+            "status": "approaching_limit",
+            "resets_at": "2026-04-29T12:00:00Z",
+            "rate_limit_type": "5_hour",
+            "overage_status": "available",
+            "overage_disabled_reason": null,
+            "is_using_overage": false
+        }"#;
+        let parsed: StreamLine = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.line_type, "rate_limit_event");
+        assert_eq!(parsed.status.as_deref(), Some("approaching_limit"));
+        assert_eq!(parsed.resets_at.as_deref(), Some("2026-04-29T12:00:00Z"));
+        assert_eq!(parsed.rate_limit_type.as_deref(), Some("5_hour"));
+        assert_eq!(parsed.overage_status.as_deref(), Some("available"));
+        assert!(parsed.overage_disabled_reason.is_none());
+        assert_eq!(parsed.is_using_overage, Some(false));
+    }
+
+    #[test]
+    fn stream_line_rate_limit_with_overage_disabled() {
+        let json = r#"{
+            "type": "rate_limit_event",
+            "status": "limit_reached",
+            "resets_at": "2026-04-29T17:00:00Z",
+            "rate_limit_type": "5_hour",
+            "overage_status": "disabled",
+            "overage_disabled_reason": "org_level_disabled",
+            "is_using_overage": false
+        }"#;
+        let parsed: StreamLine = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.line_type, "rate_limit_event");
+        assert_eq!(parsed.status.as_deref(), Some("limit_reached"));
+        assert_eq!(parsed.overage_status.as_deref(), Some("disabled"));
+        assert_eq!(parsed.overage_disabled_reason.as_deref(), Some("org_level_disabled"));
+    }
+
+    #[test]
+    fn rate_limit_info_serializes_camelcase() {
+        // frontend (RuntimeStatusBar) 가 받는 직렬화 — camelCase 필드명 검증.
+        let info = RateLimitInfo {
+            status: Some("approaching_limit".into()),
+            resets_at: Some("2026-04-29T12:00:00Z".into()),
+            rate_limit_type: Some("5_hour".into()),
+            overage_status: Some("available".into()),
+            overage_disabled_reason: None,
+            is_using_overage: Some(false),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"resetsAt\""));
+        assert!(json.contains("\"rateLimitType\""));
+        assert!(json.contains("\"overageStatus\""));
+        assert!(json.contains("\"isUsingOverage\""));
+        assert!(json.contains("\"status\""));
     }
 
     #[test]
