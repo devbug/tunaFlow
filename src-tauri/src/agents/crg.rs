@@ -31,7 +31,24 @@ fn resolve_bin() -> Result<String, CrgError> {
             return Ok(c.clone());
         }
     }
-    // Fallback: PATH lookup via `which`
+    // Windows: `which` is not a builtin binary on Windows. Probe the PATH directly
+    // by attempting to spawn `code-review-graph --version`. cfg-gated so macOS/Linux
+    // behavior is unchanged (still goes through `which` below).
+    #[cfg(target_os = "windows")]
+    {
+        if Command::new("code-review-graph")
+            .no_console()
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            return Ok("code-review-graph".to_string());
+        }
+    }
+    // Fallback: PATH lookup via `which` (Unix)
     let output = Command::new("which")
         .no_console()
         .arg("code-review-graph")
