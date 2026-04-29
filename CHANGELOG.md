@@ -4,51 +4,7 @@ All notable changes to tunaFlow are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.5-beta] - 2026-04-29 (예정)
-
-🛡️ **claude transport flip hardening** — v0.1.4-beta 의 transport flip
-(`-p --resume`) 후 발견된 stale resume_token 부작용 차단. 외부 사용자
-v0.1.4-beta 업그레이드 직후 첫 send 좌절 시나리오 해소.
-
-### Fixed
-
-- **stale resume_token 자동 회복**
-  ([claudeTransportFlipHardeningPlan_2026-04-29.md](docs/plans/claudeTransportFlipHardeningPlan_2026-04-29.md))
-  - 한동안 미사용 conversation 의 resume_token 이 (a) 과거 sdk-url 시점
-    session id 이거나 (b) Anthropic 측 TTL 만료 → `--resume <id>` 시도가
-    "out of extra usage" 형태로 거부되던 문제. 사용자 액션 0 자동 회복.
-  - **T1**: claude.rs `stream_run` 이 `rate_limit_event` line 을 parse →
-    `RunOutput.last_rate_limit` 로 노출 (RuntimeStatusBar indicator 데이터
-    소스).
-  - **T2**: `stream_run` wrapper 가 result.is_error 의 keyword 패턴 detect
-    → `--resume` 제거 후 1회 retry. false positive 차단 (정상 인증 실패 /
-    한도 초과 / 네트워크 에러는 retry 트리거 X).
-  - **T3**: retry 성공 시 `session_freshness::clear_delivered_key` →
-    다음 send 부터 `is_session_continuation=false` → ContextPack revival
-    자동 (full mode + anchor 2 turns). frontend 에 `claude:fresh_fallback`
-    이벤트 emit.
-  - **T4**: 사용자 가시화 — fresh_fallback toast 1회 + RuntimeStatusBar 의
-    Claude rate_limit indicator (정상 시 hide, approaching/limit_reached/
-    overage_disabled 상태별 색상). claude.ai/settings/usage 링크.
-  - **T5**: DB migration v49 — 7일+ idle conversation 의 stale claude
-    resume_token 일괄 NULL. idempotent (schema_version 가드). 활성 사용
-    conversation 영향 0.
-  - **T6**: Conversation 우클릭 메뉴에 "Claude 세션 재시작" 항목 추가.
-    backend `restart_sdk_session` 호출 + 토스트.
-  - **T7**: claude API 에러 6 종 분류 (\`stale_resume_token\` /
-    \`auth_failure\` / \`rate_limited\` / \`quota_exceeded\` /
-    \`model_unavailable\` / \`unknown\`). agent:error event 의 errorKind
-    payload 에 노출.
-
-### Anthropic billing 안내
-
-tunaFlow 가 `claude -p` headless mode 사용 — Pro/Max plan 의 5시간 rolling
-한도 + overage 정책 동일 적용. 한동안 미사용 conversation 의 resume_token
-이 stale 일 수 있음 — v0.1.5-beta 가 자동 fallback. 수동 재시작은
-conversation 우클릭 메뉴 (T6). claude.ai/settings/usage 에서 한도 / overage
-/ "extra usage" 옵션 확인 권장.
-
-## [0.1.4-beta] - 2026-04-29
+## [0.1.4-beta] - 2026-04-30
 
 🚨 **긴급 패치** — claude CLI 2.1.121 (2026-04-28 자동 update) 의 `--sdk-url`
 정책 변경으로 tunaFlow sdk-session 모드 영구 차단. 모든 사용자 환경에서 claude
@@ -57,6 +13,57 @@ conversation 우클릭 메뉴 (T6). claude.ai/settings/usage 에서 한도 / ove
 
 ### Fixed
 
+- **claude cli mode 의 ContextPack double history 차단** (PR #245~#248,
+  사용자 환경 발견 2026-04-30) — transport flip (`-p --resume`) 후 cli mode
+  가 `session_freshness "적용 제외"` 로 박혀 있어 *Claude session 자체
+  history + tunaFlow ContextPack 의 conversational/structured/anchor 2 turns
+  동시 inject* = double history → paid API 영역 차감 → 사용자 환경
+  (org_level_disabled paygo) 에서 거부 회귀. 사용자 architectural insight
+  ("어차피 DB 에 history 있으니 검색해서 가져옴") 기반 누적 fix:
+  - **T9-a** (PR #245): cli mode session_freshness 적용 — 두 번째 send 부터
+    minimal mode 자동 발동 (`is_session_continuation=true` → drop
+    recent_context + compressed_memory).
+  - **T9-b** (PR #246): cli fresh session 도 `compressed_memory` drop —
+    첫 send 도 paid API trigger 회피.
+  - **T11** (PR #247): cli fresh session 시 plan / plan_document / artifacts
+    / findings / retrieval / cross_session 도 drop.
+  - **T12** (PR #248): cli fresh session 시 current_messages /
+    parent_messages drop — `prompt_assembly.rs:421-422` 의 anchor 2 turns
+    "budget 초과여도 무조건 포함" 정책 우회.
+  - 결과: cli fresh session prompt = platform + agent-role + skills +
+    user_prompt (~15K chars) → paid API trigger 회피. agent 가 필요 시
+    tool-request 마커 (`recent_turns:N` / `probe_message:ID` /
+    `full_message:ID` 등 s38 부터 구현됨) 로 on-demand 검색.
+  - SSOT: `docs/plans/claudeTransportFlipHardeningPlan_2026-04-29.md` §4
+    Task 09~12.
+- **stale resume_token 자동 회복** (PR #238~#242, T1~T8) —
+  ([claudeTransportFlipHardeningPlan](docs/plans/claudeTransportFlipHardeningPlan_2026-04-29.md))
+  한동안 미사용 conversation 의 resume_token 이 (a) 과거 sdk-url 시점
+  session id 이거나 (b) Anthropic 측 TTL 만료 → `--resume <id>` 시도가
+  "out of extra usage" 형태로 거부되던 문제. 사용자 액션 0 자동 회복.
+  - **T1**: claude.rs `stream_run` 이 `rate_limit_event` line parse →
+    `RunOutput.last_rate_limit` 로 노출.
+  - **T2**: `stream_run` wrapper 가 result.is_error keyword 패턴 detect →
+    `--resume` 제거 후 1회 retry. false positive 차단.
+  - **T3**: retry 성공 시 `session_freshness::clear_delivered_key` → 다음
+    send 부터 `is_session_continuation=false` → ContextPack revival 자동.
+    frontend 에 `claude:fresh_fallback` 이벤트 emit.
+  - **T4**: fresh_fallback toast + RuntimeStatusBar 의 rate_limit
+    indicator. claude.ai/settings/usage 링크.
+  - **T5**: DB migration v49 — 7일+ idle conversation 의 stale claude
+    resume_token 일괄 NULL. idempotent.
+  - **T6**: Conversation 우클릭 메뉴에 "Claude 세션 재시작" 항목 추가.
+  - **T7**: claude API 에러 6 종 분류 (stale_resume_token / auth_failure /
+    rate_limited / quota_exceeded / model_unavailable / unknown).
+- **Community follow-up batch** (PR #211, #215~#222) — batmania52 외부
+  사용자 보고 5 plan 일괄 처리:
+  - PR #216: rawq vendor 자동 git clone fallback (build 진입 장벽 차단)
+  - PR #215: onboarding "건너뛰기" 버튼 노출 회복
+  - PR #217+#218: Cmd+, 글로벌 단축키 + macOS 메뉴 + recent projects DB v48
+  - PR #219: docs panel scope toggle (P3-Lite, default='all')
+  - PR #220: native UNUserNotificationCenter bridge (osascript 의존 제거)
+  - PR #222: codex stderr piped (onboarding 진단 도구)
+  - PR #211: result.md contamination — reviewer ContextPack 입력 격리
 - **Reviewer 정책 위반 차단** (PR #211 + 후속) — Codex Reviewer 가
   `*-result.md` 를 자체 read tool 로 직접 열람 후 잘림 패턴을 verdict 근거로
   사용하던 정책 위반 패턴 확인. ContextPack 입력 차단 (PR #211, root cause)
