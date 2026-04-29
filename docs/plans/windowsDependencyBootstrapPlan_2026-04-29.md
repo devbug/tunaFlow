@@ -7,7 +7,7 @@ related_plans:
   - docs/plans/windowsBetaHardeningPlan_2026-04-26.md
   - docs/plans/windowsBuildPlan_2026-04-24.md
   - docs/plans/cicdReleasePlan.md
-status: ready (mac architect review APPROVE 2026-04-29)
+status: complete (T1~T5 merged, PR #221/#223/#225/#227/#229 — 2026-04-29)
 ---
 
 # Windows 의존성 부트스트랩 플랜
@@ -238,3 +238,51 @@ README 의 *"Auto-installed on first run"* 표기와 달리 backend 코드에는
 - 핸드오프 `windowsBetaHardeningArchitectHandoff_2026-04-29.md` 의 트랙 §B (startup race) / §C (DB path stale) / §D (watchdog compat) 와 axis 분리 — 본 plan 의 PR 은 별도로 머지.
 - 머지 순서 권장: **T1 → T2 → T3 → T4 → T5**. T6/T7 은 본 plan 외 별 plan 후속 (Q-2). 각 PR 사이 baseline 회귀 카운트 확인.
 - mac architect review (2026-04-29) APPROVE 완료, Q-1~4 결정 + B-1~5 보강 모두 본 plan 반영. 디벨로퍼 세션은 본 갱신본 기준으로 진행.
+
+## 10. 완료 (2026-04-29)
+
+본 plan 의 Phase 1 (T1~T3) + Phase 2 (T4~T5) 모두 머지 완료. T6/T7 은 [Q-2] 결정에 따라 P3 격하 후 별 plan 후속.
+
+### 머지된 PR
+
+| Task | PR | 머지 commit | 핵심 |
+|---|---|---|---|
+| T1 | #221 | `01a77c3` | `context_hub::resolve_bin()` Windows `%APPDATA%\npm\chub.cmd` candidates + cfg(windows) 격리 + 단위 테스트 3건 |
+| T2 | #223 | `37718f3` | `crg::resolve_bin()` Windows PATH fallback (`which` 미존재 보강) |
+| T3 | #225 | `66b3fa4` | README/INSTALL.md consent UX 문구 정정 (§128 표 포함) |
+| T4 | #227 | `76a2426` | first-run consent dialog + npm/pip auto-install (timeout / venv 자동 활용 / 직렬 보장) |
+| T5 | #229 | `95fcfa1` | Settings → Runtime "npm 으로 설치" 버튼 (manual trigger) |
+
+### 같은 사이클 부수 작업 (별 axis)
+
+| 항목 | PR | 머지 commit | 비고 |
+|---|---|---|---|
+| R-W-7 grep audit hotfix | #226 | `3a3c213` | `commands::files::tests` path-separator (escalate-1~4 + 동일 패턴 3건) test-only fix |
+| windowsCiPipelinePlan + Q-WCI 결정 | #224 | `29face39` | docs (별 plan SSOT) |
+
+### Baseline 비교 (회귀 0)
+
+| | 시작 (PR #213 직후) | 종료 (95fcfa1 + #226) | Δ |
+|---|---|---|---|
+| Frontend | 381 passed | 388 passed | +7 (T4 5 / T5 2) |
+| Rust | 558 passed | 579 passed / 0 failed | +21 (T1 +3 / T4 +6 / 외부 PR 들 +12) |
+| Failures | 0 | 0 | — |
+
+### INV 검증
+
+- INV-1 (macOS 사이드 이펙트 0): `bootstrap/env.rs`, `scripts/build-rawq.sh` 등 macOS-specific 파일 미변경 grep 확인. T1/T2 cfg(target_os="windows") 격리, T4 dialog 는 `available:true` detect 시 invisible.
+- INV-3: macOS 영역 미변경.
+- INV-4: 단일 axis per commit — 모든 PR 1 axis.
+- INV-DEP-A/B/C: consent UX, graceful degradation, doc/code parity 모두 충족.
+
+### R-W-1 (CVE-2024-24576) 검증 결과
+
+- `chub --cli-version` → 0.1.4
+- `chub search "복합 query"` (한국어 + 공백) → 20 results, exit 0. bash level escape 정상.
+- backend Rust `Command::new` 측 회귀 점검 = T5 머지 후 Settings → context-hub 검색 박스 실 호출로 통합 검증 권장 (별 axis).
+
+### 후속 / 별 plan
+
+- T6/T7 (skills bundle / installer post 가이드) — 별 plan 후속 axis.
+- 사용자 검증 a~d (first-run dialog flow, manual install 버튼, venv 자동 활용 등) — dev 모드에서 사용자 직접 검증 권장.
+- CHANGELOG v0.1.4-beta entry 보강 + release publish — mac architect 영역.
