@@ -342,9 +342,15 @@ pub fn sync_to_files(
         let mut s = String::from("## Project conventions (managed by tunaFlow)\n\n");
         s.push_str("> 이 영역은 tunaFlow가 자동 갱신합니다. Settings에서 편집하세요.\n\n");
         for p in &split_paths {
-            // 진입점 파일 기준 상대 경로
+            // 진입점 파일 기준 상대 경로. Claude Code 등의 `@import`는 forward-slash를 요구하므로
+            // Windows backslash 컴포넌트 구분자를 명시적으로 정규화한다.
             if let Ok(rel) = p.strip_prefix(project_root) {
-                s.push_str(&format!("@{}\n", rel.display()));
+                let rel_str = rel
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                s.push_str(&format!("@{}\n", rel_str));
             }
         }
         s
