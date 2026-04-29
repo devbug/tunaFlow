@@ -15,6 +15,7 @@
 
 ## 🟢 활성 핸드오프
 
+- [claudeTransportFlipHardeningDeveloperHandoff_2026-04-29](./claudeTransportFlipHardeningDeveloperHandoff_2026-04-29.md) — **메인 Developer 핸드오프**. Plan: `claudeTransportFlipHardeningPlan_2026-04-29`. v0.1.4-beta transport flip 후속 8 task batch (P0 Phase 1: T1~T4 자동 회복 핵심 / P1 Phase 2: T5~T8 migration+UI+docs). v0.1.5-beta release blocker. claude.rs cli mode 분기 안에서만 변경, 다른 엔진 / sdk-session 영향 0.
 - [windowsBetaHardeningArchitectHandoff_2026-04-29](./windowsBetaHardeningArchitectHandoff_2026-04-29.md) — Plan: `windowsBetaHardeningPlan_2026-04-26`. **Windows 환경 architect 세션용** (사용자 본인 머신). 오늘 작업: A v0.1.4-beta Windows 자산 빌드 + C DB path stale fix(option A) + B startup race 진단 + D watchdog kill compat. INV-1~4, PR + CI watch 필수.
 
 ## ✅ 완료된 Developer 핸드오프 (recent)

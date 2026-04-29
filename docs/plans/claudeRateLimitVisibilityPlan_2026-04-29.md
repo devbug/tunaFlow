@@ -1,7 +1,8 @@
 ---
 title: claude rate_limit_event 가시화 + ContextPack cost 효율화 + overage 안내
-status: ready
-phase: planning
+status: superseded
+superseded_by: docs/plans/claudeTransportFlipHardeningPlan_2026-04-29.md
+phase: superseded
 priority: P0 (사용자 가시 회귀 + v0.1.5-beta release blocker)
 created_at: 2026-04-29
 canonical: true
