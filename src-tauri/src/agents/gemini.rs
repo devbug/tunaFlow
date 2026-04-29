@@ -100,6 +100,7 @@ pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
         output_tokens: 0,
         session_id: None,
         last_rate_limit: None,
+        fresh_fallback: false,
     })
 }
 
@@ -319,5 +320,6 @@ where
         output_tokens: total_out,
         session_id,
         last_rate_limit: None,
+        fresh_fallback: false,
     })
 }

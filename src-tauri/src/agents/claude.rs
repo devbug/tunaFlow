@@ -171,6 +171,38 @@ pub struct RunOutput {
     /// 가장 최근에 관측된 `rate_limit_event` payload. Anthropic 측에서 미전송이거나
     /// 구버전 CLI 면 None. claudeTransportFlipHardeningPlan T1.
     pub last_rate_limit: Option<RateLimitInfo>,
+    /// `true` = stale resume_token detect → `--resume` 제거 후 1회 retry 로 fresh
+    /// session 으로 응답을 받았다. 호출자 (start_claude_stream / finalize_engine_run)
+    /// 가 이 flag 보고 (a) DB resume_token 갱신 (이미 새 session_id 가 들어옴), (b)
+    /// `session_freshness::clear_delivered_key()` 호출 → 다음 send 부터
+    /// `is_session_continuation=false` → full mode + anchor 2 turns ContextPack
+    /// revival 자동 발동, (c) frontend 에 `claude:fresh_fallback` event emit.
+    /// claudeTransportFlipHardeningPlan T2 + T3.
+    pub fresh_fallback: bool,
+}
+
+/// claude CLI 의 result.is_error 메시지가 stale resume_token 을 의미하는지 판정.
+///
+/// claudeTransportFlipHardeningPlan T2 — `--resume <id>` 동반 send 가 다음 패턴
+/// 으로 거부되면 stale resume_token 으로 보고 `--resume` 제거 후 retry 1회.
+///
+/// 정확한 keyword 조합으로 false positive 차단:
+/// - 정상 인증 실패 (401, invalid api key) → match X
+/// - 정상 한도 초과 (5h rolling) → match X (Anthropic 측 다른 status code/메시지)
+/// - 일시적 네트워크 에러 → match X
+///
+/// 매칭 keyword (사용자 보고 + Anthropic 정의):
+/// - "out of extra usage" — 사용자 보고 패턴 (resume_token 무효화 시점)
+/// - "session not found" / "404" — Anthropic 측 session_id 만료
+/// - "invalid_request_error" + "session" — invalid session id reject
+///
+/// **caller 책임**: 본 함수가 true 라도 retry 는 stream_run 내부에서 1회만.
+/// 두 번째 stale → caller 가 raw error 그대로 사용자에게 가시화 (escalate).
+fn looks_like_stale_resume_error(error_msg: &str) -> bool {
+    let lower = error_msg.to_ascii_lowercase();
+    lower.contains("out of extra usage")
+        || (lower.contains("session not found") || (lower.contains("404") && lower.contains("session")))
+        || (lower.contains("invalid_request_error") && lower.contains("session"))
 }
 
 /// Execute `claude -p` with `--output-format stream-json`.
@@ -181,7 +213,67 @@ pub struct RunOutput {
 ///
 /// Returns the final `RunOutput` when the `result` line arrives.
 /// Caller must NOT hold the DbState lock while calling this function.
+///
+/// claudeTransportFlipHardeningPlan T2 — `--resume <id>` 가 stale 로 거부되면
+/// 자동으로 `--resume` 없이 1회 retry. retry 성공 시 RunOutput.fresh_fallback=true
+/// 로 표기. retry 도 fail 이면 raw error 그대로 반환 (다른 원인). 무한 loop 차단.
 pub fn stream_run<F, G, C>(input: RunInput, mut on_progress: G, mut on_chunk: F, is_cancelled: C) -> Result<RunOutput, AppError>
+where
+    F: FnMut(String),
+    G: FnMut(String),
+    C: Fn() -> bool,
+{
+    // 1회차 시도 — 사용자의 resume_token 그대로 사용.
+    let had_resume = input.resume_token.is_some();
+    let first_input = RunInput {
+        prompt: input.prompt.clone(),
+        model: input.model.clone(),
+        system_prompt: input.system_prompt.clone(),
+        resume_token: input.resume_token.clone(),
+        project_path: input.project_path.clone(),
+        image_paths: input.image_paths.clone(),
+    };
+    let first_result = stream_run_once(first_input, &mut on_progress, &mut on_chunk, &is_cancelled);
+
+    match first_result {
+        Ok(out) => Ok(out),
+        Err(AppError::Agent(msg)) if had_resume && looks_like_stale_resume_error(&msg) => {
+            // Stale resume_token detect — `--resume` 제거 후 1회 retry.
+            // false positive 차단: had_resume 가 true 인 경우만 (resume 동반 send).
+            // 무한 loop 차단: stream_run_once 직접 호출 (재귀 없음).
+            eprintln!(
+                "[claude-stale-resume] detected stale resume_token, retrying without --resume (msg: {})",
+                msg.chars().take(120).collect::<String>()
+            );
+            let retry_input = RunInput {
+                prompt: input.prompt,
+                model: input.model,
+                system_prompt: input.system_prompt,
+                // resume_token 제거 — fresh session 으로 시작.
+                resume_token: None,
+                project_path: input.project_path,
+                image_paths: input.image_paths,
+            };
+            match stream_run_once(retry_input, &mut on_progress, &mut on_chunk, &is_cancelled) {
+                Ok(mut out) => {
+                    out.fresh_fallback = true;
+                    Ok(out)
+                }
+                Err(e) => Err(e),
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// `stream_run` 의 inner 구현 — `--resume` 가 있는 그대로 1회 시도.
+/// retry 는 stream_run wrapper 가 담당 (T2 stale detect path).
+fn stream_run_once<F, G, C>(
+    input: RunInput,
+    on_progress: &mut G,
+    on_chunk: &mut F,
+    is_cancelled: &C,
+) -> Result<RunOutput, AppError>
 where
     F: FnMut(String),
     G: FnMut(String),
@@ -425,6 +517,8 @@ where
                         .unwrap_or(0),
                     session_id: parsed.session_id,
                     last_rate_limit: last_rate_limit.take(),
+                    // T2: stream_run wrapper 가 retry 후 true 로 set. 1회 시도 자체는 false.
+                    fresh_fallback: false,
                 });
             }
             _ => {}
@@ -535,6 +629,7 @@ pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
         // one-shot json 모드는 rate_limit_event line 을 별도 stream 으로 받지
         // 못한다 (stream-json 전용). 항상 None.
         last_rate_limit: None,
+        fresh_fallback: false,
     })
 }
 
@@ -671,6 +766,49 @@ mod tests {
         assert_eq!(parsed.status.as_deref(), Some("limit_reached"));
         assert_eq!(parsed.overage_status.as_deref(), Some("disabled"));
         assert_eq!(parsed.overage_disabled_reason.as_deref(), Some("org_level_disabled"));
+    }
+
+    /// claudeTransportFlipHardeningPlan T2 — stale resume detect keyword.
+    /// false positive 차단 검증 (정상 인증 실패 / 한도 초과 / 네트워크 에러는
+    /// match X). retry trigger 정확성이 사용자 회복 핵심.
+    #[test]
+    fn looks_like_stale_resume_matches_user_reported_pattern() {
+        // 사용자 보고 — "out of extra usage"
+        assert!(looks_like_stale_resume_error("Anthropic API: out of extra usage"));
+        // case insensitive
+        assert!(looks_like_stale_resume_error("Out Of Extra Usage"));
+    }
+
+    #[test]
+    fn looks_like_stale_resume_matches_session_404() {
+        assert!(looks_like_stale_resume_error("404 session not found"));
+        assert!(looks_like_stale_resume_error("Session not found"));
+    }
+
+    #[test]
+    fn looks_like_stale_resume_matches_invalid_session_request() {
+        assert!(looks_like_stale_resume_error("invalid_request_error: invalid session id"));
+    }
+
+    #[test]
+    fn looks_like_stale_resume_does_not_match_auth_failure() {
+        // 401 / invalid api key 는 retry 트리거하지 않음 (사용자가 재로그인 필요)
+        assert!(!looks_like_stale_resume_error("401 Unauthorized"));
+        assert!(!looks_like_stale_resume_error("invalid api key"));
+        assert!(!looks_like_stale_resume_error("authentication failed"));
+    }
+
+    #[test]
+    fn looks_like_stale_resume_does_not_match_rate_limit() {
+        // 429 / true rate limit 은 retry 무의미 — Anthropic 측 한도 초과
+        assert!(!looks_like_stale_resume_error("429 Too Many Requests"));
+        assert!(!looks_like_stale_resume_error("rate_limit_exceeded"));
+    }
+
+    #[test]
+    fn looks_like_stale_resume_does_not_match_network_error() {
+        assert!(!looks_like_stale_resume_error("connection timed out"));
+        assert!(!looks_like_stale_resume_error("dns resolution failed"));
     }
 
     #[test]

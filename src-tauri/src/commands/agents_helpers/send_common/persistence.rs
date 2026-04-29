@@ -360,6 +360,37 @@ pub fn finalize_engine_run(
                     params![sid, engine_key, conversation_id],
                 );
             }
+
+            // claudeTransportFlipHardeningPlan T3 — fresh session fallback 처리.
+            // claude.rs::stream_run wrapper 가 stale resume_token detect → 1회 retry
+            // (without `--resume`) 성공 시 fresh_fallback=true 로 표기. 본 분기에서
+            // (a) session_freshness LAST_DELIVERED_KEY clear → 다음 send 의
+            // is_session_continuation=false → ContextPack revival 자동 (full mode +
+            // anchor 2 turns), (b) frontend 에 `claude:fresh_fallback` 이벤트 emit.
+            // 다른 엔진은 fresh_fallback 항상 false 라 분기 진입 X — 회귀 0.
+            if out.fresh_fallback {
+                session_freshness::clear_delivered_key(conversation_id);
+                eprintln!(
+                    "[session_freshness] T3 fresh_fallback for conv={} engine={} → cleared LAST_DELIVERED, next send uses full ContextPack",
+                    &conversation_id[..conversation_id.len().min(12)],
+                    engine_key
+                );
+                let _ = app.emit("claude:fresh_fallback", serde_json::json!({
+                    "messageId": msg_id,
+                    "conversationId": conversation_id,
+                    "engine": engine_key,
+                }));
+            }
+
+            // T1 + T4 — last_rate_limit 이 있으면 frontend RuntimeStatusBar 가 받도록
+            // 별도 이벤트로 emit. UI 가 dismiss 처리. 미관측 시 emit 안 함.
+            if let Some(ref rl) = out.last_rate_limit {
+                let _ = app.emit("claude:rate_limit", serde_json::json!({
+                    "conversationId": conversation_id,
+                    "engine": engine_key,
+                    "rateLimit": rl,
+                }));
+            }
             insert_trace_log_with_context(conn, conversation_id, out.input_tokens, out.output_tokens, out.cost_usd, now,
                 &SpanInfo { trace_id: &new_trace_id(), span_id: new_span_id(), parent_span_id: None,
                     operation: "agent.stream", engine: engine_key, duration_ms: duration_ms as i64, status: "ok" },

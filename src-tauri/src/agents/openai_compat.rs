@@ -380,6 +380,7 @@ where
         output_tokens,
         session_id: None,
         last_rate_limit: None,
+        fresh_fallback: false,
     })
 }
 

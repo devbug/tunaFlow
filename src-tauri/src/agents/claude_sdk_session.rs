@@ -970,6 +970,7 @@ where
                     session_id: parsed.session_id,
                     // sdk-session path 는 본 plan scope 외 — 호환성만 유지.
                     last_rate_limit: None,
+                    fresh_fallback: false,
                 });
             }
             "control_request" => {
