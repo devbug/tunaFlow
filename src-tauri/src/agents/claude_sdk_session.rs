@@ -968,6 +968,8 @@ where
                     input_tokens: final_input,
                     output_tokens: final_output,
                     session_id: parsed.session_id,
+                    // sdk-session path 는 본 plan scope 외 — 호환성만 유지.
+                    last_rate_limit: None,
                 });
             }
             "control_request" => {

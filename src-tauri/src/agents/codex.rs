@@ -210,6 +210,7 @@ pub fn run(input: RunInput) -> Result<RunOutput, AppError> {
         input_tokens,
         output_tokens,
         session_id: None,
+        last_rate_limit: None,
     })
 }
 
@@ -409,6 +410,7 @@ where
         input_tokens,
         output_tokens,
         session_id: None,
+        last_rate_limit: None,
     })
 }
 
