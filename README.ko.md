@@ -204,6 +204,13 @@ tunaFlow 를 만들면서 Claude Opus 가 쓴 개발기입니다. 설계 결정 
 - **JSONL 완료 감지 실패 (P1)** — PTY 세션에서 응답이 UI 에 반영되지 않는 경우 간헐적 발생 (sdk-session WebSocket 경로로 이동 중).
 - **Windows / Linux 빌드** — 미지원. 패키징 파이프라인 준비 중.
 
+### Anthropic billing & Claude 세션 동작
+
+- **Claude `-p` headless mode**: tunaFlow 는 v0.1.4-beta 이후 `claude -p --resume <id>` CLI path 를 사용합니다 (upstream `--sdk-url` 정책 변경 대응). Pro/Max plan 의 5시간 rolling 한도 + 주간 한도 + overage 정책이 `claude.ai` 와 동일하게 적용됩니다.
+- **Stale resume_token 자동 회복 (v0.1.5-beta+)**: 한동안 미사용 conversation 의 `resume_token` 이 upstream 측에서 만료되어 있을 수 있습니다. tunaFlow 는 거부 패턴 (`out of extra usage`, `404 session not found` 등) 을 감지해 `--resume` 을 제거하고 1회 retry. 다음 send 부터 ContextPack 이 full mode + 2-turn anchor 로 다시 붙습니다. 발생 시 토스트 1회 안내.
+- **수동 재시작**: conversation 우클릭 → "Claude 세션 재시작" 으로 다음 send 를 fresh session 으로 강제 가능 (자동 회복과 별개).
+- **사용량 확인**: [claude.ai/settings/usage](https://claude.ai/settings/usage) — 5시간 한도 / 주간 한도 / "extra usage" (overage) 옵션을 확인하세요.
+
 ### 설계상 / Beta 단계
 
 - **ad-hoc 서명** — Beta 에서는 Apple Developer ID 서명 없음. Gatekeeper 경고 해제 필요 (`xattr -cr /Applications/tunaFlow.app`). DMG 를 drag-install 만 하면 `.app` 에 quarantine 속성이 붙어 번들 안 사이드카 (rawq) 가 조용히 차단됩니다 — 증상/원인 표는 [INSTALL.md → "rawq 가 인식 안 될 때"](./INSTALL.md#rawq-가-인식-안-될-때-footer-rawq-sidecar-없음) 참조.

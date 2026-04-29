@@ -4,6 +4,50 @@ All notable changes to tunaFlow are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5-beta] - 2026-04-29 (예정)
+
+🛡️ **claude transport flip hardening** — v0.1.4-beta 의 transport flip
+(`-p --resume`) 후 발견된 stale resume_token 부작용 차단. 외부 사용자
+v0.1.4-beta 업그레이드 직후 첫 send 좌절 시나리오 해소.
+
+### Fixed
+
+- **stale resume_token 자동 회복**
+  ([claudeTransportFlipHardeningPlan_2026-04-29.md](docs/plans/claudeTransportFlipHardeningPlan_2026-04-29.md))
+  - 한동안 미사용 conversation 의 resume_token 이 (a) 과거 sdk-url 시점
+    session id 이거나 (b) Anthropic 측 TTL 만료 → `--resume <id>` 시도가
+    "out of extra usage" 형태로 거부되던 문제. 사용자 액션 0 자동 회복.
+  - **T1**: claude.rs `stream_run` 이 `rate_limit_event` line 을 parse →
+    `RunOutput.last_rate_limit` 로 노출 (RuntimeStatusBar indicator 데이터
+    소스).
+  - **T2**: `stream_run` wrapper 가 result.is_error 의 keyword 패턴 detect
+    → `--resume` 제거 후 1회 retry. false positive 차단 (정상 인증 실패 /
+    한도 초과 / 네트워크 에러는 retry 트리거 X).
+  - **T3**: retry 성공 시 `session_freshness::clear_delivered_key` →
+    다음 send 부터 `is_session_continuation=false` → ContextPack revival
+    자동 (full mode + anchor 2 turns). frontend 에 `claude:fresh_fallback`
+    이벤트 emit.
+  - **T4**: 사용자 가시화 — fresh_fallback toast 1회 + RuntimeStatusBar 의
+    Claude rate_limit indicator (정상 시 hide, approaching/limit_reached/
+    overage_disabled 상태별 색상). claude.ai/settings/usage 링크.
+  - **T5**: DB migration v49 — 7일+ idle conversation 의 stale claude
+    resume_token 일괄 NULL. idempotent (schema_version 가드). 활성 사용
+    conversation 영향 0.
+  - **T6**: Conversation 우클릭 메뉴에 "Claude 세션 재시작" 항목 추가.
+    backend `restart_sdk_session` 호출 + 토스트.
+  - **T7**: claude API 에러 6 종 분류 (\`stale_resume_token\` /
+    \`auth_failure\` / \`rate_limited\` / \`quota_exceeded\` /
+    \`model_unavailable\` / \`unknown\`). agent:error event 의 errorKind
+    payload 에 노출.
+
+### Anthropic billing 안내
+
+tunaFlow 가 `claude -p` headless mode 사용 — Pro/Max plan 의 5시간 rolling
+한도 + overage 정책 동일 적용. 한동안 미사용 conversation 의 resume_token
+이 stale 일 수 있음 — v0.1.5-beta 가 자동 fallback. 수동 재시작은
+conversation 우클릭 메뉴 (T6). claude.ai/settings/usage 에서 한도 / overage
+/ "extra usage" 옵션 확인 권장.
+
 ## [0.1.4-beta] - 2026-04-29
 
 🚨 **긴급 패치** — claude CLI 2.1.121 (2026-04-28 자동 update) 의 `--sdk-url`
