@@ -13,8 +13,12 @@
 
 use serde::Serialize;
 
+/// Auth status mirrors the macOS native enum so the serialized shape stays
+/// identical across platforms. On stub builds (non-macOS) variants are not
+/// constructed — the stub command paths return errors instead.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub enum NotificationAuthStatus {
     NotDetermined,
     Denied,
