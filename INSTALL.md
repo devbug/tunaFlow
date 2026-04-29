@@ -151,6 +151,19 @@ open -a tunaFlow
 open ~/Library/Logs/tunaFlow/
 ```
 
+### Claude 응답이 "out of extra usage" 등으로 거부될 때 (v0.1.4-beta 업그레이드 직후)
+
+v0.1.4-beta 의 transport flip (`-p --resume`) 이후 한동안 미사용 conversation 의 `resume_token` 이 stale 일 수 있습니다. 증상:
+
+- "out of extra usage" / "session not found" / "404" 등의 에러
+- 같은 사용자/계정의 다른 conversation (스크래치패드 등) 은 정상
+
+**해결 (v0.1.5-beta+ 자동)**: tunaFlow 가 stale 패턴을 감지해 `--resume` 제거 후 1회 retry. 다음 send 부터 ContextPack 이 full mode 로 다시 붙습니다. 토스트로 안내됩니다.
+
+**수동 재시작**: conversation 우클릭 → "Claude 세션 재시작". 다음 send 가 fresh session 으로 시작.
+
+**그래도 안 되면**: [claude.ai/settings/usage](https://claude.ai/settings/usage) 에서 5시간 한도 / 주간 한도 / "extra usage" (overage) 옵션 확인.
+
 ### rawq 가 인식 안 될 때 (footer "rawq sidecar 없음")
 
 원인 별 분기:

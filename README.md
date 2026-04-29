@@ -217,6 +217,13 @@ If this trade-off is unacceptable for your workflow, run Claude Code directly in
 - **JSONL Completion Detection Failure (P1)** — Occasional issues where PTY session responses are not reflected in the UI (transitioning to `sdk-session` WebSocket path).
 - **Windows / Linux builds** — Not yet supported; packaging pipeline in progress.
 
+### Anthropic billing & Claude session behavior
+
+- **Claude `-p` headless mode**: tunaFlow uses the `claude -p --resume <id>` CLI path (since v0.1.4-beta, after the upstream `--sdk-url` policy change). Pro/Max plan limits — 5-hour rolling window + weekly cap + overage policy — apply the same as in `claude.ai`.
+- **Stale resume_token auto-recovery (v0.1.5-beta+)**: idle conversations may carry a `resume_token` that the upstream session store has rolled off. tunaFlow detects the rejection pattern (`out of extra usage`, `404 session not found`, etc.), clears `--resume`, and retries once. From the next send, `ContextPack` is re-attached in full mode + 2-turn anchor. A toast informs the user when this happens.
+- **Manual restart**: right-click any conversation → "Restart Claude session" forces a fresh session for the next send (works alongside the auto-recovery above).
+- **Where to check usage**: [claude.ai/settings/usage](https://claude.ai/settings/usage) — verify your 5-hour limit, weekly cap, and "extra usage" (overage) toggle.
+
 ### By design / Beta stage
 
 - **Ad-hoc Signature** — No Apple Developer ID signing in Beta. Requires Gatekeeper bypass (`xattr -cr /Applications/tunaFlow.app`). Drag-installing the DMG without running `install.sh` leaves a quarantine attribute on the `.app`, which silently blocks the bundled sidecars (rawq) — see [INSTALL.md → "rawq 가 인식 안 될 때"](./INSTALL.md#rawq-가-인식-안-될-때-footer-rawq-sidecar-없음) for the symptom-cause table.
