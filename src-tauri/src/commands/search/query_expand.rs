@@ -50,7 +50,13 @@ pub fn expand_query(query: &str, conn: Option<&Connection>) -> Result<String, Ap
 
 /// Strategy for the outbound Claude call — swappable in tests so we don't need
 /// to manipulate PATH or env vars in parallel test threads.
+///
+/// `Empty` / `Stub` are constructed only from `#[cfg(test)]` call sites; the
+/// production path uses `Real`. Variants stay on the public-ish enum (not
+/// gated behind `cfg(test)`) so the type signature is identical across
+/// test/release builds.
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub(crate) enum InvokeClaude {
     /// Spawn `claude -p ...` as a subprocess (production path).
     Real,
