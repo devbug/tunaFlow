@@ -22,11 +22,67 @@ const DEFAULT_PROFILES: AgentProfile[] = [
   { id: "general-ollama", label: "General Ollama", engine: "ollama", defaultSkills: [], personaId: "persona_implementer" },
 ];
 
-/** Per-conversation engine/profile snapshot */
+/**
+ * Per-conversation engine/profile snapshot.
+ *
+ * `source` discriminates how the model field was decided so the assetSlice
+ * `saveProfiles` sync can update *only* derived entries when an agent
+ * profile's model changes — explicit user selections must be protected.
+ *
+ * - `"profile-derived"` — model came from `agentProfiles[].model` (or the
+ *   recommended fallback when the profile had no model). Auto-syncable.
+ * - `"user-explicit"` — user picked the model in the ModelSelector or the
+ *   engine selector. Never auto-overwritten on profile change.
+ * - `undefined` — legacy entries written before this discriminator existed.
+ *   Treated conservatively as user-explicit by `saveProfiles` (skipped
+ *   during sync) to preserve user intent. Going forward all writers tag.
+ */
+export type ConversationEngineSource = "profile-derived" | "user-explicit";
+
 export interface ConversationEngineState {
   profileId: string | null;
   engine: string;
   model?: string;
+  source?: ConversationEngineSource;
+}
+
+/**
+ * Pure helper extracted from `saveProfiles` so the sync logic can be unit
+ * tested without spinning a Zustand store.
+ *
+ * Walks `currentMap`, updates `model` on entries whose `profileId` matches a
+ * profile whose model changed AND `source === "profile-derived"`. All other
+ * entries (user-explicit, legacy without source, non-matching profileId)
+ * are returned unchanged.
+ */
+export function syncConvMapForProfileChanges(
+  prev: AgentProfile[],
+  next: AgentProfile[],
+  currentMap: Record<string, ConversationEngineState>,
+): { nextMap: Record<string, ConversationEngineState>; changed: boolean } {
+  const prevModelById = new Map(prev.map((p) => [p.id, p.model]));
+  const changedProfileIds = new Set<string>();
+  for (const profile of next) {
+    if (prevModelById.get(profile.id) !== profile.model) {
+      changedProfileIds.add(profile.id);
+    }
+  }
+  if (changedProfileIds.size === 0) {
+    return { nextMap: currentMap, changed: false };
+  }
+
+  const newModelById = new Map(next.map((p) => [p.id, p.model]));
+  const nextMap: Record<string, ConversationEngineState> = { ...currentMap };
+  let changed = false;
+  for (const [convId, state] of Object.entries(currentMap)) {
+    if (!state.profileId || !changedProfileIds.has(state.profileId)) continue;
+    if (state.source !== "profile-derived") continue;
+    const newModel = newModelById.get(state.profileId);
+    if (newModel === state.model) continue;
+    nextMap[convId] = { ...state, model: newModel };
+    changed = true;
+  }
+  return { nextMap, changed };
 }
 
 export interface AssetSlice {
@@ -101,13 +157,14 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
   loadProfiles: async () => {
     const profiles = await getSetting<AgentProfile[]>("agentProfiles", DEFAULT_PROFILES);
     const convMap = await getSetting<Record<string, ConversationEngineState>>("convEngineMap", {});
-    // Backfill: if any conversation has a profile but no model, fill from profile default
+    // Backfill: if any conversation has a profile but no model, fill from profile default.
+    // Tagged "profile-derived" so a later `saveProfiles` model change keeps these entries in sync.
     let updated = false;
     for (const [convId, state] of Object.entries(convMap)) {
       if (state.profileId && !state.model) {
         const profile = profiles.find((p) => p.id === state.profileId);
         if (profile?.model) {
-          convMap[convId] = { ...state, model: profile.model };
+          convMap[convId] = { ...state, model: profile.model, source: "profile-derived" };
           updated = true;
         }
       }
@@ -117,8 +174,16 @@ export const createAssetSlice = (set: SetState, get: GetState): AssetSlice => ({
   },
 
   saveProfiles: (profiles: AgentProfile[]) => {
-    set({ agentProfiles: profiles });
+    // Sync convEngineMap entries that were derived from a profile whose model
+    // just changed. User-explicit entries (and legacy entries without a
+    // `source` tag) are protected. See `ConversationEngineSource`.
+    const prev = get().agentProfiles;
+    const currentMap = get()._convEngineMap;
+    const { nextMap, changed } = syncConvMapForProfileChanges(prev, profiles, currentMap);
+
+    set({ agentProfiles: profiles, _convEngineMap: changed ? nextMap : currentMap });
     setSetting("agentProfiles", profiles);
+    if (changed) setSetting("convEngineMap", nextMap);
   },
 
   saveConversationEngine: (conversationId: string, state: ConversationEngineState) => {

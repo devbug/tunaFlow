@@ -129,7 +129,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       const input = { conversationId: plan.conversationId, label: branchLabel, mode: "chat" };
       const branch = await invoke<Branch>("create_branch", { input });
       const shadowConvId = await invoke<string>("open_branch_stream", { branchId: branch.id });
-      saveConversationEngine(shadowConvId, { profileId: null, engine: mainEngine, model: mainModel });
+      saveConversationEngine(shadowConvId, { profileId: null, engine: mainEngine, model: mainModel, source: "user-explicit" });
       await loadBranches(plan.conversationId);
       await openThread(branch.id);
 
@@ -164,7 +164,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       const shadowConvId = await invoke<string>("open_branch_stream", { branchId: branch.id });
 
       // Save same agent as main chat
-      saveConversationEngine(shadowConvId, { profileId: null, engine: mainEngine, model: mainModel });
+      saveConversationEngine(shadowConvId, { profileId: null, engine: mainEngine, model: mainModel, source: "user-explicit" });
 
       await loadBranches(plan.conversationId);
       await openThread(branch.id);
@@ -215,7 +215,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       const input = { conversationId: plan.conversationId, label: branchLabel, mode: "chat" };
       const branch = await invoke<Branch>("create_branch", { input });
       const shadowConvId = await invoke<string>("open_branch_stream", { branchId: branch.id });
-      saveConversationEngine(shadowConvId, { profileId: null, engine: mainEngine, model: mainModel });
+      saveConversationEngine(shadowConvId, { profileId: null, engine: mainEngine, model: mainModel, source: "user-explicit" });
       await loadBranches(plan.conversationId);
       await openThread(branch.id);
 
@@ -247,7 +247,7 @@ export function SubtaskReviewView({ plan, onPlanUpdate, onSwitchToChat }: Subtas
       const branch = await invoke<Branch>("create_branch", { input });
       const shadowConvId = await invoke<string>("open_branch_stream", { branchId: branch.id });
 
-      saveConversationEngine(shadowConvId, { profileId: null, engine: mainEngine, model: mainModel });
+      saveConversationEngine(shadowConvId, { profileId: null, engine: mainEngine, model: mainModel, source: "user-explicit" });
 
       await loadBranches(plan.conversationId);
       await openThread(branch.id);

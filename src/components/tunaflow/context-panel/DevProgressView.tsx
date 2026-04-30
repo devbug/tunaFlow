@@ -136,7 +136,7 @@ export function DevProgressView({ plan, onPlanUpdate }: DevProgressViewProps) {
         plan, `${roundLabel}: ${plan.title.slice(0, 25)}`, "chat",
       );
       if (reused) console.debug("[handleStartReview] reusing branch:", branch.id);
-      saveConversationEngine(shadowConvId, { profileId: selectedReviewerId, engine: selectedProfile.engine, model: selectedProfile.model });
+      saveConversationEngine(shadowConvId, { profileId: selectedReviewerId, engine: selectedProfile.engine, model: selectedProfile.model, source: "profile-derived" });
 
       const slug = getPlanSlug(plan);
 
