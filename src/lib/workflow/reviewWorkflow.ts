@@ -311,6 +311,9 @@ export async function startReviewRT(
           profileId: null,
           engine: first.engine,
           model: first.model,
+          // profileId is null (RT participant pick), so saveProfiles sync
+          // never touches this entry regardless of source — tag for clarity.
+          source: "user-explicit",
         });
       } catch (e) { console.warn("[startReviewRT] saveConversationEngine failed:", e); }
     }

@@ -47,7 +47,7 @@ export function ApprovalGate({
       await loadBranches(plan.conversationId);
 
       const shadowConvId = `branch:${branch.id}`;
-      saveConversationEngine(shadowConvId, { profileId: selectedProfileId, engine, model: selectedProfile?.model });
+      saveConversationEngine(shadowConvId, { profileId: selectedProfileId, engine, model: selectedProfile?.model, source: "profile-derived" });
 
       await openThread(branch.id);
       await sendThreadMessage(prompt, engine, selectedProfile?.model);

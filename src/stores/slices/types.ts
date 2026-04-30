@@ -112,11 +112,11 @@ export interface ChatState {
   /** Agent profiles — shared between Settings and NewMessageInput */
   agentProfiles: AgentProfile[];
   /** Per-conversation engine/profile memory */
-  _convEngineMap: Record<string, { profileId: string | null; engine: string; model?: string }>;
+  _convEngineMap: Record<string, { profileId: string | null; engine: string; model?: string; source?: "profile-derived" | "user-explicit" }>;
   loadProfiles: () => Promise<void>;
   saveProfiles: (profiles: AgentProfile[]) => void;
-  saveConversationEngine: (conversationId: string, state: { profileId: string | null; engine: string; model?: string }) => void;
-  getConversationEngine: (conversationId: string) => { profileId: string | null; engine: string; model?: string } | null;
+  saveConversationEngine: (conversationId: string, state: { profileId: string | null; engine: string; model?: string; source?: "profile-derived" | "user-explicit" }) => void;
+  getConversationEngine: (conversationId: string) => { profileId: string | null; engine: string; model?: string; source?: "profile-derived" | "user-explicit" } | null;
 
   setHandoffSource: (source: { type: string; content: string } | null) => void;
   _startRun: (threadId: string) => void;

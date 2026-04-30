@@ -99,6 +99,7 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
           profileId: defaultProfile.id,
           engine: defaultProfile.engine,
           model: defaultProfile.model,
+          source: "profile-derived",
         });
       }
     }
@@ -127,6 +128,7 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
         profileId,
         engine: targetEngine,
         model: targetModel,
+        source: "profile-derived",
       });
     }
   };
@@ -470,10 +472,12 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
                     if (currentProfile && currentProfile.engine !== e) {
                       useChatStore.setState({ personaFragment: null, personaLabel: null });
                     }
-                    // Save to per-conversation map
+                    // Save to per-conversation map — engine pick is an
+                    // explicit user choice; freeze the model so subsequent
+                    // profile edits don't silently overwrite it.
                     const target = threadMode ? threadBranchConvIdForRestore : selectedConversationId;
                     if (target) {
-                      saveConversationEngine(target, { profileId: null, engine: e, model: selectedModel || undefined });
+                      saveConversationEngine(target, { profileId: null, engine: e, model: selectedModel || undefined, source: "user-explicit" });
                     }
                   }} />
                   {ptyRespawning && isPtyEngine(engine) && (
@@ -486,10 +490,11 @@ export function NewMessageInput({ threadMode = false, onCreateRT }: NewMessageIn
                     selectedModel={selectedModel}
                     setSelectedModel={async (m) => {
                       setSelectedModel(m);
-                      // Persist model change to convEngineMap
+                      // Persist model change to convEngineMap — explicit
+                      // user pick, must survive future profile edits.
                       const target = threadMode ? threadBranchConvIdForRestore : selectedConversationId;
                       if (target) {
-                        saveConversationEngine(target, { profileId: selectedProfileId, engine, model: m || undefined });
+                        saveConversationEngine(target, { profileId: selectedProfileId, engine, model: m || undefined, source: "user-explicit" });
                       }
                       // Respawn PTY session on model change — only if PTY mode is enabled.
                       // Main chat routes through SDK / `-p` CLI by default.

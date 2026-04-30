@@ -55,7 +55,7 @@ export interface BootstrapCallbacks {
     | null;
   saveConversationEngine: (
     convId: string,
-    engine: { engine: string; model?: string; profileId: string | null },
+    engine: { engine: string; model?: string; profileId: string | null; source?: "profile-derived" | "user-explicit" },
   ) => void;
   getAgentProfiles: () => AgentProfile[];
   loadWorkflowSkills: () => Promise<void>;
@@ -155,6 +155,7 @@ export async function ensureMainConversation(
     profileId: defaultProfile.id,
     engine: defaultProfile.engine,
     model: defaultProfile.model,
+    source: "profile-derived",
   });
 }
 
