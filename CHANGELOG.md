@@ -4,6 +4,55 @@ All notable changes to tunaFlow are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5-beta] - 2026-05-03
+
+🩹 **devbug 외부 사용자 보고 #254 / #255 hotfix release** — 두 영역 자가 회복 path 회복.
+
+### Fixed
+
+- **branch view chat input 회귀 fix** (PR #257, issue #255) — plan A 진행 중
+  plan B revision 머지 시 plan A 의 dev branch 가 `archive_branch` 호출로
+  `status='archived'` 로 변경 → `BranchThreadPanel.tsx` 의 `isReadOnly` 분기가
+  archived 도 readonly 로 처리하여 chat input mount 차단 → 사용자가 메인
+  창으로 우회. `!isReadOnly` 분기를 input 영역만 `status !== "adopted"` 로
+  좁힘 — archived branch 에서도 chat input 노출, INV-1~5 (branch session =
+  main session 공유) 정책 보존되어 send 도 main sdk session 으로 안전 전달.
+  status badge / Adopt / Delete 등 다른 readonly 분기는 기존 동작 유지.
+- **ARCHITECT_TEMPLATE result task 자동 inject 차단** (PR #256, issue #254
+  영역 A) — Architect 가 plan 작성 시 마지막 task 에 "result.md 작성" 자동
+  inject 시키는 패턴 차단. PR #211 ("Never read result.md") + PR #212
+  (REVIEWER read 차단) 정책과 모순되어 reviewer verdict 가 result 포맷 위반으로
+  반복 fail 하던 회귀 root cause. 본문에 `Result Report — DO NOT include as a
+  subtask` 전용 섹션 + Critical Rules 라인 추가, unit test (`architect_template
+  _blocks_result_task_inject`) 로 정책 lock-in.
+- **ARCHITECT_TEMPLATE 본문 prompt 노이즈 정리** (PR #259) — Gemini code
+  review (PR #256 follow-up) 반영. agent 가 매번 읽는 prompt 본문의
+  관리용 `(PR #212 policy)` / `(issue #254)` 라벨 제거 — LLM 토큰 효율 개선.
+  doc comment / unit test 메시지의 issue 참조는 유지 (개발자 추적 컨텍스트).
+
+### Added
+
+- **docs/agents/\*.md sentinel 보존 + migration** (PR #258, issue #254 영역
+  B) — 외부 사용자가 architect.md 에 customize 추가해도 tunaFlow 재시작 시
+  scaffold 가 덮어쓰던 회귀 fix. `<!-- BEGIN user-customize --> ~ <!-- END
+  user-customize -->` sentinel 마커 도입:
+  - sentinel 안 영역: scaffold 가 절대 손대지 않음 (사용자 customize 보존)
+  - sentinel 밖 영역: tunaFlow 의 latest template 으로 자동 갱신
+  - legacy file (sentinel 미보유) → `*.md.pre-sentinel` 백업 후 새 template +
+    빈 sentinel 영역 적용. 백업 생성 fail 시 scaffold 갱신 자체 abort
+    (사용자 데이터 보존 우선)
+  `refresh_agent_doc_with_sentinel()` 함수 + 8 unit test (3 case: missing /
+  sentinel-aware refresh / legacy migration with backup) 로 동작 lock-in.
+  ARCHITECT/DEVELOPER/REVIEWER_TEMPLATE 끝에 빈 `## Custom Rules` + sentinel
+  쌍 inline 추가.
+
+### Notes
+
+- §B (Known issues policy) 변경 없음 — community batch 정책 유지.
+- v0.1.4-beta hardening (T9-a/b/T11/T12 + Mac/Windows hotfix + sdk transport
+  flip) 위에 누적되는 hotfix release — 외부 사용자(devbug) 보고 #254/#255
+  영역만 한정 변경, 다른 영역 회귀 0.
+
 ## [0.1.4-beta] - 2026-04-30
 
 🚨 **긴급 패치** — claude CLI 2.1.121 (2026-04-28 자동 update) 의 `--sdk-url`
