@@ -13,6 +13,18 @@ versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **macOS Edit submenu 추가** (PR #252) — Cmd+C / Cmd+V / Cmd+X / Cmd+A /
+  Cmd+Z / Shift+Cmd+Z 등 standard clipboard shortcut 회복. PR #217 (Plan C
+  T01, global Cmd+, shortcut + macOS menu) 의 menu.rs 가 App submenu
+  (Settings/About/Quit) 만 등록 + Edit submenu 누락 회귀. Tauri 2 macOS
+  정책상 Edit menu 미등록 시 WKWebView 의 standard shortcut 자체 처리도
+  dead. `cfg(target_os = "macos")` 분기로 PredefinedMenuItem 6 항목
+  (undo / redo / cut / copy / paste / select_all) 추가. Win/Linux 영향 0.
+- **dev 모드 notification crash 차단** (PR #251) — Plan D (PR #220,
+  native UNUserNotificationCenter bridge) 의 dev 빌드 한정 회귀.
+  bundle 없는 binary (`target/debug/tuna-flow`) 에서 `currentNotificationCenter`
+  호출 시 NSInternalInconsistencyException → SIGABRT. `cfg!(debug_assertions)`
+  guard 로 dev 빌드 시 graceful skip. release `.app` (bundle 보유) 영향 0.
 - **claude cli mode 의 ContextPack double history 차단** (PR #245~#248,
   사용자 환경 발견 2026-04-30) — transport flip (`-p --resume`) 후 cli mode
   가 `session_freshness "적용 제외"` 로 박혀 있어 *Claude session 자체
