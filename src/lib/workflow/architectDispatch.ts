@@ -20,15 +20,17 @@
  */
 import type { Plan } from "@/types";
 import type { ParsedReviewVerdict } from "../planProposalParser";
-import { useChatStore } from "@/stores/chatStore";
 import i18n from "i18next";
 
 export type ArchitectRedesignReason = "user-redesign" | "doom-escalate";
 
 /** pass 직후 main conv 로 다음 우선순위 제안 prompt 를 dispatch.
- *  실패해도 throw 하지 않는다 (review pass 처리 자체를 막지 않기 위함). */
+ *  실패해도 throw 하지 않는다 (review pass 처리 자체를 막지 않기 위함).
+ *  `useChatStore` 는 동적 import — `reviewWorkflow.ts` / `implementWorkflow.ts`
+ *  와 같은 패턴 (순환 참조 방지 + 초기 로딩 부하 감소). */
 export async function dispatchArchitectNextPriority(plan: Plan): Promise<void> {
   try {
+    const { useChatStore } = await import("@/stores/chatStore");
     const { sendWithEngine, getConversationEngine } = useChatStore.getState();
     const saved = getConversationEngine(plan.conversationId);
     const engine = saved?.engine ?? "claude";
@@ -52,6 +54,7 @@ export async function dispatchArchitectRedesign(
   opts: { reason: ArchitectRedesignReason; failCount?: number },
 ): Promise<void> {
   try {
+    const { useChatStore } = await import("@/stores/chatStore");
     const { sendWithEngine, getConversationEngine } = useChatStore.getState();
     const saved = getConversationEngine(plan.conversationId);
     const engine = saved?.engine ?? "claude";

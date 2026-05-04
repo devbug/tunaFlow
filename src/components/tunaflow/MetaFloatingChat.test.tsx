@@ -4,6 +4,14 @@
  * 사용자가 *"메타에게 물어보기"* 버튼 / `askMetaAbout` callback / 관련 i18n 키
  * (`action_ask_meta`, `ask_about_*`) 가 다시 추가되지 않도록 source-level 검증.
  *
+ * **Brittleness 한계** (Gemini PR #262 review medium ×1):
+ *  - source-level regex 는 Prettier / 주석 / 변수명 미세 변경에 영향 받을 수 있다.
+ *  - 본 가드의 의도는 *symbol 이름 자체* (askMetaAbout / action_ask_meta / ask_about_)
+ *    가 다시 추가되지 않게 차단 — 정규식이 단순 substring 이라 코드 포맷 변경엔 안전.
+ *  - 더 robust 한 DOM 기반 검증은 `MetaFloatingChat` 의 Tauri invoke / Zustand store /
+ *    projectKey 의존성 mocking 부담이 커서 follow-up 으로 미룬다.
+ *  - locales JSON 검증 (parse 후 key 존재 검증) 은 정규식 의존이 없어 더 안전.
+ *
  * Plan: docs/plans/reviewerVerdictDirectArchitectPlan_2026-05-04.md (T07)
  */
 import { describe, it, expect } from "vitest";
