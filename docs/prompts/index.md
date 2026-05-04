@@ -15,6 +15,7 @@
 
 ## 🟢 활성 핸드오프
 
+- [reviewerVerdictDirectArchitectDeveloperHandoff_2026-05-04](./reviewerVerdictDirectArchitectDeveloperHandoff_2026-05-04.md) — **P0/P1 ready 핸드오프**. Plan: `reviewerVerdictDirectArchitectPlan_2026-05-04`. Reviewer verdict (pass/fail/conditional) 라우팅을 Meta inbox 우회 → Architect 직행 + askMeta UX 폐지 (c-2 scope, Meta role 부분 축소). 7 task → 3 PR 분리 (PR-1 askMeta 폐지 / PR-2 Architect helper + pass/fail/escalate / PR-3 Tier 2 kind 분리 + test). Task 03 conditional 은 옵션 (i) no-op default. 외부 issue 없음.
 - [nextSessionHandoff_2026-05-04](./nextSessionHandoff_2026-05-04.md) — **세션 핸드오프** (v0.1.5-beta 사이클 후속). devbug #253/#254/#255 hotfix 완료, README ko/en 리프레임, project-scoped 스킬 3종 (`tunaflow-developer-handoff` / `tunaflow-plan-writing` / `tunaflow-release-cycle`) 신설. **새 세션에서만 스킬 자동 트리거 가능** — 다음 cycle 진입 시점이 새 세션 시작 기점.
 - [scaffoldUserCustomizationPreservationDeveloperHandoff_2026-05-03](./scaffoldUserCustomizationPreservationDeveloperHandoff_2026-05-03.md) — **MERGED #254 fix (P1)**. Plan: `scaffoldUserCustomizationPreservationPlan_2026-05-03`. 영역 A (ARCHITECT_TEMPLATE result task 자동 inject 차단, PR #256) + 영역 B (docs/agents/*.md sentinel 마커 기반 사용자 customize 보존 + migration 백업, PR #258). v0.1.5-beta 머지 완료.
 - [branchChatInputRegressionDeveloperHandoff_2026-05-03](./branchChatInputRegressionDeveloperHandoff_2026-05-03.md) — **MERGED #255 fix (P1)** (PR #257). Plan: `branchChatInputRegressionPlan_2026-05-03`. plan A 진행 중 plan B 머지 → plan A revision 후 dev branch 의 chat input 사라짐 회귀. v0.1.5-beta 머지 완료.
