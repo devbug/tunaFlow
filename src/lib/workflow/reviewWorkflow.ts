@@ -13,8 +13,8 @@ import {
 } from "../manualVerification";
 import * as failureLessonsApi from "../api/failureLessons";
 import * as insightApi from "../api/insight";
-import { dispatchMetaNotification } from "../metaNotifications";
 import { maybeTriggerMetaAnalysis } from "../metaAnalysisTrigger";
+import { dispatchArchitectNextPriority, dispatchArchitectRedesign } from "./architectDispatch";
 import {
   buildPlanContext,
   getOrCreateReviewBranch,
@@ -407,22 +407,13 @@ export async function processReviewVerdict(
     await planApi.updatePlanPhase(plan.id, "done");
     await planApi.updatePlanStatus(plan.id, "done");
     await planApi.createPlanEvent(plan.id, "review_passed", "reviewer", detail);
-    // Notify Meta — plan cycle finished, user may want next-priority suggestion.
-    // projectKey 는 plan 의 메인 conv 경유해서 찾기
+    // projectKey 는 plan 의 메인 conv 경유해서 찾기 — Tier 2 분석 트리거용.
     let projectKey: string | undefined;
     try {
       const conv = await invoke<{ projectKey?: string }>("get_conversation", { id: plan.conversationId });
       projectKey = conv?.projectKey;
     } catch { /* ignore */ }
-    dispatchMetaNotification({
-      kind: "review_passed",
-      title: `✅ Plan "${plan.title}" 리뷰 통과`,
-      summary: verdict.findings.length > 0
-        ? `minor findings ${verdict.findings.length}건. ${verdict.recommendations[0]?.slice(0, 100) ?? ""}`
-        : "모든 검증 통과 — Done 처리됨",
-      projectKey,
-      route: { tab: "workflow", stage: "done", planId: plan.id },
-    });
+    // Tier 2 분석 (Haiku/Flash brief) 은 보존 — 결과 dispatch kind 는 PR-3 에서 tier2_brief 로 분리.
     if (projectKey) {
       maybeTriggerMetaAnalysis(projectKey, "review_passed", { planTitle: plan.title })
         .catch((e) => console.debug("[meta-trigger]", e));
@@ -448,10 +439,11 @@ export async function processReviewVerdict(
       const { useChatStore } = await import("@/stores/chatStore");
       await useChatStore.getState().loadBranches(plan.conversationId);
     } catch (e) { console.debug("[loadBranches after archive]", e); }
-    // Role separation: plan completion goes to Meta inbox only (dispatchMetaNotification
-    // above + maybeTriggerMetaAnalysis for Tier 2 brief). Architect is NOT auto-invoked —
-    // 'what's next?' is Meta's oversight role, not Architect's design role. User asks
-    // via the inbox entry's askMeta button when they want the next-priority suggestion.
+    // Plan 완료 → Architect 가 main conv 에서 다음 우선순위 제안 prompt 를 자동 수신.
+    // 기존엔 Meta inbox 의 review_passed 알림 + 사용자 클릭 (askMeta) 흐름이었지만,
+    // *plan-cycle 결정* 은 Meta 의 read-only 역할보다 Architect 의 design 역할에 속함.
+    // 사용자 의사결정 burden 제거. Tier 2 brief (Haiku/Flash) 는 별 axis 로 inbox 유지.
+    await dispatchArchitectNextPriority(plan);
   } else if (verdict.verdict === "fail") {
     await planApi.updatePlanPhase(plan.id, "rework");
     await planApi.createPlanEvent(plan.id, "review_failed", "reviewer", detail);
@@ -522,16 +514,10 @@ export async function processReviewVerdict(
       // Baton has moved to Architect — review branch is no longer active.
       const { archiveReviewBranchForHandoff } = await import("./implementWorkflow");
       await archiveReviewBranchForHandoff(plan);
-      // projectKey 조회 (meta conv mirror 용).
-      const escProjectKey = await invoke<{ projectKey?: string }>("get_conversation", { id: plan.conversationId })
-        .then((c) => c?.projectKey).catch(() => undefined);
-      dispatchMetaNotification({
-        kind: "doom_loop_escalated",
-        title: `⚠️ Plan "${plan.title}" 재설계 필요`,
-        summary: `Review ${failCount}회 실패로 Architect 재설계가 강제되었습니다. Subtask 범위를 재검토하세요.`,
-        projectKey: escProjectKey,
-        route: { tab: "workflow", stage: "plan-check", planId: plan.id },
-      });
+      // 자동 escalate 시 Architect 가 main conv 에서 재설계 prompt 를 즉시 수신.
+      // 기존 dispatchMetaNotification(doom_loop_escalated) → Meta inbox 의존을 제거.
+      // plan_event_log 에 doom_loop_escalated 이벤트는 보존되어 시스템 자동 결정 흔적 유지.
+      await dispatchArchitectRedesign(plan, verdict, { reason: "doom-escalate", failCount });
     } else if (doom.recommendation === "warn") {
       await planApi.createPlanEvent(
         plan.id,
@@ -539,15 +525,9 @@ export async function processReviewVerdict(
         "system",
         `Review 실패 ${failCount}회 — 설계 재검토를 권장합니다. Architect 재설계 또는 Developer 계속 rework 중 선택하세요.`,
       );
-      const warnProjectKey = await invoke<{ projectKey?: string }>("get_conversation", { id: plan.conversationId })
-        .then((c) => c?.projectKey).catch(() => undefined);
-      dispatchMetaNotification({
-        kind: "doom_loop_warning",
-        title: `⚠️ Plan "${plan.title}" ${failCount}회 실패`,
-        summary: "설계 재검토 권장. 계속 rework 할지 Architect 재설계로 갈지 선택하세요.",
-        projectKey: warnProjectKey,
-        route: { tab: "workflow", stage: "review", planId: plan.id },
-      });
+      // warn 단계는 사용자 결정 (continue rework vs redesign) 으로 유지 — Architect 자동
+      // 호출 없음. plan_event_log 의 doom_loop_warning 이벤트가 ReviewVerdictCard /
+      // DevProgressView 에 표시되어 사용자 결정 UI 가 충족됨.
     }
   } else {
     await planApi.createPlanEvent(plan.id, "review_conditional", "reviewer", detail);
