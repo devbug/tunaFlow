@@ -173,7 +173,10 @@ cd src-tauri && cargo test --lib  # Rust unit tests (485 tests)
 | Multi-agent 오케스트레이션 설계 | `anthropic-claude-api/shared/agent-design.md` |
 | Claude 모델 버전업 (Opus/Sonnet/Haiku) | `anthropic-claude-api/shared/model-migration.md` |
 | MCP/tool 연동 | `anthropic-mcp-builder` |
-| Plan / Handoff 작성 | `anthropic-doc-coauthoring` |
+| Plan 작성 (tunaFlow 형식) | `tunaflow-plan-writing` (project-scoped) |
+| Developer 핸드오프 작성 (tunaFlow 형식) | `tunaflow-developer-handoff` (project-scoped) |
+| Release cycle 실행 (version bump → tag → publish → issue close) | `tunaflow-release-cycle` (project-scoped) |
+| 일반 doc 작성 / spec 협업 | `anthropic-doc-coauthoring` |
 | 새 스킬 제작 (tunaFlow 자체 패턴 codify) | `anthropic-skill-creator` |
 
 ---
