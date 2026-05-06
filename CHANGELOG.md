@@ -4,9 +4,9 @@ All notable changes to tunaFlow are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.7-beta] - 2026-05-07
 
-**Roundtable 합의 영구화 + RT marker 격리 + Architect ContextPack 인계** —
+🩹 **Roundtable 합의 영구화 + RT marker 격리 + Architect ContextPack 인계** —
 외부 사용자 (devbug, [#263](https://github.com/hang-in/tunaFlow/issues/263))
 보고 회복. RT 환각/오동작 3 영역 (라운드 간 합의 망각 / main conv 단일
 dispatch 시 합의 무시 / Architect 가 RT 대화 내역 접근 못 함) 의 root cause
