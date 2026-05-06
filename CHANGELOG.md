@@ -4,6 +4,42 @@ All notable changes to tunaFlow are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7-beta-2] - 2026-05-07
+
+🩹 **Windows 캡션바 hotfix + platform detect 진단 보강** —
+외부 사용자 (devbug, [#264](https://github.com/hang-in/tunaFlow/issues/264))
+보고 회복 1차 작업. v0.1.5-beta Windows 자산부터 잠재한 *"native titleBar /
+닫기·최소화·최대화 버튼 / 창 드래그·리사이즈 모두 부재"* 회귀 차단.
+config 분리로 macOS-only 옵션 영향 차단 + frontend `WindowControls` 의
+`isWindows` gate 신뢰성 향상 + 진단 console.warn 보강 (캡션바가 여전히
+부재 시 devtools 로 root cause 확정 가능).
+
+### Fixed
+
+- **Tauri config platform-conditional 분리** ([PR #268](https://github.com/hang-in/tunaFlow/pull/268)) —
+  `tauri.macos.conf.json` 신규로 macOS 전용 `titleBarStyle: "Overlay"` +
+  `hiddenTitle: true` 분리. base `tauri.conf.json` 에서 두 키 제거 +
+  `decorations: true` 명시 (Windows / Linux native chrome 의도 표현).
+  Tauri 2 의 platform-conditional merge 로 macOS 동작 보존.
+
+### Added
+
+- **`detectPlatformDiagnostic()` snapshot helper** ([PR #268](https://github.com/hang-in/tunaFlow/pull/268)) —
+  `lib/platform.ts` 가 `navigator.userAgentData.platform` 우선 + userAgent
+  regex 폴백으로 OS detect. `TitleBar.tsx` 가 module-load 시 1회,
+  `WindowControls.tsx` 가 mount 시 1회 console.warn 출력 — 사용자 devtools
+  에서 (a) 미마운트 vs (b) 마운트는 됐으나 invisible 구분 가능.
+
+### Notes
+
+- **사용자 검증 단서**: v0.1.7-beta-2 재설치 후 캡션바 회복 안 되면
+  Ctrl+Shift+I 로 devtools 열어 console 의 `[TitleBar] platform diag` /
+  `[WindowControls] mounted` 로그 확인. `isWindows: false` 면 detection
+  실패 (후속 PR axis), 둘 다 정상 출력 + 캡션바 부재면 z-index/styling
+  axis.
+- macOS / Linux 영향 0 (회귀 가드): macOS override 에 두 키 살아있고
+  base 의 `decorations: true` 는 Linux default 와 동일.
+
 ## [0.1.7-beta] - 2026-05-07
 
 🩹 **Roundtable 합의 영구화 + RT marker 격리 + Architect ContextPack 인계** —
