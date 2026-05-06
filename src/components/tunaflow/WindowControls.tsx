@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X, Copy } from "lucide-react";
+import { detectPlatformDiagnostic } from "@/lib/platform";
 
 /**
  * Custom Window Controls — Windows 11 native parity (46×32 sq buttons).
@@ -11,6 +12,13 @@ import { Minus, Square, X, Copy } from "lucide-react";
  * Decisions: Q-WT-1 (Windows native shape) / Q-WT-2 (status-rejected close hover)
  */
 export function WindowControls() {
+  // Issue #264 진단: WindowControls 가 mount 됐다는 사실 자체를 dev tools 에
+  // 노출. 보고된 캡션바 누락이 (a) 컴포넌트 미마운트 vs (b) 마운트는 됐으나
+  // 보이지 않음 중 어느 쪽인지 판단할 수 있게 한다. mount 1회만 fire.
+  useEffect(() => {
+    console.warn("[WindowControls] mounted", detectPlatformDiagnostic());
+  }, []);
+
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
