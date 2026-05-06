@@ -1,10 +1,17 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { isWindows as detectIsWindows } from "@/lib/platform";
+import { isWindows as detectIsWindows, detectPlatformDiagnostic } from "@/lib/platform";
 import { useChatStore } from "@/stores/chatStore";
 import { WindowControls } from "./WindowControls";
 
 const isWindows = detectIsWindows();
+
+// Issue #264 (Windows 캡션바 누락) 진단: PR #237 의 set_decorations(false) 가
+// 호출되면 native chrome 이 사라지고 그 자리를 WindowControls 가 차지해야 한다.
+// 사용자 환경에서 isWindows 가 false 로 평가되면 WindowControls 가 미마운트되어
+// 캡션 영역 통째로 공백. 첫 mount 시 1회 진단 dump 으로 webview UA 의 실제
+// 값과 detection 결과를 노출한다 (devtools console 에서 확인).
+console.warn("[TitleBar] platform diag", { isWindows, ...detectPlatformDiagnostic() });
 
 /**
  * Unified title bar (mac / Windows).
