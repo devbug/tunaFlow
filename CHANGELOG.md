@@ -4,6 +4,42 @@ All notable changes to tunaFlow are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7-beta-4] - 2026-05-07
+
+🚨 **Windows production 빌드 CSP IPC 차단 hotfix** —
+v0.1.7-beta-3 의 capabilities fix 후에도 외부 사용자 (devbug,
+[#264](https://github.com/hang-in/tunaFlow/issues/264)) 환경에서 회복 안 된
+3rd layer root cause: `tauri.conf.json` 의 CSP `connect-src` 가 Tauri 2 의
+IPC custom protocol (`http://ipc.localhost`) 을 명시 안 해 production 빌드
+에서 모든 plugin 호출 차단 → 사용자 설정 / WindowControls listener 등이
+*전부* fail. dev 모드는 vite localhost 라 postMessage 폴백 으로 우회되어
+표면 안 됐던 회귀.
+
+### Fixed
+
+- **CSP IPC 프로토콜 + jsdelivr 폰트 허용** ([PR #272](https://github.com/hang-in/tunaFlow/pull/272)) —
+  `tauri.conf.json:26` 의 csp `connect-src` 에 `ipc:` (macOS/Linux) +
+  `http://ipc.localhost` (Windows production) 명시. plugin 호출 (`store|load`
+  / `event|listen` 등) 정상 동작 회복. style-src/font-src 에
+  `https://cdn.jsdelivr.net/gh/orioncactus/pretendard/` 경로 허용 (pretendard
+  variable 폰트 로드 회복).
+
+### Notes
+
+- **외부 사용자 회복 path**: v0.1.7-beta-3 까지의 fix (capabilities + drag
+  region 격리 + native frame fallback) 도 모두 유효한 fix 였으나 *CSP 가
+  IPC 자체를 차단* 한 상태에서는 효과 못 봄. v0.1.7-beta-4 부터 IPC 가 살아
+  capabilities + WindowControls 가 비로소 정상 동작. devbug 환경 새 자산
+  재설치 후 회복 확인 부탁드립니다.
+- dev 모드 (`npm run tauri dev` via `http://localhost:1420`) 가 production
+  과 다른 origin/CSP 적용 path 라 회귀 표면 차이가 진단 어려움. 향후 production
+  smoke 자동화 axis 검토 영역.
+- macOS / Linux 영향 0 — CSP 변경이 모든 OS 적용이지만 *기존 허용 영역
+  (dos.zone / github avatars / dataURI 등) 모두 보존* + IPC 프로토콜은
+  postMessage 폴백 으로 dev 환경에서 정상 동작했음.
+- Gemini code review (PR #272): connect-src 의 tauri.localhost 중복 제거 +
+  jsdelivr path 축소 권장 모두 수용.
+
 ## [0.1.7-beta-3] - 2026-05-07
 
 🚨 **Windows 캡션바 root cause hotfix — Tauri 2 capabilities 권한 4건 추가** —
