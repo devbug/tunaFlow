@@ -22,8 +22,21 @@ pub fn start_background_services(
     // 1. HTTP API server (E2E testing + mobile access + MCP)
     {
         let db_state = app.state::<DbState>().inner().clone();
-        let api_token = http_api::start_server(db_state, app.handle().clone(), cancel_arc);
-        eprintln!("[bootstrap/services] HTTP API token: {}", api_token);
+        // Mobile pairing setting (issue #270): default false → bind 127.0.0.1.
+        // 토글 변경은 plugin-store 의 settings.json 에 저장되며, 다음 startup
+        // 부터 적용 (현 PR 은 hot-rebind 미지원). read 실패 / 키 부재 / 파싱
+        // 실패 모두 graceful default false.
+        let mobile_pairing = read_mobile_pairing_setting(app);
+        let api_token = http_api::start_server(
+            db_state,
+            app.handle().clone(),
+            cancel_arc,
+            mobile_pairing,
+        );
+        eprintln!(
+            "[bootstrap/services] HTTP API token: {} (mobile_pairing={})",
+            api_token, mobile_pairing
+        );
     }
 
     // 2. Per-process state registration
@@ -75,4 +88,22 @@ pub fn start_background_services(
     }
 
     Ok(())
+}
+
+/// Read the user's `mobile_pairing_enabled` toggle from plugin-store's
+/// `settings.json`. Default false (localhost-only bind) when the file is
+/// missing, key is absent, or any read/parse step fails — *fail closed*
+/// is the security-correct default for LAN exposure (issue #270).
+fn read_mobile_pairing_setting(app: &tauri::App) -> bool {
+    let Ok(config_dir) = app.path().app_config_dir() else {
+        return false;
+    };
+    let settings_path = config_dir.join("settings.json");
+    let Ok(content) = std::fs::read_to_string(&settings_path) else {
+        return false;
+    };
+    serde_json::from_str::<serde_json::Value>(&content)
+        .ok()
+        .and_then(|v| v.get("mobile_pairing_enabled").and_then(|x| x.as_bool()))
+        .unwrap_or(false)
 }

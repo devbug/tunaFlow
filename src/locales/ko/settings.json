@@ -259,6 +259,14 @@
       "success": "설치 완료, 재시작 후 ready 로 전환",
       "venv_note": "Python 측 사이드카 (code-review-graph) 는 첫 실행 다이얼로그 또는 venv 활성 상태에서 별도 설치하세요."
     },
+    "mobile_pairing": {
+      "heading": "모바일 페어링 (LAN 노출)",
+      "toggle_label": "같은 Wi-Fi 의 모바일 디바이스가 tunaFlow API 에 접근하도록 허용",
+      "on_hint": "ON: HTTP API 가 0.0.0.0:19840 으로 바인드되어 같은 LAN 의 모든 디바이스가 19840 포트를 볼 수 있습니다 (인증 토큰 보호).",
+      "off_hint": "OFF (권장): HTTP API 가 127.0.0.1:19840 (localhost 전용) 으로 바인드되어 LAN 노출 차단.",
+      "restart_required": "변경 사항은 다음 실행부터 적용됩니다.",
+      "migration_toast": "모바일 페어링이 비활성화되었습니다. Settings → Runtime → 모바일 페어링 에서 다시 켤 수 있습니다."
+    },
     "workflow_skills": {
       "heading": "Workflow Skills",
       "description": "워크플로우 단계별 스킬 세트. 수동 선택과 합산됩니다.",
