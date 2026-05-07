@@ -4,6 +4,49 @@ All notable changes to tunaFlow are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7-beta-3] - 2026-05-07
+
+🚨 **Windows 캡션바 root cause hotfix — Tauri 2 capabilities 권한 4건 추가** —
+v0.1.7-beta-2 의 진단 보강 ([PR #268](https://github.com/hang-in/tunaFlow/pull/268)) 이
+유효한 진단 path 였고 architect dev 환경 console 캡처로 결정타 확보:
+*"window.close not allowed. Permissions: core:window:allow-close"* 에러가 모든
+button click 에서 발생. PR #237 의 custom WindowControls 가 처음부터 동작한 적
+없는 진짜 root cause 는 capabilities permission 누락이었음.
+
+### Fixed
+
+- **Tauri 2 capabilities 권한 4건 추가** ([PR #269](https://github.com/hang-in/tunaFlow/pull/269)) —
+  `src-tauri/capabilities/default.json` 에 `core:window:allow-minimize` /
+  `allow-toggle-maximize` / `allow-close` / `allow-is-maximized` 명시 부족이
+  custom WindowControls button click 의 모든 호출을 *권한 부재* 로 차단하던
+  회귀 fix. 닫기 / 최소화 / 최대화 / Maximize state 동기화 (`onResized` listener)
+  모두 정상 동작.
+- **Drag region cascade button click 가로채기 방지** ([PR #269](https://github.com/hang-in/tunaFlow/pull/269)) —
+  `TitleBar` outer div 의 `data-tauri-drag-region` 제거 후 좌패딩 / 정보 row /
+  중앙 spacer 3 sub-section 에만 attribute 유지. button 영역이 drag region
+  descendant 에서 빠짐. WindowControls button 들에 `onMouseDown stopPropagation`
+  이중 안전망.
+
+### Added
+
+- **`tauri features = ["devtools"]`** ([PR #269](https://github.com/hang-in/tunaFlow/pull/269)) —
+  release 빌드에서도 `Ctrl+Shift+I` / `F12` 로 devtools 활성. 향후 회귀 발견
+  시 외부 사용자가 직접 console 로그 캡처 가능 (베타 단계 진단 가치).
+- **WindowControls click 실패 시 console.error 진단** ([PR #269](https://github.com/hang-in/tunaFlow/pull/269)) —
+  권한 누락 또는 Tauri API 영역 회귀가 다시 발생하면 즉시 표면화.
+
+### Notes
+
+- **외부 사용자 보고 회복 path**: 이전 v0.1.7-beta-2 release 시 *"fix 됐다"* 안내
+  드렸으나 진단 보강 단계만 들어간 상태였습니다. v0.1.7-beta-3 부터 권한 fix
+  적용으로 실제 button 동작 회복. devbug 환경에서 새 자산 재설치 후 회복 부탁드립니다.
+- **Backend `set_decorations(false)` 제거** — Windows native frame fallback 보존.
+  capabilities/WindowControls 어느 한쪽이 깨져도 OS native control 로 사용자
+  회복 path 확보 (이중 안전망). UI 중복 회피는 후속 PR 영역 (Gemini code review
+  #2 영역).
+- macOS / Linux 영향 0 — capabilities 추가는 cross-platform 안전, set_decorations
+  제거는 cfg(windows) 분기 안에 있던 호출.
+
 ## [0.1.7-beta-2] - 2026-05-07
 
 🩹 **Windows 캡션바 hotfix + platform detect 진단 보강** —
