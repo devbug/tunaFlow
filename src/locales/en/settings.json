@@ -259,6 +259,14 @@
       "success": "Installed — restart to mark as ready",
       "venv_note": "The Python sidecar (code-review-graph) is installed via the first-run dialog or with an active venv."
     },
+    "mobile_pairing": {
+      "heading": "Mobile pairing (LAN exposure)",
+      "toggle_label": "Let mobile devices on the same Wi-Fi reach the tunaFlow API",
+      "on_hint": "ON: HTTP API binds to 0.0.0.0:19840 — every device on the same LAN can see port 19840 (token-auth still required).",
+      "off_hint": "OFF (recommended): HTTP API binds to 127.0.0.1:19840 (localhost-only); no LAN exposure.",
+      "restart_required": "The change takes effect on the next launch.",
+      "migration_toast": "Mobile pairing is disabled by default. Re-enable in Settings → Runtime → Mobile pairing if you need it."
+    },
     "workflow_skills": {
       "heading": "Workflow Skills",
       "description": "Skill sets per workflow phase. Combined with manual selection.",

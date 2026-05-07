@@ -11,7 +11,8 @@ import { ProjectStartup } from "./ProjectStartup";
 // ResizeHandle removed — main area border serves as drag handle
 import { FileViewer } from "./chat/FileViewer";
 import { FileViewerContext } from "./chat/fileViewerContext";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { CommandPalette } from "./CommandPalette";
 import { TitleBar } from "./TitleBar";
 import { MetaFloatingChat } from "./MetaFloatingChat";
@@ -32,6 +33,7 @@ const DRAWER_DEFAULT = 480;
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
 export function AppShell() {
+  const { t } = useTranslation("settings");
   const { loadProjects, createProject, loadEngineModels, threadBranchId } = useChatStore();
   const drawerPinned = useChatStore((s) => s.drawerPinned);
 
@@ -74,6 +76,16 @@ export function AppShell() {
         invoke("cleanup_stale_jobs").catch((e) => console.debug("[cleanup]", e));
         // Clear in-memory running state (processes died on restart)
         useChatStore.setState({ runningThreadIds: [] });
+
+        // Issue #270 마이그레이션 안내 — 첫 v0.1.7-beta-5 startup 에서 1회.
+        // 기본값 변경 (HTTP API LAN 노출 OFF) 으로 페어링 사용자 회귀 가드.
+        // 사용자가 본 toast 후엔 다시 안 뜸 (sessionStorage 가 아닌 setting).
+        getSetting<boolean>("mobile_pairing_migration_seen", false).then(async (seen) => {
+          if (!seen) {
+            toast.info(t("runtime.mobile_pairing.migration_toast"), { duration: 8000 });
+            await setSetting("mobile_pairing_migration_seen", true);
+          }
+        });
 
         setLoadingStep("프로젝트 목록 로드 중...");
         await loadProjects();

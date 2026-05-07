@@ -100,7 +100,16 @@ where
 
 /// Start the HTTP API server on a background tokio task.
 /// Returns the generated Bearer token for auth.
-pub fn start_server(db: DbState, app_handle: tauri::AppHandle, cancel: CancelArc) -> String {
+///
+/// `mobile_pairing_enabled` 가 true 일 때만 `0.0.0.0` 으로 바인드해 LAN
+/// 노출. 기본값(false)은 `127.0.0.1` 로 localhost-only — 공공 Wi-Fi /
+/// 사내 IDS 환경의 attack surface 차단 (issue #270, devbug 외부 보고).
+pub fn start_server(
+    db: DbState,
+    app_handle: tauri::AppHandle,
+    cancel: CancelArc,
+    mobile_pairing_enabled: bool,
+) -> String {
     let token = generate_token();
     let (event_tx, _) = broadcast::channel::<String>(256);
 
@@ -123,8 +132,12 @@ pub fn start_server(db: DbState, app_handle: tauri::AppHandle, cancel: CancelArc
 
     tauri::async_runtime::spawn(async move {
         let app = build_router(state);
-        let addr = std::net::SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT));
-        eprintln!("[http-api] starting on http://{}", addr);
+        let host: [u8; 4] = if mobile_pairing_enabled { [0, 0, 0, 0] } else { [127, 0, 0, 1] };
+        let addr = std::net::SocketAddr::from((host, DEFAULT_PORT));
+        eprintln!(
+            "[http-api] starting on http://{} (mobile_pairing={})",
+            addr, mobile_pairing_enabled
+        );
         let listener = match tokio::net::TcpListener::bind(addr).await {
             Ok(l) => l,
             Err(e) => {

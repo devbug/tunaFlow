@@ -771,7 +771,58 @@ export function RuntimeSection() {
       </div>
 
       <ManualVerificationGateToggle />
+      <MobilePairingPanel />
       <AttachmentsCleanupPanel />
+    </div>
+  );
+}
+
+// ─── Mobile Pairing Toggle (issue #270) ─────────────────────────────────
+
+function MobilePairingPanel() {
+  const { t } = useTranslation("settings");
+  const [enabled, setEnabled] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [touched, setTouched] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    getSetting<boolean>("mobile_pairing_enabled", false).then((v) => {
+      if (alive) { setEnabled(v); setLoaded(true); }
+    });
+    return () => { alive = false; };
+  }, []);
+
+  const onToggle = async (next: boolean) => {
+    setEnabled(next);
+    setTouched(true);
+    await setSetting("mobile_pairing_enabled", next);
+  };
+
+  if (!loaded) return null;
+
+  return (
+    <div className="rounded-lg border border-border/30 bg-background/50 p-4 space-y-2">
+      <h3 className="text-[13px] font-medium text-foreground">{t("runtime.mobile_pairing.heading")}</h3>
+      <label className="flex items-center gap-2 text-[12px] text-foreground/80 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => onToggle(e.target.checked)}
+          className="accent-primary"
+        />
+        {t("runtime.mobile_pairing.toggle_label")}
+      </label>
+      <p className="text-[11px] text-muted-foreground/70">
+        {enabled
+          ? t("runtime.mobile_pairing.on_hint")
+          : t("runtime.mobile_pairing.off_hint")}
+      </p>
+      {touched && (
+        <p className="text-[11px] text-amber-500/80">
+          ⚠ {t("runtime.mobile_pairing.restart_required")}
+        </p>
+      )}
     </div>
   );
 }
