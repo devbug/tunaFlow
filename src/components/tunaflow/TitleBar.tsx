@@ -57,14 +57,17 @@ export function TitleBar() {
           중앙 spacer 각각의 sub-section 에만 attribute 부착해 button 영역은
           drag region 의 descendant 가 아니게 만든다. */}
 
-      {/* Left padding — reserves traffic-light area on mac, minimal on Windows */}
+      {/* Left padding — reserves traffic-light area on mac, minimal on Windows.
+          h-full 필수: outer 가 `flex items-center` 라 자식이 stretch 안 되어
+          명시 height 없으면 hit area 0 → drag.js 의 e.target 이 절대 본 div
+          가 못 됨. issue #264 후속 (Windows 캡션 hit area 누락). */}
       <div
         data-tauri-drag-region
-        className={isWindows ? "w-[12px] shrink-0" : "w-[72px] shrink-0"}
+        className={isWindows ? "h-full w-[12px] shrink-0" : "h-full w-[72px] shrink-0"}
       />
 
       {/* Info row — left-aligned on both OSes (Q-WT-4) */}
-      <div data-tauri-drag-region className="flex items-center gap-0 shrink-0">
+      <div data-tauri-drag-region className="h-full flex items-center gap-0 shrink-0">
         <span data-tauri-drag-region className="text-[11px] font-bold text-foreground/70 tracking-wide">
           tunaFlow
         </span>
@@ -88,8 +91,9 @@ export function TitleBar() {
         )}
       </div>
 
-      {/* Center — large drag region */}
-      <div data-tauri-drag-region className="flex-1" />
+      {/* Center — large drag region. h-full 없으면 빈 div 의 height 0 →
+          캡션바의 가장 큰 영역이 클릭 hit 0 이 되어 드래그·더블클릭 모두 실패. */}
+      <div data-tauri-drag-region className="h-full flex-1" />
 
       {/* Right side: Windows custom controls / mac empty padding */}
       {isWindows ? <WindowControls /> : <div className="w-[72px] shrink-0" />}
