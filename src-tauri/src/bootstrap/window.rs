@@ -10,14 +10,21 @@ pub fn restore_window_state(app: &tauri::App) -> Result<(), Box<dyn std::error::
         return Ok(());
     };
 
-    // 2026-05-07 — issue #264 hotfix: PR #237 에서 도입했던 Windows 전용
-    // `set_decorations(false)` 를 제거. devbug 외부 사용자 환경에서 native
-    // chrome 사라진 후 `WindowControls` 가 마운트되지 않거나 click 이 가로채
-    // 져서 *닫기/최소화/최대화/드래그 모두 부재* 차단 회귀. Native frame 으로
-    // 회복하고 `WindowControls` 는 그대로 둬 "1 라인 통합" UX 는 후속 PR 에서
-    // platform detection / drag region 격리가 검증된 후 다시 도입.
+    // 2026-05-07 — issue #264 v0.1.7-beta-5 hotfix: capabilities (PR #269) +
+    // CSP IPC (PR #272) + drag-region 격리 (PR #269) 모두 적용된 후 `WindowControls`
+    // 의 click 이 정상 동작하므로, 다시 native chrome 을 제거해 PR #237 의
+    // mac parity *"1 라인 통합"* UX 회복. Gemini code review (PR #269 #2) 가
+    // 지적한 native + custom 중복 (architect dev sh02 검증) 도 동시 해소.
     //
-    // mac/Linux 영향 0 (이 호출 자체가 cfg(windows) 분기였음).
+    // 안전망: capabilities/CSP 어느 쪽이 다시 깨져도 사용자는 set_decorations(true)
+    // 로 native chrome 복원 가능 (Settings or 코드 revert). devtools 도 release
+    // 에서 활성됐으니 진단 가능.
+    #[cfg(target_os = "windows")]
+    {
+        if let Err(e) = window.set_decorations(false) {
+            eprintln!("[bootstrap/window] set_decorations(false) failed: {}", e);
+        }
+    }
 
     // window-state plugin restores position/size BEFORE setup runs.
     // Log actual state to diagnose restoration issues.
