@@ -4,6 +4,52 @@ All notable changes to tunaFlow are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7-beta-5] - 2026-05-07
+
+🩹 **Windows 1단 통합 UX 회복 + 모바일 페어링 LAN 노출 토글** —
+v0.1.7-beta-3/4 hotfix 사이클 (capabilities + CSP IPC) 후 production 빌드의
+`WindowControls` click 동작이 확정되었으므로 `set_decorations(false)` 를
+다시 호출해 PR #237 의 mac parity *"1 라인 통합"* UX 회복. Gemini code
+review (PR #269 #2) 가 지적한 native + custom 중복 (architect sh02 검증의
+*"3단 헤더"*) 동시 해소. 외부 사용자 (devbug, [#270](https://github.com/hang-in/tunaFlow/issues/270))
+보고의 모바일 페어링 LAN 노출 토글도 묶어서 처리 — default OFF 로 공공
+Wi-Fi / 사내 IDS 환경의 attack surface 차단.
+
+### Fixed
+
+- **Windows 1단 통합 UX 회복** ([PR #274](https://github.com/hang-in/tunaFlow/pull/274), issue [#264](https://github.com/hang-in/tunaFlow/issues/264) 의 final cycle) —
+  `bootstrap/window.rs` 의 cfg(target_os = "windows") 안에 `set_decorations(false)`
+  호출 다시 추가. capabilities/CSP/drag-region 격리 모두 fix 된 상태에서
+  안전. mac parity *"1 라인 통합"* (custom TitleBar + WindowControls) UX
+  회복. mac/Linux 영향 0.
+
+### Added
+
+- **모바일 페어링 LAN 노출 토글** ([PR #275](https://github.com/hang-in/tunaFlow/pull/275), issue [#270](https://github.com/hang-in/tunaFlow/issues/270)) —
+  HTTP API 가 `0.0.0.0:19840` 으로 무조건 바인드되던 회귀를 *기본값 OFF*
+  (`127.0.0.1:19840`) 로 전환. Settings → Runtime → 모바일 페어링 토글로
+  사용자가 능동 ON 가능. 기존 페어링 사용자에겐 첫 startup 1회 toast 안내
+  (*"Settings → Runtime 에서 다시 켤 수 있습니다"*). 토글 변경은 다음
+  startup 부터 적용 (hot-rebind 별 PR 영역).
+
+### Notes
+
+- **외부 사용자 회복 path (#264)**: 이번 1단 통합 회복으로 *"3단 헤더 이상해
+  보임"* (architect sh02 검증) UX 정리. devbug 환경 새 자산 재설치 후
+  최종 회복 확인 부탁드립니다. capabilities/CSP fix 모두 그대로 유지되므로
+  click 동작 보장.
+- **모바일 페어링 default OFF 결정 사유**: devbug 의 명시적 권장 그대로.
+  공공 Wi-Fi / 카페 / 코워킹 스페이스 / 사내 IDS 환경에서 unnecessary
+  attack surface 차단. localhost 호출 (IDE 확장 / 로컬 자동화) 은 그대로
+  동작.
+- macOS / Linux 영향 0 — set_decorations 는 cfg(windows) 분기, mobile
+  pairing 은 cross-platform 안전 (모든 OS default OFF, 사용자 옵션 ON).
+- Test baseline: **Rust 636 / Frontend 422** 그대로. 신규 테스트 0
+  (Settings UI / bind 분기는 e2e 영역).
+- Plan SSOT (#270): [`docs/plans/windowsMobilePairingTogglePlan_2026-05-07.md`](https://github.com/hang-in/tunaFlow/blob/main/docs/plans/windowsMobilePairingTogglePlan_2026-05-07.md).
+  Follow-up axis: 토글 hot-rebind / LAN 노출 인디케이터 / 페어링 디바이스
+  있을 때 OFF 회색 처리.
+
 ## [0.1.7-beta-4] - 2026-05-07
 
 🚨 **Windows production 빌드 CSP IPC 차단 hotfix + bge-m3 메모리 최적화** —
