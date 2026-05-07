@@ -65,9 +65,22 @@ describe("WindowControls", () => {
     expect(screen.queryByRole("button", { name: "Maximize" })).toBeNull();
   });
 
-  it("opts out of drag region", () => {
-    render(<WindowControls />);
-    const root = screen.getByTestId("window-controls");
-    expect(root.getAttribute("data-tauri-drag-region")).toBe("false");
+  it("button mousedown stops propagation so a parent React handler does not fire", () => {
+    // Issue #264 회귀 (architect dev 검증, 2026-05-07): parent TitleBar 의
+    // `data-tauri-drag-region` 이 button 의 mousedown 을 drag 로 가로채면
+    // onClick 이 fire 안 한다. WindowControls 의 각 button 은 mousedown 단계
+    // 에서 React synthetic event 의 propagation 을 멈춰 click 이 살아남는다.
+    // 검증: WindowControls 를 감싼 wrapper 의 React onMouseDown 이 *호출되지
+    // 않는지* 직접 본다 (Gemini code review 제안 패턴, PR #269).
+    let parentBubbled = false;
+    render(
+      <div onMouseDown={() => { parentBubbled = true; }}>
+        <WindowControls />
+      </div>
+    );
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Minimize" }));
+    expect(parentBubbled).toBe(false);
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Close" }));
+    expect(parentBubbled).toBe(false);
   });
 });
