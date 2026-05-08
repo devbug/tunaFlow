@@ -285,6 +285,12 @@ fn looks_like_stale_resume_error(error_msg: &str) -> bool {
     lower.contains("out of extra usage")
         || (lower.contains("session not found") || (lower.contains("404") && lower.contains("session")))
         || (lower.contains("invalid_request_error") && lower.contains("session"))
+        // v0.1.8-beta-3 hotfix — `--resume` 사용 시 Anthropic 서버의 session history
+        // 누적이 200K (sonnet-4-6 default) 한계 초과하면 *"Prompt is too long"* 응답.
+        // outgoing 자체는 짧아도 (예: 5K tokens) server-side 누적 hit. fresh session
+        // retry 시 Anthropic 서버가 history 무관하게 outgoing 만 받아 정상 응답.
+        // false positive 시 retry 도 동일 fail → raw error 반환 (line 344, 무한 loop 차단).
+        || lower.contains("prompt is too long")
 }
 
 /// Execute `claude -p` with `--output-format stream-json`.
@@ -874,6 +880,20 @@ mod tests {
     #[test]
     fn looks_like_stale_resume_matches_invalid_session_request() {
         assert!(looks_like_stale_resume_error("invalid_request_error: invalid session id"));
+    }
+
+    /// v0.1.8-beta-3 hotfix — `--resume` 사용 시 server-side session history
+    /// 누적이 200K (sonnet-4-6 default) 한계 초과 → *"Prompt is too long"*.
+    /// fresh session retry 로 server-side 누적 무시 + outgoing 만 발송 → 정상 응답.
+    #[test]
+    fn looks_like_stale_resume_matches_prompt_too_long() {
+        // Anthropic API 응답 본문 — claude-code CLI 가 normalize
+        assert!(looks_like_stale_resume_error("Prompt is too long"));
+        assert!(looks_like_stale_resume_error("prompt is too long"));
+        // case insensitive 보존
+        assert!(looks_like_stale_resume_error("PROMPT IS TOO LONG"));
+        // 더 자세한 형태 (token 수 명시) 도 매칭
+        assert!(looks_like_stale_resume_error("prompt is too long: 215000 tokens > 200000 maximum"));
     }
 
     #[test]

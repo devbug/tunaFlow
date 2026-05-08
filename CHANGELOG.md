@@ -4,6 +4,45 @@ All notable changes to tunaFlow are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8-beta-3] - 2026-05-09
+
+🩹 **CLI `--resume` path 의 *"Prompt is too long"* 자동 fresh retry hotfix** —
+v0.1.8-beta / v0.1.8-beta-2 의 fresh-rotate 정책이 **sdk-url path 만** cover
+하고 cli `-p --resume` path 는 *의도적으로 제외* 됐던 결함. claudeTransportFlipHardeningPlan
+T9 (2026-04-29) 으로 cli `--resume` path 가 **default** 라 사용자 본인 환경의
+*기본 path* 가 fix 사각지대. dev 서버 stdout 의 실측 fact:
+
+```
+[guardrail] engine=claude-resume model=claude-sonnet-4-6 status=err
+duration=16000ms prompt_chars=22291 est_tokens=5572
+```
+
+→ outgoing 5.5K tokens (200K 한계의 2.8%) 인데도 *"Prompt is too long"* —
+즉 root cause 는 *outgoing 길이* 아닌 *Anthropic 서버의 session_id 누적
+history 200K 초과*. `--resume` 사용 시 server-side history 자동 첨부.
+
+### Fixed
+
+- **`looks_like_stale_resume_error` predicate 에 `"prompt is too long"` 패턴
+  추가** (`claude.rs:283`) — 기존 3 패턴 (out of extra usage / session not
+  found / invalid_request_error+session) 외 신규 1 패턴. detect 시 기존
+  T2 fresh-rotate 인프라 (`stream_run` wrapper, line 322~346) 가 자동
+  적용 → resume_token 제거 후 fresh session retry → server-side 누적 무시
+  + outgoing 만 발송 → 정상 응답. retry 도 동일 fail 시 raw error 반환
+  (line 344, 무한 loop 차단).
+
+### Notes
+
+- v0.1.8-beta (sdk-url path fresh-rotate) + v0.1.8-beta-2 (임계 130K
+  보수화) 모두 그대로 유지. 본 hotfix 는 *cli path 영역만* 신규 추가.
+- false positive 위험 0 — *진짜 outgoing 길이 초과* 면 fresh retry 도
+  동일 fail → raw error 반환. 무한 loop 차단됨.
+- Test baseline: **Rust 651 → 652** (+1 신규 `looks_like_stale_resume_matches_prompt_too_long`
+  unit test, 4 case 검증).
+- 후속 plan 후보: server-side session window 동적 보정 (Anthropic 응답의
+  `usage.input_tokens` 받아 tunaFlow accumulated 와 sync) — `[1m]` variant
+  detection 과 같은 영역으로 정확도 ↑.
+
 ## [0.1.8-beta-2] - 2026-05-09
 
 🩹 **SDK window guard 임계 130K 보수화 hotfix** — v0.1.8-beta 의 fresh-rotate
