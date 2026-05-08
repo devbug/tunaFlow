@@ -615,7 +615,10 @@ async fn call_cli_agent(
     cmd.current_dir(cwd);
     match engine {
         "claude" => {
-            cmd.args(["-p", prompt, "--max-turns", "1", "--output-format", "text"]);
+            // `--max-turns 1` 은 noninteractive 단일 응답 의도였으나, claude
+            // 가 reasoning / tool use 시 1턴 초과로 "Reached max turns (1)"
+            // exit 1. onboarding 분석은 한 응답이면 충분하지만 여유 확보.
+            cmd.args(["-p", prompt, "--max-turns", "5", "--output-format", "text"]);
             if let Some(m) = model { cmd.args(["--model", m]); }
             // GUI 부모는 stdin 없음. claude 가 prompt 외 stdin 안 읽어야
             // 하지만 inherited stdin = invalid handle 회귀 회피 위해 명시.
@@ -632,7 +635,20 @@ async fn call_cli_agent(
             // 하도록 `--skip-git-repo-check` 도 추가 (사용자 분석 대상이
             // 비-git 디렉토리일 수 있음).
             cmd.args(["exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "-"]);
-            if let Some(m) = model { cmd.args(["--model", m]); }
+            // codex 의 model 호환은 인증 type (ChatGPT account vs API key)
+            // 에 따라 다르다. ChatGPT account 는 `gpt-5-codex` / `gpt-4o-codex`
+            // 같은 codex 전용 모델을 거부 (invalid_request_error). frontend
+            // 의 CLI_DEFAULT_MODELS["codex"] 가 그런 codex 전용 default 를
+            // 자동 선택하므로, 사용자가 명시 변경 없이 그대로 보낸 경우
+            // (default 첫 항목 그대로) 는 model 인자를 전달하지 않고 codex
+            // 자체 default (인증 type 에 맞는) 를 신뢰. 사용자가 다른 모델로
+            // 변경한 경우만 명시 전달.
+            const CODEX_DEFAULT_MODELS_TO_SKIP: &[&str] = &["gpt-5-codex", "gpt-4o-codex"];
+            if let Some(m) = model {
+                if !CODEX_DEFAULT_MODELS_TO_SKIP.contains(&m) {
+                    cmd.args(["--model", m]);
+                }
+            }
             cmd.stdin(Stdio::piped());
         }
         _ => return Err(format!("지원하지 않는 CLI 엔진: {engine}")),
