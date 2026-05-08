@@ -244,17 +244,14 @@ pub fn resolve_diagnostics() -> String {
 pub fn ensure_daemon() {
     let Ok(bin) = resolve_rawq_bin() else { return; };
 
-    // Check if already running
-    let status = Command::new(&bin).no_console()
-        .args(["daemon", "status"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-    if let Ok(s) = status {
-        if s.success() {
-            eprintln!("[rawq] daemon already running");
-            return;
-        }
+    // Check if already running. is_daemon_ready 는 3s timeout 을 적용한
+    // try_wait 패턴이므로, 부팅 시점에 daemon 의 IPC 가 어떤 이유로 응답
+    // 안 해도 ensure_daemon 의 background thread 가 영원히 stuck 되지
+    // 않는다. 기존엔 `.status()` 직접 호출이라 timeout 없어 부팅 시
+    // daemon 이 안 켜지는 회귀 가능성.
+    if is_daemon_ready() {
+        eprintln!("[rawq] daemon already running");
+        return;
     }
 
     // Start daemon in background
@@ -323,29 +320,63 @@ pub struct IndexInfo {
     pub model: String,
 }
 
-/// Get index status. Returns `Ok(Some(info))` if indexed, `Ok(None)` if not, `Err` on failure.
-pub fn index_status(project_path: &str) -> Result<Option<IndexInfo>, RawqError> {
+/// `rawq index status <path> --json` 을 timeout 과 함께 spawn 하고 stdout 을
+/// 반환. graceful fallback — daemon 이 응답하지 않아 timeout 도달 시 `Ok(None)`
+/// 으로 caller 에게 "인덱스 없음" 시그널 전달 (메인 chat 의 ContextPack 흐름은
+/// rawq 섹션을 skip 하고 정상 진행).
+///
+/// 기존 `.output()` 직접 호출은 timeout 없어 daemon hang 시 메인 chat 무한
+/// 대기 회귀의 root cause 였음. (`docs/`/PR 본문 참조)
+fn run_index_status(project_path: &str) -> Result<Option<serde_json::Value>, RawqError> {
     let bin = resolve_rawq_bin()?;
-    let output = Command::new(&bin).no_console()
+    let mut child = Command::new(&bin).no_console()
         .args(["index", "status", project_path, "--json"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
-        .output()
+        .spawn()
         .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
 
+    let t0 = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if t0.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    eprintln!(
+                        "[rawq] index_status timed out (5s) — treating as 'not indexed' for graceful fallback"
+                    );
+                    return Ok(None);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => return Err(RawqError::ExecFailed(e.to_string())),
+        }
+    }
+
+    let output = child.wait_with_output()
+        .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
     if !output.status.success() {
         return Ok(None);
     }
-
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout)
         .map_err(|e| RawqError::ParseFailed(e.to_string()))?;
+    Ok(Some(parsed))
+}
 
+/// Get index status. Returns `Ok(Some(info))` if indexed, `Ok(None)` if not or
+/// timed out, `Err` only on hard failures (binary missing / parse error).
+pub fn index_status(project_path: &str) -> Result<Option<IndexInfo>, RawqError> {
+    let Some(parsed) = run_index_status(project_path)? else {
+        return Ok(None);
+    };
     let indexed = parsed.get("indexed").and_then(|v| v.as_bool()).unwrap_or(false);
     if !indexed {
         return Ok(None);
     }
-
     Ok(Some(IndexInfo {
         files: parsed.get("files").and_then(|v| v.as_u64()).unwrap_or(0),
         chunks: parsed.get("chunks").and_then(|v| v.as_u64()).unwrap_or(0),
@@ -354,27 +385,14 @@ pub fn index_status(project_path: &str) -> Result<Option<IndexInfo>, RawqError> 
 }
 
 /// Check if a rawq index exists for the given path.
-/// Returns `true` if indexed, `false` otherwise.
+/// Returns `true` if indexed, `false` if not or timed out (graceful).
 ///
 /// CLI: `rawq index status <path> --json`
 /// Output: `{ "indexed": true/false, "files": N, "chunks": N, ... }`
 pub fn is_indexed(project_path: &str) -> Result<bool, RawqError> {
-    let bin = resolve_rawq_bin()?;
-    let output = Command::new(&bin).no_console()
-        .args(["index", "status", project_path, "--json"])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
-
-    if !output.status.success() {
+    let Some(parsed) = run_index_status(project_path)? else {
         return Ok(false);
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed: serde_json::Value = serde_json::from_str(&stdout)
-        .map_err(|e| RawqError::ParseFailed(e.to_string()))?;
-
+    };
     Ok(parsed.get("indexed").and_then(|v| v.as_bool()).unwrap_or(false))
 }
 
