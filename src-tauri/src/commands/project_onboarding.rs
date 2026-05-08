@@ -592,12 +592,14 @@ async fn call_cli_agent(
         .ok_or_else(|| format!("{engine} CLI 를 PATH 에서 찾을 수 없습니다. 설치 후 PATH 등록을 확인하세요."))?;
     let lower = resolved_path.to_lowercase();
     let is_windows_script = cfg!(target_os = "windows")
-        && (lower.ends_with(".cmd") || lower.ends_with(".bat") || lower.ends_with(".ps1"));
+        && (lower.ends_with(".cmd") || lower.ends_with(".bat"));
 
-    // .cmd / .bat / .ps1 은 cmd /C 로 래핑 — Rust std Command 가 직접 spawn
-    // 시 stdin/stdout pipe 가 cmd.exe → 실제 child (node.exe) 까지 forward
+    // .cmd / .bat 은 cmd /C 로 래핑 — Rust std Command 가 직접 spawn 시
+    // stdin/stdout pipe 가 cmd.exe → 실제 child (node.exe) 까지 forward
     // 되는 동작이 환경 의존이라 보수적으로 cmd /C 명시. agent_detect 의
-    // version probe 와 동일 패턴.
+    // version probe 와 동일 패턴. `.ps1` 은 cmd 가 batch 로 해석 시도하다
+    // fail 하므로 분기에서 제외 — npm 글로벌 CLI 는 .cmd / .bat 형태라
+    // 실용적 영향 없음 (PowerShell wrap 은 본 PR scope 외).
     let mut cmd = if is_windows_script {
         let mut c = tokio::process::Command::new("cmd");
         c.arg("/C").arg(&resolved_path);

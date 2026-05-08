@@ -35,7 +35,7 @@ pub struct AgentDetection {
 /// PATH 에서 binary 의 절대 경로를 찾는다. Cross-platform.
 ///
 /// - Windows: `which` 명령이 존재하지 않으므로 PATH (`;` 구분) 와 PATHEXT
-///   (`.EXE` / `.CMD` / `.BAT` / `.PS1` 등) 를 직접 enumerate. npm 으로
+///   (`.EXE` / `.CMD` / `.BAT` 등) 를 직접 enumerate. npm 으로
 ///   글로벌 설치된 claude / codex / gemini CLI 는 보통 `<bin>.cmd` 형태로
 ///   `%APPDATA%\npm\` 에 등록된다.
 /// - Unix: 시스템 `which` 에 위임 (기존 동작 보존).
@@ -110,13 +110,15 @@ async fn probe_cli(engine: &str, bin: &str, version_args: &[&str]) -> AgentDetec
     det.installed = true;
 
     // `<bin> --version` (optional — 실패해도 installed 유지). Windows 에서
-    // `.cmd` / `.bat` / `.ps1` 은 std::Command 직접 실행이 불가능하므로 cmd
-    // /C 로 래핑. `.exe` 또는 Unix 는 직접 실행. 본 probe 가 실패해도
-    // detection 자체는 path 발견 시점에 이미 성공이라 사용자 UX 에 영향 없음
-    // (version 칸만 빈 채로 표시).
+    // `.cmd` / `.bat` 은 std::Command 직접 실행이 불가능하므로 cmd /C 로
+    // 래핑. `.exe` 또는 Unix 는 직접 실행. `.ps1` 은 cmd 가 batch 로 해석
+    // 시도하다 fail 하므로 분기에서 제외 — npm 글로벌 CLI 는 .cmd / .bat
+    // 형태라 실용적 영향 없음 (PowerShell wrap 은 본 PR scope 외).
+    // 본 probe 가 실패해도 detection 자체는 path 발견 시점에 이미 성공이라
+    // 사용자 UX 에 영향 없음 (version 칸만 빈 채로 표시).
     let lower = path.to_lowercase();
     let is_windows_script = cfg!(target_os = "windows")
-        && (lower.ends_with(".cmd") || lower.ends_with(".bat") || lower.ends_with(".ps1"));
+        && (lower.ends_with(".cmd") || lower.ends_with(".bat"));
     let ver_fut = if is_windows_script {
         let mut c = Command::new("cmd");
         c.no_console().arg("/C").arg(&path).args(version_args);
