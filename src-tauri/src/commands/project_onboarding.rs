@@ -576,21 +576,45 @@ async fn call_cli_agent(
 ) -> Result<String, String> {
     use std::process::Stdio;
 
-    let mut cmd = tokio::process::Command::new(bin);
-    // Windows 에서 CREATE_NO_WINDOW flag 미적용 시 .cmd wrapper (npm 글로벌
-    // 설치 시 표준 형태) 가 새 cmd.exe console 창에 attach 되어 (a) 사용자
-    // 에게 보이고 (b) child stdout 이 부모 pipe 로 routing 되지 않아 즉시
-    // exit 1 + stderr 빈 채로 실패. no_console.rs 헤더의 invariant ("모든
-    // Command::new 직후 .no_console() chain 호출") 누락 회귀.
+    // PATH 에서 절대 경로 resolve. caller 가 engine 이름 ("claude" / "codex"
+    // 등) 을 그대로 bin 으로 넘기는 흐름이라, Rust std Command::new("codex")
+    // 가 Windows 에서 PATHEXT 를 일관되게 검사 안 해 npm 글로벌 .cmd wrapper
+    // 를 못 찾는 케이스 발생 ("program not found"). agent_detect 의
+    // find_in_path 는 PATHEXT 를 모두 검사하므로 그 결과를 직접 사용.
+    let resolved_path = crate::commands::agent_detect::find_in_path(bin)
+        .await
+        .ok_or_else(|| format!("{engine} CLI 를 PATH 에서 찾을 수 없습니다. 설치 후 PATH 등록을 확인하세요."))?;
+    let lower = resolved_path.to_lowercase();
+    let is_windows_script = cfg!(target_os = "windows")
+        && (lower.ends_with(".cmd") || lower.ends_with(".bat") || lower.ends_with(".ps1"));
+
+    // .cmd / .bat / .ps1 은 cmd /C 로 래핑 — Rust std Command 가 직접 spawn
+    // 시 stdin/stdout pipe 가 cmd.exe → 실제 child (node.exe) 까지 forward
+    // 되는 동작이 환경 의존이라 보수적으로 cmd /C 명시. agent_detect 의
+    // version probe 와 동일 패턴.
+    let mut cmd = if is_windows_script {
+        let mut c = tokio::process::Command::new("cmd");
+        c.arg("/C").arg(&resolved_path);
+        c
+    } else {
+        tokio::process::Command::new(&resolved_path)
+    };
+    // Windows 에서 CREATE_NO_WINDOW flag 미적용 시 .cmd wrapper 가 새 cmd.exe
+    // console 창에 attach 되어 (a) 사용자에게 보이고 (b) child stdout 이 부모
+    // pipe 로 routing 되지 않아 즉시 exit 1 + stderr 빈 채로 실패.
     cmd.no_console();
     match engine {
         "claude" => {
             cmd.args(["-p", prompt, "--max-turns", "1", "--output-format", "text"]);
             if let Some(m) = model { cmd.args(["--model", m]); }
+            // GUI 부모는 stdin 없음. claude 가 prompt 외 stdin 안 읽어야
+            // 하지만 inherited stdin = invalid handle 회귀 회피 위해 명시.
+            cmd.stdin(Stdio::null());
         }
         "gemini" => {
             cmd.args(["-p", prompt]);
             if let Some(m) = model { cmd.args(["-m", m]); }
+            cmd.stdin(Stdio::null());
         }
         "codex" => {
             cmd.args(["exec", "--full-auto", "-"]);

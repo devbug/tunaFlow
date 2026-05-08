@@ -42,7 +42,7 @@ pub struct AgentDetection {
 ///
 /// 같은 repo 의 `resolve.rs::which_or` / `crg.rs` Windows 분기와 같은
 /// 철학이며, agent detection 은 PATHEXT 를 더 넓게 본다 (.cmd 까지).
-async fn find_in_path(bin: &str) -> Option<String> {
+pub(crate) async fn find_in_path(bin: &str) -> Option<String> {
     #[cfg(target_os = "windows")]
     {
         let path = std::env::var("PATH").ok()?;
