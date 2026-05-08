@@ -14,12 +14,15 @@
 //!
 //! INV-CSW-5 (Plan §1): `[1m]` variant 사용자 (claude-opus-4-7-1m 등) 영향 0 —
 //! 1M 모드는 단일 turn 자체가 1M 까지 받으므로 임계 900K (90% 안전마진) 적용,
-//! default 모드는 200K limit 의 90% 인 180K 적용.
+//! default 모드는 200K limit 의 65% 인 130K 적용 (v0.1.8-beta-2 hotfix —
+//! v0.1.8-beta 의 90% 임계가 next-turn input 안전마진 부족으로 회귀 잔존,
+//! 한국어 (CJK) 본문은 char 당 token 비율 2~3배라 더 빨리 한계 도달).
 
-/// default 모드 (200K context window) 의 임계값. Anthropic 공식 200,000 의 90%
-/// 안전마진. Reviewer 등 누적 turn 직전 에 cumulative input_tokens 가 본 값
-/// 도달하면 fresh-rotate 발동.
-pub const SDK_WINDOW_GUARD_TOKENS_DEFAULT: u64 = 180_000;
+/// default 모드 (200K context window) 의 임계값. Anthropic 공식 200,000 의 65%
+/// 안전마진 (이전 90% 가 next-turn input 평균 30~50K tokens 를 underweight 해
+/// "Prompt is too long" 회귀 잔존 → 70K tokens 추가 안전마진). Reviewer 등
+/// 누적 turn 직전 에 cumulative input_tokens 가 본 값 도달하면 fresh-rotate.
+pub const SDK_WINDOW_GUARD_TOKENS_DEFAULT: u64 = 130_000;
 
 /// `[1m]` variant 모드 (1M context window) 의 임계값. 1,000,000 의 90% 안전마진.
 /// 본 모드는 사용자가 명시적으로 1M variant 모델 (claude-opus-4-7-1m 등) 을
@@ -35,7 +38,7 @@ pub const SDK_WINDOW_GUARD_TOKENS_1M: u64 = 900_000;
 /// 신규 1M variant 추가 시 known list 갱신 별 PR (Architect 결정, Plan §3
 /// Task 04 위험 항목).
 ///
-/// 안전한 판정 (false negative 우선) — 매칭 실패 시 default cap (180K) 적용.
+/// 안전한 판정 (false negative 우선) — 매칭 실패 시 default cap (130K) 적용.
 /// 1M variant 가 default 로 분류되면 사용자 UX 마찰만 (불필요한 fresh-rotate),
 /// 회귀는 0.
 pub fn is_1m_variant(model_id: &str) -> bool {
@@ -54,7 +57,7 @@ pub fn is_1m_variant(model_id: &str) -> bool {
 /// 모델 ID 에 맞는 SDK window guard 임계값을 반환.
 ///
 /// `[1m]` variant 면 `SDK_WINDOW_GUARD_TOKENS_1M` (900K), 그 외엔
-/// `SDK_WINDOW_GUARD_TOKENS_DEFAULT` (180K).
+/// `SDK_WINDOW_GUARD_TOKENS_DEFAULT` (130K — v0.1.8-beta-2 hotfix).
 ///
 /// `model_id` 가 None 또는 빈 문자열이면 default cap — 보수적 기본값.
 pub fn current_window_guard_threshold(model_id: Option<&str>) -> u64 {
@@ -107,7 +110,7 @@ mod tests {
         assert_eq!(
             current_window_guard_threshold(Some("claude-opus-4-7")),
             SDK_WINDOW_GUARD_TOKENS_DEFAULT,
-            "default 는 180K 임계"
+            "default 는 130K 임계 (v0.1.8-beta-2 hotfix)"
         );
         assert_eq!(
             current_window_guard_threshold(Some("claude-sonnet-4-6")),
@@ -127,8 +130,11 @@ mod tests {
 
     #[test]
     fn threshold_constants_are_safe_margins() {
-        // Anthropic 공식 한도의 90% 이하
-        assert!(SDK_WINDOW_GUARD_TOKENS_DEFAULT <= 200_000 * 9 / 10);
+        // default: Anthropic 200K 의 65% 이하 (v0.1.8-beta-2 hotfix — next-turn
+        // input 평균 30~50K 추가 안전마진. CJK 본문 대응)
+        assert!(SDK_WINDOW_GUARD_TOKENS_DEFAULT <= 200_000 * 65 / 100);
+        // 1M variant: Anthropic 1M 의 90% 이하 (1M 모드는 단일 turn 자체가 1M 까지
+        // 받으므로 안전마진 작아도 OK)
         assert!(SDK_WINDOW_GUARD_TOKENS_1M <= 1_000_000 * 9 / 10);
     }
 }

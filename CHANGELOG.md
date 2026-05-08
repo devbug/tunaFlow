@@ -4,6 +4,33 @@ All notable changes to tunaFlow are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8-beta-2] - 2026-05-09
+
+🩹 **SDK window guard 임계 130K 보수화 hotfix** — v0.1.8-beta 의 fresh-rotate
+정책이 dev 환경에서도 *"Prompt is too long"* 회귀 잔존. 임계 180K (200K 의
+90%) 가 next-turn input 안전마진을 underweight 한 결과 + 한국어 (CJK) 본문은
+char 당 token 비율 2~3배라 더 빨리 한계 도달. 임계 180K → 130K (200K 의
+65%) 보수화 + 70K tokens 추가 안전마진 확보.
+
+### Fixed
+
+- **`SDK_WINDOW_GUARD_TOKENS_DEFAULT` 130_000** (`claude_window_guard.rs:22`)
+  — 이전 90% 임계 (180K) 가 next-turn input 평균 30~50K tokens 를 underweight,
+  CJK 본문 (한국어 1 char ≈ 2~3 tokens) 환경에서 turn N 종료 시 stash 가
+  150K 만 되어도 turn N+1 의 system + user + SDK history 합산이 200K 초과.
+  65% 임계 (130K) + 70K tokens 안전마진 으로 next-turn input 변동성 흡수.
+  `[1m]` variant 영역은 영향 0 (900K 그대로). default 사용자 fresh-rotate
+  빈도 약간 ↑ (UX 마찰 ↑) 이지만 회귀 0 우선.
+
+### Notes
+
+- v0.1.8-beta 의 4 PR fix (SDK 세션 누적 인지 + Reviewer squeeze + toast +
+  test) 그대로 유지. 본 hotfix 는 *임계값 1 라인* 보수화만.
+- 후속 plan 후보: next-turn input 평균 *동적 보정* (turn 평균 측정 + 합산
+  예측) — 임계 단일 상수 영역에서 turn 변동성 흡수 정책으로 확장.
+- Test baseline: **Rust 651 / Frontend 426** 그대로 (test 영역 임계값
+  179_000 → 129_000, 180_000 → 130_000 일관 갱신).
+
 ## [0.1.8-beta] - 2026-05-09
 
 🩹 **Reviewer 단계 *"Prompt is too long"* 회귀 자동 회복** —

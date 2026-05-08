@@ -131,7 +131,7 @@ type ResumeRegistry = Arc<PlMutex<HashMap<String, String>>>;
 /// (claudeSdkSessionWindowGuardPlan_2026-05-09) session_key → 마지막 result 의
 /// `accumulated_input_tokens` (cumulative SDK history 누적치). stream_run_sdk
 /// 의 result handler 가 turn 종료 시 stash, 다음 dispatch 진입 시 read 해서
-/// 임계 (180K default / 900K `[1m]`) 도달 여부 검사 → fresh-rotate.
+/// 임계 (130K default / 900K `[1m]`) 도달 여부 검사 → fresh-rotate.
 ///
 /// in-memory stash — 앱 재시작 시 reset (DB persist 영역은 별 P3 plan, Plan §6
 /// 후속 plan 가능성).
@@ -437,7 +437,7 @@ fn kill_session_with_resume(conv_id: &str, keep_resume: bool) {
 /// 매개변수:
 /// - `conv_id`: rotate 발생 conversation
 /// - `prior_tokens`: rotate 직전 누적 input_tokens
-/// - `threshold`: 적용된 임계값 (180K default / 900K `[1m]`)
+/// - `threshold`: 적용된 임계값 (130K default / 900K `[1m]`)
 ///
 /// stub 단계 — eprintln 만 발행 → release log 에 기록되어 디버깅 용이.
 fn emit_window_rotated_event(conv_id: &str, prior_tokens: u64, threshold: u64) {
@@ -894,7 +894,7 @@ where
     // (claudeSdkSessionWindowGuardPlan Task 01+02) SDK 누적 window guard.
     //
     // 직전 turn 의 result event 가 stash 한 누적 input_tokens 를 read 해서
-    // 임계 (default 180K / `[1m]` 900K) 도달이면 fresh-rotate 발동:
+    // 임계 (default 130K / `[1m]` 900K) 도달이면 fresh-rotate 발동:
     //   1. kill_session_clear_resume — SESSIONS + RESUME_IDS + LAST_DELIVERED 모두 invalidate
     //   2. clear_window_guard_input_tokens — stash 도 reset
     //   3. window_rotated_pending 에 metadata stash → result event 에서 RunOutput
@@ -1761,12 +1761,12 @@ mod tests {
         let key = session_key_for(&conv);
 
         clear_window_guard_input_tokens(&key);
-        // 임계 직전 (179K, default 180K cap)
-        stash_window_guard_input_tokens(&key, 179_000);
+        // 임계 직전 (129K, default 130K cap — v0.1.8-beta-2 hotfix)
+        stash_window_guard_input_tokens(&key, 129_000);
 
         assert!(
             !should_trigger_window_rotate(&key, Some("claude-opus-4-7")),
-            "default 모델, 179K < 180K → rotate trigger 안 됨"
+            "default 모델, 129K < 130K → rotate trigger 안 됨"
         );
 
         clear_window_guard_input_tokens(&key);
@@ -1780,12 +1780,12 @@ mod tests {
         let key = session_key_for(&conv);
 
         clear_window_guard_input_tokens(&key);
-        // 임계 도달 (180K = default cap)
-        stash_window_guard_input_tokens(&key, 180_000);
+        // 임계 도달 (130K = default cap, v0.1.8-beta-2 hotfix)
+        stash_window_guard_input_tokens(&key, 130_000);
 
         assert!(
             should_trigger_window_rotate(&key, Some("claude-opus-4-7")),
-            "default 모델, 180K >= 180K → rotate trigger 발동"
+            "default 모델, 130K >= 130K → rotate trigger 발동"
         );
 
         // 초과 (200K) 도 동일하게 trigger
