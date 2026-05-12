@@ -664,10 +664,31 @@ pub fn search_with_options(project_path: &str, query: &str, opts: SearchOptions)
         .spawn()
         .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
 
+    // stdout/stderr 를 별도 thread 에서 chunk read 로 누적한다.
+    //
+    // 원인 (Windows, 2026-05-12 진단): rawq CLI 가 검색 결과를 stdout 에 다 쓰고
+    // exit code 0 으로 종료해도, 자식이 spawn 한 daemon 이 stdout/stderr handle
+    // 을 inherit 한 채 살아있으면 OS 는 pipe write-end 가 모두 close 됐다고 보지
+    // 않아 read 가 EOF 를 받지 못한다. `Child::wait_with_output()` 은 EOF 까지
+    // read 하므로 child 가 죽은 뒤에도 daemon 이 살아있는 한 무한 block.
+    //
+    // 대응: drain thread + 짧은 drain wait. child 종료 시점이면 rawq 는 stdout
+    // 에 결과를 이미 모두 write 했으므로 buffer 에 data 는 들어와 있고, EOF
+    // 미도착이어도 메인 흐름은 buffer snapshot 으로 진행한다. macOS 는 daemon
+    // 이 stdio 를 close 하는 일반 Unix 패턴이라 drain 이 즉시 끝난다.
+    let stdout_pipe = child.stdout.take()
+        .ok_or_else(|| RawqError::ExecFailed("stdout pipe missing".into()))?;
+    let stderr_pipe = child.stderr.take()
+        .ok_or_else(|| RawqError::ExecFailed("stderr pipe missing".into()))?;
+    let stdout_buf = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let stderr_buf = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    spawn_drain_thread(stdout_pipe, stdout_buf.clone());
+    spawn_drain_thread(stderr_pipe, stderr_buf.clone());
+
     let timeout = std::time::Duration::from_secs(3);
-    loop {
+    let exit_status = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
+            Ok(Some(s)) => break s,
             Ok(None) => {
                 if t0.elapsed() > timeout {
                     let _ = child.kill();
@@ -678,23 +699,74 @@ pub fn search_with_options(project_path: &str, query: &str, opts: SearchOptions)
             }
             Err(e) => return Err(RawqError::ExecFailed(e.to_string())),
         }
+    };
+
+    // child 종료 후 drain thread 가 잔여 데이터를 다 흡수할 짧은 시간을 준다.
+    // EOF 가 안 오는 환경에서도 rawq 가 이미 write 한 결과는 OS pipe buffer 에
+    // 모두 들어와 있으므로 100ms 정도면 충분히 흡수된다. 1000ms 는 macOS 보수적
+    // 마진 + drain thread 가 마지막 chunk 처리 못 끝낸 edge case 까지 커버.
+    let drain_deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
+    let mut prev_len = stdout_buf.lock().map(|b| b.len()).unwrap_or(0);
+    let mut stable_iters = 0u32;
+    while std::time::Instant::now() < drain_deadline {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let cur_len = stdout_buf.lock().map(|b| b.len()).unwrap_or(0);
+        if cur_len == prev_len {
+            stable_iters += 1;
+            // 100ms 동안 길이 변화 없으면 충분히 흡수됐다고 판단 — early exit.
+            if stable_iters >= 5 {
+                break;
+            }
+        } else {
+            stable_iters = 0;
+            prev_len = cur_len;
+        }
     }
 
-    let output = child.wait_with_output()
-        .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
-    eprintln!("[rawq] search completed in {}ms (rerank={}, text_weight={:?})", t0.elapsed().as_millis(), opts.rerank, opts.text_weight);
+    let stdout_bytes = stdout_buf.lock().map(|b| b.clone()).unwrap_or_default();
+    let stderr_bytes = stderr_buf.lock().map(|b| b.clone()).unwrap_or_default();
+    eprintln!(
+        "[rawq] search completed in {}ms (rerank={}, text_weight={:?}, stdout={}b)",
+        t0.elapsed().as_millis(), opts.rerank, opts.text_weight, stdout_bytes.len()
+    );
 
-    if !output.status.success() {
-        let code = output.status.code().unwrap_or(-1);
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !exit_status.success() {
+        let code = exit_status.code().unwrap_or(-1);
+        let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
         if code == 1 {
             return Err(RawqError::NoResults);
         }
         return Err(RawqError::NonZeroExit { code, stderr });
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = String::from_utf8_lossy(&stdout_bytes);
     parse_json(&stdout, opts.limit)
+}
+
+/// chunk read 로 pipe 를 비우면서 buffer 에 누적한다. `read_to_end` 는 atomic
+/// 이라 중단 불가 — daemon 이 stdio handle 을 hold 해 EOF 가 안 와도 main thread
+/// 가 누적된 buffer 를 snapshot 으로 가져갈 수 있도록 chunk 단위로 mutex 에 push.
+///
+/// EOF 가 오면 thread 는 자연 종료. EOF 안 오는 환경에서는 daemon 이 결국 idle
+/// timeout 으로 죽을 때 thread 도 일제히 풀린다 (leak 은 thread 1개라 경량).
+fn spawn_drain_thread<R: std::io::Read + Send + 'static>(
+    mut reader: R,
+    buf: Arc<std::sync::Mutex<Vec<u8>>>,
+) {
+    std::thread::spawn(move || {
+        let mut chunk = [0u8; 4096];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => break, // EOF
+                Ok(n) => {
+                    if let Ok(mut guard) = buf.lock() {
+                        guard.extend_from_slice(&chunk[..n]);
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
 }
 
 /// Parse rawq search --json output.
