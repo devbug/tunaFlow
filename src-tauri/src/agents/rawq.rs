@@ -336,11 +336,20 @@ fn run_index_status(project_path: &str) -> Result<Option<serde_json::Value>, Raw
         .spawn()
         .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
 
+    // search_with_options 와 같은 drain thread 패턴. `wait_with_output` 은
+    // daemon 이 stdio handle 을 inherit 한 채 살아있으면 EOF 미도착으로 무한
+    // block 가능 (search 경로에서 실측 53s hang). 메인 chat ContextPack 에서
+    // 매 요청마다 호출되므로 같은 안전망 필요.
+    let stdout_pipe = child.stdout.take()
+        .ok_or_else(|| RawqError::ExecFailed("stdout pipe missing".into()))?;
+    let stdout_buf = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    spawn_drain_thread(stdout_pipe, stdout_buf.clone());
+
     let t0 = std::time::Instant::now();
     let timeout = std::time::Duration::from_secs(5);
-    loop {
+    let exit_status = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
+            Ok(Some(s)) => break s,
             Ok(None) => {
                 if t0.elapsed() > timeout {
                     let _ = child.kill();
@@ -354,14 +363,20 @@ fn run_index_status(project_path: &str) -> Result<Option<serde_json::Value>, Raw
             }
             Err(e) => return Err(RawqError::ExecFailed(e.to_string())),
         }
-    }
+    };
 
-    let output = child.wait_with_output()
-        .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
-    if !output.status.success() {
+    // child 종료 후 drain thread 가 잔여 stdout 을 흡수할 시간 — stderr 는
+    // null 로 redirect 했으므로 stdout 만 추적.
+    wait_for_stable_buffer(&[&stdout_buf]);
+
+    if !exit_status.success() {
         return Ok(None);
     }
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout_bytes = stdout_buf.lock().map(|b| b.clone()).unwrap_or_default();
+    let stdout = String::from_utf8_lossy(&stdout_bytes);
+    if stdout.trim().is_empty() {
+        return Ok(None);
+    }
     let parsed: serde_json::Value = serde_json::from_str(&stdout)
         .map_err(|e| RawqError::ParseFailed(e.to_string()))?;
     Ok(Some(parsed))
@@ -702,26 +717,9 @@ pub fn search_with_options(project_path: &str, query: &str, opts: SearchOptions)
     };
 
     // child 종료 후 drain thread 가 잔여 데이터를 다 흡수할 짧은 시간을 준다.
-    // EOF 가 안 오는 환경에서도 rawq 가 이미 write 한 결과는 OS pipe buffer 에
-    // 모두 들어와 있으므로 100ms 정도면 충분히 흡수된다. 1000ms 는 macOS 보수적
-    // 마진 + drain thread 가 마지막 chunk 처리 못 끝낸 edge case 까지 커버.
-    let drain_deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
-    let mut prev_len = stdout_buf.lock().map(|b| b.len()).unwrap_or(0);
-    let mut stable_iters = 0u32;
-    while std::time::Instant::now() < drain_deadline {
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        let cur_len = stdout_buf.lock().map(|b| b.len()).unwrap_or(0);
-        if cur_len == prev_len {
-            stable_iters += 1;
-            // 100ms 동안 길이 변화 없으면 충분히 흡수됐다고 판단 — early exit.
-            if stable_iters >= 5 {
-                break;
-            }
-        } else {
-            stable_iters = 0;
-            prev_len = cur_len;
-        }
-    }
+    // stderr 도 같이 추적해 에러 케이스 (NonZeroExit) 에서 stderr 메시지가 잘려
+    // 빈 문자열로 반환되는 회귀를 방지.
+    wait_for_stable_buffer(&[&stdout_buf, &stderr_buf]);
 
     let stdout_bytes = stdout_buf.lock().map(|b| b.clone()).unwrap_or_default();
     let stderr_bytes = stderr_buf.lock().map(|b| b.clone()).unwrap_or_default();
@@ -767,6 +765,33 @@ fn spawn_drain_thread<R: std::io::Read + Send + 'static>(
             }
         }
     });
+}
+
+/// child 종료 후 drain thread 가 잔여 데이터를 흡수할 시간을 준다. 모든 추적
+/// 대상 buffer 의 합계 길이가 100ms 동안 변화 없으면 안정으로 판단해 early exit.
+/// 최대 1000ms 까지 대기 — macOS 보수적 마진 + drain thread 가 마지막 chunk
+/// 처리 못 끝낸 edge case 커버. EOF 못 받는 Windows daemon hang 케이스에서도
+/// rawq 가 이미 write 한 결과는 OS pipe buffer 에 들어와 있어 ms 단위에 안정화.
+fn wait_for_stable_buffer(buffers: &[&Arc<std::sync::Mutex<Vec<u8>>>]) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
+    let total_len = || -> usize {
+        buffers.iter().map(|b| b.lock().map(|g| g.len()).unwrap_or(0)).sum()
+    };
+    let mut prev = total_len();
+    let mut stable = 0u32;
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let cur = total_len();
+        if cur == prev {
+            stable += 1;
+            if stable >= 5 {
+                break;
+            }
+        } else {
+            stable = 0;
+            prev = cur;
+        }
+    }
 }
 
 /// Parse rawq search --json output.
