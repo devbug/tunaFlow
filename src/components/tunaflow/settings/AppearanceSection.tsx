@@ -37,6 +37,19 @@ export function AppearanceSection() {
     setLocal(settings);
   }, [settings]);
 
+  // T3 (Gemini medium): unmount 시 잔존 debounce timer 가 setState 를
+  // 트리거하지 않도록 cleanup. SettingsPanel 을 닫는 순간 컴포넌트가 unmount
+  // 되어도 200ms 이내 마지막 keystroke 가 남아 있으면 store update 가 dead
+  // component 위에서 실행되며 React warning 을 유발.
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current !== null) {
+        window.clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+    };
+  }, []);
+
   const scheduleUpdate = (patch: Partial<FontSettings>) => {
     setLocal((prev) => ({ ...prev, ...patch }));
     if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
@@ -47,18 +60,25 @@ export function AppearanceSection() {
   };
 
   const handleSizeChange = (field: SizeField, raw: string) => {
-    // 빈 문자열 허용 (사용자가 지우는 중) — 그러나 store 에는 clamp 후 전달.
+    // T4 (Gemini medium, 옵션 A): size 입력 중에는 store 를 건드리지 않는다.
+    // 기존 구현은 `scheduleUpdate` 로 200ms debounce 후 store 의 `update` 를
+    // 호출했는데, `update` 내부 `clampFontSize` 가 즉시 [10,24] 범위로 튕겨
+    // 사용자가 '15' 를 입력하려고 '1' 만 친 시점에서 화면이 10 으로 점프하던
+    // 마찰을 차단. local draft 만 갱신하고 store 반영은 onBlur 또는 다음
+    // commit 시점에서만 수행.
     if (raw === "") {
       setLocal((prev) => ({ ...prev, [field]: NaN as unknown as number }));
       return;
     }
     const n = Number(raw);
     if (!Number.isFinite(n)) return;
-    scheduleUpdate({ [field]: n } as Partial<FontSettings>);
+    setLocal((prev) => ({ ...prev, [field]: n }));
   };
 
   const handleSizeBlur = (field: SizeField) => {
     // blur 시 local 값을 store 기준으로 정규화 (NaN 또는 범위 외 입력 회복).
+    // T4: 옵션 A 에서 store 호출은 이 시점에만 이뤄진다. 사용자가 raw 값을
+    // 그대로 두고 blur 했다면 clamp 결과를 local 과 store 양쪽에 반영.
     const currentLocal = (local[field] as unknown) as number;
     if (!Number.isFinite(currentLocal)) {
       setLocal((prev) => ({ ...prev, [field]: settings[field] }));
@@ -67,6 +87,8 @@ export function AppearanceSection() {
     const clamped = clampFontSize(currentLocal, settings[field]);
     if (clamped !== currentLocal) {
       setLocal((prev) => ({ ...prev, [field]: clamped }));
+    }
+    if (clamped !== settings[field]) {
       update({ [field]: clamped } as Partial<FontSettings>);
     }
   };

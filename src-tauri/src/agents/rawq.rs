@@ -329,21 +329,27 @@ pub struct IndexInfo {
 /// 대기 회귀의 root cause 였음. (`docs/`/PR 본문 참조)
 fn run_index_status(project_path: &str) -> Result<Option<serde_json::Value>, RawqError> {
     let bin = resolve_rawq_bin()?;
+    // T1 (Gemini high): `search_with_options` 와 동일 패턴 — stdout/stderr 모두
+    // piped + drain thread. 기존 코드는 stderr 를 `Stdio::null()` 로 처리하고
+    // stdout 만 drain 했지만, Windows daemon 이 stderr handle 까지 inherit 하면
+    // null 사이드라도 OS 가 child 의 stderr write-end 가 모두 close 됐다고 보지
+    // 않아 같은 hang vector 가 남는다. search 경로와 정확히 일치시켜 drain 안전망
+    // 적용 — helper (`spawn_drain_thread`) 는 같은 file 내 private fn 그대로 사용.
     let mut child = Command::new(&bin).no_console()
         .args(["index", "status", project_path, "--json"])
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| RawqError::ExecFailed(e.to_string()))?;
 
-    // search_with_options 와 같은 drain thread 패턴. `wait_with_output` 은
-    // daemon 이 stdio handle 을 inherit 한 채 살아있으면 EOF 미도착으로 무한
-    // block 가능 (search 경로에서 실측 53s hang). 메인 chat ContextPack 에서
-    // 매 요청마다 호출되므로 같은 안전망 필요.
     let stdout_pipe = child.stdout.take()
         .ok_or_else(|| RawqError::ExecFailed("stdout pipe missing".into()))?;
+    let stderr_pipe = child.stderr.take()
+        .ok_or_else(|| RawqError::ExecFailed("stderr pipe missing".into()))?;
     let stdout_buf = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let stderr_buf = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
     spawn_drain_thread(stdout_pipe, stdout_buf.clone());
+    spawn_drain_thread(stderr_pipe, stderr_buf.clone());
 
     let t0 = std::time::Instant::now();
     let timeout = std::time::Duration::from_secs(5);
@@ -365,9 +371,9 @@ fn run_index_status(project_path: &str) -> Result<Option<serde_json::Value>, Raw
         }
     };
 
-    // child 종료 후 drain thread 가 잔여 stdout 을 흡수할 시간 — stderr 는
-    // null 로 redirect 했으므로 stdout 만 추적.
-    wait_for_stable_buffer(&[&stdout_buf]);
+    // child 종료 후 drain thread 가 잔여 데이터를 흡수할 시간. T2 에 따라
+    // stdout/stderr 각각의 안정화를 함께 검증한다.
+    wait_for_stable_buffer(&[&stdout_buf, &stderr_buf]);
 
     if !exit_status.success() {
         return Ok(None);
@@ -767,30 +773,38 @@ fn spawn_drain_thread<R: std::io::Read + Send + 'static>(
     });
 }
 
-/// child 종료 후 drain thread 가 잔여 데이터를 흡수할 시간을 준다. 모든 추적
-/// 대상 buffer 의 합계 길이가 100ms 동안 변화 없으면 안정으로 판단해 early exit.
-/// 최대 1000ms 까지 대기 — macOS 보수적 마진 + drain thread 가 마지막 chunk
-/// 처리 못 끝낸 edge case 커버. EOF 못 받는 Windows daemon hang 케이스에서도
-/// rawq 가 이미 write 한 결과는 OS pipe buffer 에 들어와 있어 ms 단위에 안정화.
+/// child 종료 후 drain thread 가 잔여 데이터를 흡수할 시간을 준다. 추적 대상
+/// 버퍼들이 **각각** 100ms (5 tick × 20ms) 동안 변화 없을 때만 안정으로 판단해
+/// early exit. 최대 1000ms 까지 대기 — macOS 보수적 마진 + drain thread 가
+/// 마지막 chunk 처리 못 끝낸 edge case 커버. EOF 못 받는 Windows daemon hang
+/// 케이스에서도 rawq 가 이미 write 한 결과는 OS pipe buffer 에 들어와 있어
+/// ms 단위에 안정화.
+///
+/// T2 (Gemini medium): 기존엔 모든 버퍼 길이의 **합계** 변화만 추적했는데,
+/// fail case 에서 stdout 은 빈 채 즉시 안정화 판정되고 stderr 가 아직 채워지는
+/// 중에도 sum 변화가 모호하게 잡혀 일찍 break 할 위험이 있었음. 각 버퍼를
+/// 독립적으로 추적해 둘 다 stable 일 때만 종료 — 에러 메시지 절단 회귀 차단.
 fn wait_for_stable_buffer(buffers: &[&Arc<std::sync::Mutex<Vec<u8>>>]) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
-    let total_len = || -> usize {
-        buffers.iter().map(|b| b.lock().map(|g| g.len()).unwrap_or(0)).sum()
+    let snapshot = || -> Vec<usize> {
+        buffers.iter().map(|b| b.lock().map(|g| g.len()).unwrap_or(0)).collect()
     };
-    let mut prev = total_len();
-    let mut stable = 0u32;
+    let mut prev = snapshot();
+    let mut stable_ticks: Vec<u32> = vec![0u32; buffers.len()];
     while std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(20));
-        let cur = total_len();
-        if cur == prev {
-            stable += 1;
-            if stable >= 5 {
-                break;
+        let cur = snapshot();
+        for i in 0..cur.len() {
+            if cur[i] == prev[i] {
+                stable_ticks[i] = stable_ticks[i].saturating_add(1);
+            } else {
+                stable_ticks[i] = 0;
             }
-        } else {
-            stable = 0;
-            prev = cur;
         }
+        if stable_ticks.iter().all(|t| *t >= 5) {
+            break;
+        }
+        prev = cur;
     }
 }
 

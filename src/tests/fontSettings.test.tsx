@@ -212,15 +212,18 @@ describe("fontSettings — T2 AppearanceSection UI", () => {
     expect(container.querySelector("#font-ui-family")).toBeTruthy();
   });
 
-  it("updates store after debounce when chat size input changes", () => {
+  it("keeps store untouched while typing and commits on blur (T4 옵션 A)", () => {
     const { container } = render(<AppearanceSection />);
     const input = container.querySelector("#font-chat-size") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "18" } });
-    // Before debounce flush, store still default
-    expect(useFontSettingsStore.getState().settings.chatSize).toBe(DEFAULT_FONT_SETTINGS.chatSize);
+    // T4: size 입력 중에는 store 를 절대 건드리지 않는다. debounce 가 지나도
+    // store 는 default 그대로 — clamp 가 입력 도중 튕기는 마찰을 차단.
     act(() => {
       vi.advanceTimersByTime(250);
     });
+    expect(useFontSettingsStore.getState().settings.chatSize).toBe(DEFAULT_FONT_SETTINGS.chatSize);
+    // blur 시점에만 store 반영 (clamp 통과한 raw 값).
+    fireEvent.blur(input);
     expect(useFontSettingsStore.getState().settings.chatSize).toBe(18);
   });
 
