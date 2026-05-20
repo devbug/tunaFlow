@@ -11,7 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import { MetaAgentSelector } from "@/components/tunaflow/MetaAgentSelector";
+import { MetaAgentSelector, type AgentDetection } from "@/components/tunaflow/MetaAgentSelector";
 import type { EngineModel } from "@/types";
 
 // react-i18next: identity mock so we assert on key strings.
@@ -33,18 +33,7 @@ vi.mock("@/stores/chatStore", () => ({
     selector({ engineModels: mockEngineModels, loadEngineModels: mockLoadEngineModels }),
 }));
 
-type Detection = {
-  engine: string;
-  kind: "cli" | "http";
-  installed: boolean;
-  version?: string | null;
-  path?: string | null;
-  endpoint?: string | null;
-  models: string[];
-  note?: string | null;
-};
-
-const renderWith = (detections: Detection[]) => {
+const renderWith = (detections: AgentDetection[]) => {
   mockInvoke.mockImplementation((...args: unknown[]) => {
     const cmd = args[0] as string;
     if (cmd === "detect_available_agents") return Promise.resolve(detections);

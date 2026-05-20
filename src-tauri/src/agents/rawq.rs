@@ -785,18 +785,18 @@ fn spawn_drain_thread<R: std::io::Read + Send + 'static>(
 /// 중에도 sum 변화가 모호하게 잡혀 일찍 break 할 위험이 있었음. 각 버퍼를
 /// 독립적으로 추적해 둘 다 stable 일 때만 종료 — 에러 메시지 절단 회귀 차단.
 fn wait_for_stable_buffer(buffers: &[&Arc<std::sync::Mutex<Vec<u8>>>]) {
-    const MAX_WAIT_MS: u64 = 1000;
-    const TICK_INTERVAL_MS: u64 = 20;
+    const MAX_WAIT: std::time::Duration = std::time::Duration::from_millis(1000);
+    const TICK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(20);
     const STABLE_TICKS_THRESHOLD: u32 = 5;
 
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(MAX_WAIT_MS);
+    let deadline = std::time::Instant::now() + MAX_WAIT;
     let snapshot = || -> Vec<usize> {
         buffers.iter().map(|b| b.lock().map(|g| g.len()).unwrap_or(0)).collect()
     };
     let mut prev = snapshot();
     let mut stable_ticks: Vec<u32> = vec![0u32; buffers.len()];
     while std::time::Instant::now() < deadline {
-        std::thread::sleep(std::time::Duration::from_millis(TICK_INTERVAL_MS));
+        std::thread::sleep(TICK_INTERVAL);
         let cur = snapshot();
         for i in 0..cur.len() {
             if cur[i] == prev[i] {
