@@ -2,6 +2,7 @@
   "title": "Settings",
   "section": {
     "profile": "Profile",
+    "appearance": "Appearance",
     "worldview": "Worldview",
     "identity": "Identity",
     "agents": "Agents",
@@ -34,6 +35,26 @@
       "denied": "Notification permission denied. You can enable it later in macOS System Settings.",
       "test_sent": "Test notification sent.",
       "test_failed": "Test notification failed: {{error}}"
+    }
+  },
+  "appearance": {
+    "fonts": {
+      "title": "Fonts",
+      "description": "Adjust font size and family per region. Empty values fall back to default tokens. Sizes are integers between 10 and 24.",
+      "region": {
+        "chat": "Chat messages",
+        "code": "Code blocks",
+        "ui": "Sidebar UI"
+      },
+      "size_label": "Size (px)",
+      "family_label": "Family",
+      "placeholder": {
+        "chat": "e.g. 'Inter', sans-serif (empty = default)",
+        "code": "e.g. 'JetBrains Mono', monospace (empty = default)",
+        "ui": "e.g. 'SF Pro', sans-serif (empty = default)"
+      },
+      "reset_all": "Reset all",
+      "hint": "Changes apply immediately. Family values must be installed on your system; invalid input falls back automatically."
     }
   },
   "skills_description": "Manage the skills applied to agents.",

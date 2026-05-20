@@ -63,6 +63,19 @@
   --duration-normal: 200ms;
   --duration-slow: 350ms;
   --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ── Custom font settings (영역별 size + family) ────────── */
+  /* Plan: docs/plans/customFontSettingsPlan_2026-05-12.md
+   * AppShell 이 user setting 변경 시 inline `style.setProperty` 로 덮어쓴다.
+   * 미설정 사용자에게는 아래 default 값이 그대로 적용 — 회귀 0 (INV-CFS-1).
+   * Family 폴백 chain: 사용자 입력 (빈 값이면 var(--font-sans|mono)) →
+   *   브라우저 generic family. */
+  --tf-chat-size: 14px;
+  --tf-chat-family: 'Inter', system-ui, sans-serif;
+  --tf-code-size: 13px;
+  --tf-code-family: 'JetBrains Mono', 'Consolas', monospace;
+  --tf-ui-size: 13px;
+  --tf-ui-family: 'Inter', system-ui, sans-serif;
 }
 
 @theme inline {

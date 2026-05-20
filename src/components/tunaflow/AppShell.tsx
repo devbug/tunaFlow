@@ -20,6 +20,7 @@ import { ProjectOnboardingModal } from "./ProjectOnboardingModal";
 import { FirstRunDependencyDialog } from "./FirstRunDependencyDialog";
 import { SettingsPanel } from "./SettingsPanel";
 import { ClaudeFallbackEvents } from "./ClaudeFallbackEvents";
+import { useFontVariableSync } from "@/lib/fontVariables";
 
 // ─── Panel width constraints ─────────────────────────────────────────────────
 const SIDEBAR_MIN = 220;
@@ -36,6 +37,11 @@ export function AppShell() {
   const { t } = useTranslation("settings");
   const { loadProjects, createProject, loadEngineModels, threadBranchId } = useChatStore();
   const drawerPinned = useChatStore((s) => s.drawerPinned);
+
+  // Custom font settings — 3 영역 (chat / code / ui) CSS variable 자동 동기화.
+  // store.load() 부팅 + settings 변경 시 :root style.setProperty.
+  // Plan: docs/plans/customFontSettingsPlan_2026-05-12.md
+  useFontVariableSync();
 
   const [sidebarW, setSidebarW] = useState(SIDEBAR_DEFAULT);
   const [drawerW, setDrawerW] = useState(DRAWER_DEFAULT);

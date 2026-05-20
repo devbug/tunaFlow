@@ -43,6 +43,14 @@ function extractText(children: React.ReactNode): string {
 
 // ─── Code block (pre > code) ────────────────────────────────────────────────
 
+/** Custom font settings — code block 영역 inline style.
+ *  Plan: docs/plans/customFontSettingsPlan_2026-05-12.md §3 T4
+ *  Tailwind 4 JIT arbitrary value 충돌 회피 + 기존 text-[13px] 대체. */
+const CODE_FONT_STYLE: React.CSSProperties = {
+  fontSize: "var(--tf-code-size)",
+  fontFamily: "var(--tf-code-family)",
+};
+
 function CodeBlock({ children, ...rest }: ComponentPropsWithoutRef<"pre">) {
   const [copied, setCopied] = useState(false);
   const lang = extractLang(children);
@@ -96,11 +104,14 @@ function CodeBlock({ children, ...rest }: ComponentPropsWithoutRef<"pre">) {
         <pre
           {...rest}
           className={cn(
-            "!m-0 text-[13px] leading-relaxed overflow-x-auto [&>code]:!bg-transparent [&>code]:!p-0",
+            "!m-0 leading-relaxed overflow-x-auto [&>code]:!bg-transparent [&>code]:!p-0",
             !lang && "px-3 py-2.5",
             !expanded && "overflow-hidden"
           )}
-          style={!expanded ? { maxHeight: `${COLLAPSED_VISIBLE_LINES * 1.6 + 0.75}rem` } : undefined}
+          style={{
+            ...CODE_FONT_STYLE,
+            ...(!expanded ? { maxHeight: `${COLLAPSED_VISIBLE_LINES * 1.6 + 0.75}rem` } : {}),
+          }}
         >
           {children}
         </pre>

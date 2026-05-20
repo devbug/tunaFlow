@@ -46,6 +46,14 @@ function ToolResultCollapsible({ content, conversationId }: { content: string; c
 
 const PROSE_CLS = "prose prose-invert prose-chat max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&>hr:last-child]:hidden [&>hr]:border-sidebar-foreground/20 [&>hr]:my-3";
 
+/** Custom font settings — chat message body 영역 inline style.
+ *  Plan: docs/plans/customFontSettingsPlan_2026-05-12.md §3 T4
+ *  Tailwind 4 JIT arbitrary value 충돌 회피용 inline style — feedback_tw4_cn_token. */
+const CHAT_FONT_STYLE: React.CSSProperties = {
+  fontSize: "var(--tf-chat-size)",
+  fontFamily: "var(--tf-chat-family)",
+};
+
 /** Detect if user message content contains markdown that benefits from rich rendering. */
 function hasMarkdownSignal(content: string): boolean {
   if (content.length < 100) return false;
@@ -85,7 +93,7 @@ function MarkdownBody({ content, className, conversationId, isStreaming, isUser 
 
   if (segments && conversationId) {
     return (
-      <div className={cn(PROSE_CLS, className)}>
+      <div className={cn(PROSE_CLS, className)} style={CHAT_FONT_STYLE}>
         {segments.map((seg, i) =>
           seg.type === "plan-proposal" ? (
             <PlanProposalCard key={i} proposal={seg.proposal} conversationId={conversationId} />
@@ -100,7 +108,7 @@ function MarkdownBody({ content, className, conversationId, isStreaming, isUser 
   }
 
   return (
-    <div className={cn(PROSE_CLS, className)}>
+    <div className={cn(PROSE_CLS, className)} style={CHAT_FONT_STYLE}>
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
         {processed}
       </ReactMarkdown>
