@@ -98,7 +98,9 @@
     "skip_overlay_back": "돌아가기",
     "skip_overlay_confirm": "건너뛰고 진행",
     "ollama_install_hint": "https://ollama.com/download 에서 설치 후 `ollama serve`",
-    "lmstudio_install_hint": "https://lmstudio.ai 에서 설치 후 Local Server 시작"
+    "lmstudio_install_hint": "https://lmstudio.ai 에서 설치 후 Local Server 시작",
+    "model_loading": "모델 목록 로딩 중...",
+    "model_empty": "모델 없음 — 설치 또는 Settings → Runtime 에서 새로고침"
   },
   "meta_chat": {
     "new_notification_title": "새 알림",

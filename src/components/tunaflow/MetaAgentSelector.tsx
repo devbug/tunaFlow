@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { CheckCircle2, Loader2, AlertTriangle, ChevronDown, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import { useChatStore } from "@/stores/chatStore";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -47,12 +48,10 @@ const ENGINE_META: Record<string, EngineMeta> = {
   lmstudio: { label: "LM Studio", installHintKey: "lmstudio_install_hint", defaultEndpoint: "http://localhost:1234/v1" },
 };
 
-// Default model candidates for CLI engines (no live enumeration).
-const CLI_DEFAULT_MODELS: Record<string, string[]> = {
-  claude: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
-  codex:  ["gpt-5-codex", "gpt-4o-codex"],
-  gemini: ["gemini-2.5-pro", "gemini-2.5-flash"],
-};
+// CLI engines whose `models` list comes from the dynamic discovery store
+// (`engineModels` ← `list_engine_models` Tauri cmd). HTTP engines (ollama /
+// lmstudio) keep their detection-provided list from the live HTTP probe.
+const CLI_ENGINES = new Set(["claude", "codex", "gemini"]);
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -68,6 +67,24 @@ export function MetaAgentSelector({ onProceed, onSkip, projectName }: Props) {
   const [skipConfirm, setSkipConfirm] = useState(false);
   const debounceRef = useRef<number | null>(null);
 
+  // Dynamic model discovery — shared with Settings AgentsSection.
+  // `engineModels` is populated by `list_engine_models` (Rust) and refreshed
+  // by the user via Settings → Runtime. CLI engines (claude/codex/gemini)
+  // pull their dropdown from this store instead of a hardcoded fallback;
+  // HTTP engines (ollama/lmstudio) keep using detection.models (live probe).
+  const engineModels = useChatStore((s) => s.engineModels);
+  const loadEngineModels = useChatStore((s) => s.loadEngineModels);
+
+  // Helper: resolve the model list a given detection should show. CLI →
+  // engineModels store; HTTP → detection.models. Returned ids are plain
+  // model identifiers (caller decorates the dropdown label if needed).
+  const modelListFor = (det: AgentDetection): string[] => {
+    if (CLI_ENGINES.has(det.engine)) {
+      return engineModels.filter((m) => m.engine === det.engine).map((m) => m.id);
+    }
+    return det.models;
+  };
+
   // Initial + on-endpoint-change detection
   const runDetect = async (oEp: string, lEp: string) => {
     setDetections(null);
@@ -77,18 +94,6 @@ export function MetaAgentSelector({ onProceed, onSkip, projectName }: Props) {
         lmstudioEndpoint: lEp,
       });
       setDetections(result);
-
-      // Auto-pick a default model per engine (preserve existing choice if still valid)
-      setModelByEngine((prev) => {
-        const next = { ...prev };
-        for (const d of result) {
-          if (!next[d.engine]) {
-            const list = d.models.length > 0 ? d.models : (CLI_DEFAULT_MODELS[d.engine] ?? []);
-            if (list.length > 0) next[d.engine] = list[0];
-          }
-        }
-        return next;
-      });
     } catch (e) {
       console.error("[agent-detect]", e);
       setDetections([]);
@@ -96,9 +101,36 @@ export function MetaAgentSelector({ onProceed, onSkip, projectName }: Props) {
   };
 
   useEffect(() => {
+    // If the global store has not been hydrated yet (e.g. onboarding modal
+    // opens before AppShell finishes `loadEngineModels()` on first run),
+    // trigger a fetch so the CLI dropdown is not stuck at empty state.
+    if (engineModels.length === 0) {
+      loadEngineModels().catch((e) => console.warn("[meta-agent] loadEngineModels", e));
+    }
     runDetect(ollamaEndpoint, lmstudioEndpoint);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Once detection results and the dynamic model list are both available,
+  // auto-pick a default model per engine. We re-run this when either input
+  // changes so a late-arriving `engineModels` still fills the selection.
+  useEffect(() => {
+    if (!detections) return;
+    setModelByEngine((prev) => {
+      const next = { ...prev };
+      for (const d of detections) {
+        if (next[d.engine]) continue;
+        if (CLI_ENGINES.has(d.engine)) {
+          const recommended = engineModels.find((m) => m.engine === d.engine && m.recommended)?.id
+            ?? engineModels.find((m) => m.engine === d.engine)?.id;
+          if (recommended) next[d.engine] = recommended;
+        } else if (d.models.length > 0) {
+          next[d.engine] = d.models[0];
+        }
+      }
+      return next;
+    });
+  }, [detections, engineModels]);
 
   const onEndpointChange = (engine: "ollama" | "lmstudio", value: string) => {
     if (engine === "ollama") setOllamaEndpoint(value);
@@ -122,6 +154,16 @@ export function MetaAgentSelector({ onProceed, onSkip, projectName }: Props) {
     // http: require installed (endpoint reachable) AND at least one model
     return det.installed && det.models.length > 0;
   }, [selectedEngine, modelByEngine, detections]);
+
+  // Empty-state helper for the CLI dropdown placeholder.
+  // - engineModels not loaded yet → "loading"
+  // - loaded but no entry for this engine → "empty"
+  const cliEmptyState = (engine: string): "loading" | "empty" | null => {
+    if (!CLI_ENGINES.has(engine)) return null;
+    if (engineModels.length === 0) return "loading";
+    const hasAny = engineModels.some((m) => m.engine === engine);
+    return hasAny ? null : "empty";
+  };
 
   const handleProceed = () => {
     if (!canProceed || !selectedEngine) return;
@@ -157,9 +199,15 @@ export function MetaAgentSelector({ onProceed, onSkip, projectName }: Props) {
 
         {detections !== null && detections.map((d) => {
           const meta = ENGINE_META[d.engine];
-          const modelList = d.models.length > 0 ? d.models : (CLI_DEFAULT_MODELS[d.engine] ?? []);
+          const modelList = modelListFor(d);
+          const emptyState = cliEmptyState(d.engine);
           const isSelected = selectedEngine === d.engine;
-          const selectable = d.installed && modelList.length > 0;
+          // CLI engines stay selectable while the store is hydrating so the
+          // user can pick the engine; the dropdown shows a "loading" hint
+          // until the model list arrives. HTTP engines still require at
+          // least one model from the live probe.
+          const isCli = CLI_ENGINES.has(d.engine);
+          const selectable = d.installed && (isCli || modelList.length > 0);
 
           return (
             <div
@@ -222,10 +270,30 @@ export function MetaAgentSelector({ onProceed, onSkip, projectName }: Props) {
                           onChange={(e) => setModelByEngine((prev) => ({ ...prev, [d.engine]: e.target.value }))}
                           onClick={() => { if (selectable) setSelectedEngine(d.engine); }}
                           className="w-full text-[10px] font-mono bg-background border border-border/60 rounded px-2 py-1 pr-6 appearance-none focus:outline-none focus:border-primary/60"
+                          data-testid={`meta-agent-model-${d.engine}`}
                         >
                           {modelList.map((m) => (<option key={m} value={m}>{m}</option>))}
                         </select>
                         <ChevronDown className="w-3 h-3 text-muted-foreground/50 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Empty-state placeholder for CLI engines while engineModels is
+                       hydrating or returned no entries for this engine. Keeps
+                       the row visible so the user understands it is detected
+                       but currently has no model id to pick. */}
+                  {selectable && modelList.length === 0 && emptyState && (
+                    <div
+                      className="flex items-center gap-2"
+                      data-testid={`meta-agent-model-empty-${d.engine}`}
+                      data-empty-state={emptyState}
+                    >
+                      <span className="text-[10px] text-muted-foreground/60 shrink-0">Model</span>
+                      <div className="flex-1 text-[10px] text-muted-foreground/70 italic px-2 py-1 border border-border/40 rounded bg-background/50">
+                        {emptyState === "loading"
+                          ? t("meta_agent.model_loading")
+                          : t("meta_agent.model_empty")}
                       </div>
                     </div>
                   )}

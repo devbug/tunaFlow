@@ -98,7 +98,9 @@
     "skip_overlay_back": "Back",
     "skip_overlay_confirm": "Skip and proceed",
     "ollama_install_hint": "Install from https://ollama.com/download then run `ollama serve`",
-    "lmstudio_install_hint": "Install from https://lmstudio.ai then start the Local Server"
+    "lmstudio_install_hint": "Install from https://lmstudio.ai then start the Local Server",
+    "model_loading": "Loading models...",
+    "model_empty": "No models — install or refresh via Settings → Runtime"
   },
   "meta_chat": {
     "new_notification_title": "New notification",
