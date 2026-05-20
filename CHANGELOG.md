@@ -12,10 +12,15 @@ versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 - **rawq sidecar spawn timeouts + drain-thread** (PR #284, devbug, merge `98d96f0`) — `src-tauri/src/agents/rawq.rs` 의 sidecar subprocess 호출 path 에 (a) explicit timeout (b) stdout/stderr drain thread 추가. Windows 환경에서 pipe buffer 가 fill 되면 child 가 block 되어 main chat 입력이 응답 안 하던 회귀 fix. +161 / -46 LoC (single file). CI (rust-check + frontend-check + eval) 모두 SUCCESS 후 squash merge.
 
+### Added
+
+- **영역별 폰트 size / family 사용자 설정** (PR #285, merge `6eec4eb`) — 외부 사용자 요청 follow-up. Settings → 외관 / Fonts 에 3 영역 (chat message body / code block / sidebar UI) × 2 control (size + family) = 6 입력. size 범위 [10, 24] / step 1 / family 빈값=토큰 폴백. CSS variable (`--tf-chat-size` / `--tf-code-family` 등 6 종) 주입 + inline `style` 적용. 미설정 사용자는 기존 Tailwind 토큰 default 로 회귀 0. Zustand `fontSettingsStore` + appStore 영속 + `useFontVariableSync` hook. i18n `appearance.fonts.*` 9 키 ko/en 양쪽. 21 신규 vitest. 다른 IDE (VS Code / Cursor / JetBrains / Sublime / Zed) 조사 결과 inline 정리: `docs/plans/customFontSettingsPlan_2026-05-12.md`.
+
 ### Notes
 
 - 외부 contributor (devbug) 의 첫 PR 형식 hotfix. 본인 Windows 환경에서 직접 재현·진단·수정·CI 통과까지 진행. ack 댓글: https://github.com/hang-in/tunaFlow/pull/284#issuecomment-4495263696
 - v0.1.8-beta-3 와 동일 cycle 의 사용자 환경 회귀 영역 (CLI path) 이라 같은 minor bump 의 patch suffix 로 release.
+- 본 release 는 rawq Windows hotfix (PR #284) + 외부 요청 font settings (PR #285) 묶음. 두 변경 영역 안 겹침 (rawq sidecar = Rust, font = frontend), 단일 release 로 publish.
 
 ## [0.1.8-beta-3] - 2026-05-09
 
