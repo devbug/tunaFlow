@@ -413,10 +413,16 @@ export async function processReviewVerdict(
       const conv = await invoke<{ projectKey?: string }>("get_conversation", { id: plan.conversationId });
       projectKey = conv?.projectKey;
     } catch { /* ignore */ }
-    // Tier 2 분석 (Haiku/Flash brief) 은 보존 — 결과 dispatch kind 는 PR-3 에서 tier2_brief 로 분리.
+    // Tier 2 분석 (메타 persona profile 기반 brief). agentProfiles snapshot 을
+    // chatStore 에서 dynamic import 로 가져와 trigger 에 전달 — engine 값이
+    // profile id 인 경우 backend engine/model resolution 에 필수.
     if (projectKey) {
-      maybeTriggerMetaAnalysis(projectKey, "review_passed", { planTitle: plan.title })
-        .catch((e) => console.debug("[meta-trigger]", e));
+      try {
+        const { useChatStore } = await import("@/stores/chatStore");
+        const agentProfiles = useChatStore.getState().agentProfiles;
+        maybeTriggerMetaAnalysis(projectKey, "review_passed", agentProfiles, { planTitle: plan.title })
+          .catch((e) => console.debug("[meta-trigger]", e));
+      } catch (e) { console.debug("[meta-trigger snapshot]", e); }
     }
     try {
       await failureLessonsApi.resolveFailureLessonsByPlan(
@@ -462,11 +468,13 @@ export async function processReviewVerdict(
       console.warn("[identity-artifact] rework_reason failed:", e);
     }
 
-    // Tier 2 트리거 — projectKey 조회 후 fail 누적 카운트 체크.
+    // Tier 2 트리거 — projectKey 조회 후 fail 누적 카운트 체크. agentProfiles 전달.
     try {
       const conv = await invoke<{ projectKey?: string }>("get_conversation", { id: plan.conversationId });
       if (conv?.projectKey) {
-        maybeTriggerMetaAnalysis(conv.projectKey, "review_failed", {
+        const { useChatStore } = await import("@/stores/chatStore");
+        const agentProfiles = useChatStore.getState().agentProfiles;
+        maybeTriggerMetaAnalysis(conv.projectKey, "review_failed", agentProfiles, {
           planTitle: plan.title,
           findings: verdict.findings,
         }).catch((e) => console.debug("[meta-trigger]", e));

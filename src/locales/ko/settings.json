@@ -264,10 +264,9 @@
         "off_label": "끔",
         "off_hint": "메타 자동 분석 비활성화",
         "auto_label": "자동",
-        "auto_hint": "프로젝트 스택 기반 자동 선택",
-        "claude_haiku_hint": "JSON/한국어 요약 안정적, 저렴",
-        "gemini_flash_hint": "대용량 input 저렴, 빠름"
-      }
+        "auto_hint": "첫 메타 페르소나 profile 자동 선택"
+      },
+      "no_profile_hint": "메타 페르소나 (persona_meta) profile 이 없습니다. 아래 Agents 패널에서 Persona = Meta 인 에이전트를 추가하세요."
     }
   },
   "runtime": {

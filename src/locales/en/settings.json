@@ -264,10 +264,9 @@
         "off_label": "Off",
         "off_hint": "Disable meta auto analysis",
         "auto_label": "Auto",
-        "auto_hint": "Auto-select based on project stack",
-        "claude_haiku_hint": "Stable JSON/Korean summaries, inexpensive",
-        "gemini_flash_hint": "Cheap for large input, fast"
-      }
+        "auto_hint": "Auto-select the first meta-persona profile"
+      },
+      "no_profile_hint": "No meta-persona (persona_meta) profile found. Add an agent with Persona = Meta in the Agents panel below."
     }
   },
   "runtime": {

@@ -13,6 +13,7 @@ import {
 } from "@/lib/roleAssignments";
 import {
   loadMetaConfig, saveMetaConfig, DEFAULT_CONFIG,
+  listMetaProfiles, migrateMetaConfig,
   type MetaAnalysisConfig, type MetaAnalysisEngine,
 } from "@/lib/metaAnalysis";
 
@@ -103,7 +104,7 @@ export function AgentsSection() {
       <p className="text-tf-caption text-muted-foreground mb-4">{t("agents.description")}</p>
 
       <RoleCoveragePanel profiles={profiles} />
-      <MetaAnalysisPanel />
+      <MetaAnalysisPanel agentProfiles={profiles} />
 
 
       <div className="flex gap-4 min-h-[300px]">
@@ -368,22 +369,46 @@ function ReviewersRow({ coverage, profiles, selectedIds, onToggle }: {
 
 // ─── Meta Analysis (Tier 2) Panel ───────────────────────────────────────────
 
-function MetaAnalysisPanel() {
+export function MetaAnalysisPanel({ agentProfiles }: { agentProfiles: AgentProfile[] }) {
   const { t } = useTranslation("settings");
+  const metaProfiles = listMetaProfiles(agentProfiles);
+
+  // v0.1.8-beta-4 부터 dropdown source = agentProfiles 의 persona_meta filter.
+  // 기존 literal (`claude-haiku` / `gemini-flash`) 은 migrateMetaConfig() 가
+  // 매칭 profile id 또는 `auto` 로 변환.
   const engineOptions: { value: MetaAnalysisEngine; label: string; hint: string }[] = [
-    { value: "off",           label: t("agents.meta.engine_option.off_label"),    hint: t("agents.meta.engine_option.off_hint") },
-    { value: "auto",          label: t("agents.meta.engine_option.auto_label"),   hint: t("agents.meta.engine_option.auto_hint") },
-    { value: "claude-haiku",  label: "Claude Haiku",                                hint: t("agents.meta.engine_option.claude_haiku_hint") },
-    { value: "gemini-flash",  label: "Gemini Flash 2.5",                            hint: t("agents.meta.engine_option.gemini_flash_hint") },
+    { value: "off",  label: t("agents.meta.engine_option.off_label"),  hint: t("agents.meta.engine_option.off_hint") },
+    { value: "auto", label: t("agents.meta.engine_option.auto_label"), hint: t("agents.meta.engine_option.auto_hint") },
+    ...metaProfiles.map((p) => ({
+      value: p.id,
+      label: p.label,
+      hint: `${p.engine}${p.model ? " · " + p.model : ""}`,
+    })),
   ];
+
   const [cfg, setCfg] = useState<MetaAnalysisConfig>(DEFAULT_CONFIG);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    loadMetaConfig().then((c) => { if (alive) { setCfg(c); setLoaded(true); } });
+    loadMetaConfig().then((c) => {
+      if (!alive) return;
+      // Legacy literal / stale profile id 를 현재 agentProfiles 기준으로 normalize.
+      // 변환 발생 시 다음 save 에서 자연 반영 (즉시 saveMetaConfig 호출은 불필요 —
+      // 사용자가 dropdown 을 건드리는 시점에 저장됨).
+      const migrated = migrateMetaConfig(c, agentProfiles);
+      setCfg(migrated);
+      setLoaded(true);
+      // 값이 실제로 변경됐다면 즉시 저장해서 stale 한 상태 잔존 방지.
+      if (migrated.engine !== c.engine) {
+        saveMetaConfig(migrated).catch(() => { /* ignore */ });
+      }
+    });
     return () => { alive = false; };
-  }, []);
+    // agentProfiles 가 비동기 load 되므로 길이 변화 시 재migration. profile 추가/삭제
+    // 직후에도 stale engine 값을 normalize.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentProfiles.length]);
 
   const updateAndSave = (patch: Partial<MetaAnalysisConfig>) => {
     const next = { ...cfg, ...patch };
@@ -394,6 +419,7 @@ function MetaAnalysisPanel() {
   if (!loaded) return null;
 
   const disabled = cfg.engine === "off";
+  const noMetaProfile = metaProfiles.length === 0;
 
   return (
     <div className="mb-4 rounded-lg border border-border/30 bg-background/50 p-3 space-y-2.5">
@@ -409,13 +435,26 @@ function MetaAnalysisPanel() {
         <select
           value={cfg.engine}
           onChange={(e) => updateAndSave({ engine: e.target.value as MetaAnalysisEngine })}
-          className="flex-1 bg-background rounded px-2 py-1 text-[11px] outline-none border border-border/30 focus:border-ring/40"
+          disabled={noMetaProfile}
+          className={cn(
+            "flex-1 bg-background rounded px-2 py-1 text-[11px] outline-none border border-border/30 focus:border-ring/40",
+            noMetaProfile && "opacity-50 cursor-not-allowed",
+          )}
         >
           {engineOptions.map((opt) => (
             <option key={opt.value} value={opt.value}>{opt.label} — {opt.hint}</option>
           ))}
         </select>
       </div>
+
+      {noMetaProfile && (
+        <p
+          data-testid="meta-no-profile-hint"
+          className="text-[10px] text-amber-500/90 pl-[68px]"
+        >
+          {t("agents.meta.no_profile_hint")}
+        </p>
+      )}
 
       <label className={cn("flex items-center gap-2 cursor-pointer", disabled && "opacity-40 pointer-events-none")}>
         <input

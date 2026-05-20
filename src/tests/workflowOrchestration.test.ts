@@ -347,7 +347,12 @@ describe("processReviewVerdict — Architect direct dispatch (T01/T02)", () => {
       raw: "",
     });
 
-    expect(maybeTriggerMetaAnalysis).toHaveBeenCalledWith("proj-1", "review_passed", expect.any(Object));
+    expect(maybeTriggerMetaAnalysis).toHaveBeenCalledWith(
+      "proj-1",
+      "review_passed",
+      expect.any(Array),
+      expect.any(Object),
+    );
   });
 
   it("fail (1회): no dispatchArchitectRedesign, no Meta inbox", async () => {
