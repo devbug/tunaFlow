@@ -4,6 +4,19 @@ All notable changes to tunaFlow are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8-beta-4] - 2026-05-12
+
+🩹 **Windows main chat hang hotfix — 외부 contributor devbug 의 첫 PR** — rawq sidecar spawn 시 stdout/stderr drain 누락 + timeout 부재로 Windows 환경에서 채팅 입력 시 main chat 이 hang 되던 회귀.
+
+### Fixed
+
+- **rawq sidecar spawn timeouts + drain-thread** (PR #284, devbug, merge `98d96f0`) — `src-tauri/src/agents/rawq.rs` 의 sidecar subprocess 호출 path 에 (a) explicit timeout (b) stdout/stderr drain thread 추가. Windows 환경에서 pipe buffer 가 fill 되면 child 가 block 되어 main chat 입력이 응답 안 하던 회귀 fix. +161 / -46 LoC (single file). CI (rust-check + frontend-check + eval) 모두 SUCCESS 후 squash merge.
+
+### Notes
+
+- 외부 contributor (devbug) 의 첫 PR 형식 hotfix. 본인 Windows 환경에서 직접 재현·진단·수정·CI 통과까지 진행. ack 댓글: https://github.com/hang-in/tunaFlow/pull/284#issuecomment-4495263696
+- v0.1.8-beta-3 와 동일 cycle 의 사용자 환경 회귀 영역 (CLI path) 이라 같은 minor bump 의 patch suffix 로 release.
+
 ## [0.1.8-beta-3] - 2026-05-09
 
 🩹 **CLI `--resume` path 의 *"Prompt is too long"* 자동 fresh retry hotfix** —
