@@ -401,7 +401,7 @@ export function MetaAnalysisPanel({ agentProfiles }: { agentProfiles: AgentProfi
       setLoaded(true);
       // 값이 실제로 변경됐다면 즉시 저장해서 stale 한 상태 잔존 방지.
       if (migrated.engine !== c.engine) {
-        saveMetaConfig(migrated).catch(() => { /* ignore */ });
+        saveMetaConfig(migrated).catch((e) => console.warn("Failed to auto-save migrated meta config", e));
       }
     });
     return () => { alive = false; };

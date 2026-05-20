@@ -121,11 +121,9 @@ export function MetaAgentSelector({ onProceed, onSkip, projectName }: Props) {
       for (const d of detections) {
         if (next[d.engine]) continue;
         if (CLI_ENGINES.has(d.engine)) {
-          const modelsForEngine = engineModels.filter((m) => m.engine === d.engine);
-          const recommendedId = modelsForEngine.find((m) => m.recommended)?.id;
-          const defaultId = modelsForEngine[0]?.id;
-          const modelToSelect = recommendedId ?? defaultId;
-          if (modelToSelect) next[d.engine] = modelToSelect;
+          const recommended = engineModels.find((m) => m.engine === d.engine && m.recommended)?.id
+            ?? engineModels.find((m) => m.engine === d.engine)?.id;
+          if (recommended) next[d.engine] = recommended;
         } else if (d.models.length > 0) {
           next[d.engine] = d.models[0];
         }
